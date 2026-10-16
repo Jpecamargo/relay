@@ -256,21 +256,22 @@ test("Ir para lista as telas na ordem do pulo, com o atalho configurado, e pula"
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("jump_to", { n: 3 }));
 });
 
-test("Capturar tela do PC copia a imagem para o clipboard e avisa", async () => {
-  const written: Promise<Blob>[] = [];
-  vi.stubGlobal("ClipboardItem", class { constructor(public items: Record<string, Promise<Blob>>) {} });
-  Object.defineProperty(navigator, "clipboard", {
-    configurable: true,
-    value: { write: async (items: { items: Record<string, Promise<Blob>> }[]) => { written.push(items[0]!.items["image/png"]!); await written[0]; } },
-  });
-  sendResult = { id: 3, ok: true, output: { Png: [137, 80, 78, 71] }, error: null };
+test("Capturar tela do PC só envia o comando e avisa que foi copiada", async () => {
+  sendResult = { id: 3, ok: true, output: null, error: null };
   await ready();
   fireEvent.click(await screen.findByRole("button", { name: "Capturar tela do PC" }));
   fireEvent.click(await screen.findByRole("button", { name: "Dell 2" }));
   expect(await screen.findByText("Captura copiada para o clipboard")).toBeTruthy();
   expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { CaptureScreen: { display_id: "d2" } } });
-  expect((await written[0]!).type).toBe("image/png");
-  vi.unstubAllGlobals();
+});
+
+test("falha na captura vira toast de erro e não diz que copiou", async () => {
+  sendResult = { id: 4, ok: false, output: null, error: "timeout" };
+  await ready();
+  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela do PC" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Dell 1" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("O PC não respondeu a tempo.");
+  expect(screen.queryByText(/copiada/)).toBeNull();
 });
 
 test("itens condicionais: Capturar só online; Reconectar só desconectado", async () => {

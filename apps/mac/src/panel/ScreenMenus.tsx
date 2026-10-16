@@ -48,8 +48,9 @@ export function GotoMenu({ act, online, hotkey }: { act: Act; online: boolean; h
 }
 
 /**
- * "Capturar tela do PC ›": a imagem vai para o clipboard do Mac. Com uma tela só, captura direto.
- * O `ClipboardItem` recebe a promessa da captura para manter o gesto do clique (WebKit).
+ * "Capturar tela do PC ›": só envia `CaptureScreen`. O agente responde ok e manda o PNG como
+ * ClipboardOffer, que o app aplica direto no clipboard do Mac (janela aberta ao enviar o comando).
+ * Com uma tela só, captura direto.
  */
 export function CaptureMenu({ show, firstTime }: {
   show: (message: string, tone: "ok" | "danger") => void;
@@ -59,17 +60,12 @@ export function CaptureMenu({ show, firstTime }: {
   const { windows } = useTargets(true);
 
   const capture = (display_id: string) => {
-    let reported = false;
-    const png = send({ CaptureScreen: { display_id } }).then((r) => {
-      const out = r.ok ? r.output : null;
-      if (out && "Png" in out) return new Blob([new Uint8Array(out.Png)], { type: "image/png" });
-      if (firstTime(r)) show(`Captura de tela: ${errorText(r.error ?? "falhou")}`, "danger");
-      reported = true;
-      throw new Error(r.error ?? "falhou");
-    });
-    navigator.clipboard.write([new ClipboardItem({ "image/png": png })]).then(
-      () => show("Captura copiada para o clipboard", "ok"),
-      (e) => { if (!reported) show(`Captura de tela: ${errorText(e)}`, "danger"); },
+    void send({ CaptureScreen: { display_id } }).then(
+      (r) => {
+        if (r.ok) show("Captura copiada para o clipboard", "ok");
+        else if (firstTime(r)) show(`Captura de tela: ${errorText(r.error ?? "falhou")}`, "danger");
+      },
+      (e) => show(`Captura de tela: ${errorText(e)}`, "danger"),
     );
   };
 
