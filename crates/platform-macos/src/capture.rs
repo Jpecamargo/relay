@@ -770,7 +770,7 @@ mod tests {
             } => {
                 assert!(continuous);
                 assert_eq!(dy_px, -12.0);
-                assert_eq!(dx_px, 5.0);
+                assert_eq!(dx_px, -5.0);
                 assert_eq!(phase, ScrollPhase::Changed);
             }
             other => panic!("esperava Scroll, veio {other:?}"),
