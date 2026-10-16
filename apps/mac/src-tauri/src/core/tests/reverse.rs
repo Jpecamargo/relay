@@ -217,6 +217,14 @@ async fn pc_main(
     listener.shutdown().await;
 }
 
+#[derive(Default)]
+struct CountSwitch(std::sync::atomic::AtomicUsize);
+impl MediaHooks for CountSwitch {
+    fn clipboard_switch(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 fn key(scan: u16, down: bool) -> InputEvent {
     InputEvent::Key { scan, down }
 }
@@ -224,12 +232,16 @@ fn key(scan: u16, down: bool) -> InputEvent {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     let pc = PcAgent::start("123456");
-    let platform = MockPlatform::new(&pc.config());
+    let mut cfg = pc.config();
+    cfg.clipboard.enabled = true;
+    cfg.clipboard.mode = relay_core::types::ClipboardMode::OnSwitch;
+    let platform = MockPlatform::new(&cfg);
     let rec = Arc::new(Rec::default());
+    let media = Arc::new(CountSwitch::default());
     let core = AppCore::start(
         platform.clone(),
         rec.clone(),
-        Arc::new(NoMedia),
+        media.clone(),
         options(),
         Handle::current(),
     );
@@ -260,6 +272,9 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
             .any(|l| l.starts_with("warp(1439,"))
     })
     .await;
+
+    // Ganhar o foco não oferece o clipboard (só quem perde oferece).
+    assert_eq!(media.0.load(Ordering::SeqCst), 0);
 
     // 2. Ctrl+C no PC chega como Cmd+C no Mac.
     pc.key(CTRL, true);
@@ -321,6 +336,11 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     pc.key(DIGIT_2, true);
     wait_until("PC devolveu", 3000, || !pc.remote.load(Ordering::SeqCst)).await;
     assert!(platform.injected.lock().unwrap().contains(&key(ALT, false)));
+    // O Mac perdeu o foco para o PC e devolveu: o clipboard foi oferecido uma vez, ao perder.
+    wait_until("ClipboardSwitch ao perder o foco", 3000, || {
+        media.0.load(Ordering::SeqCst) == 1
+    })
+    .await;
     pc.key(ALT, false);
     pc.key(CTRL, false);
     tokio::time::sleep(Duration::from_millis(100)).await;

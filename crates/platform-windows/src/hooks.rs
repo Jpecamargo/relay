@@ -39,6 +39,25 @@ pub(crate) fn sync_last(x: i32, y: i32) {
     LAST_Y.store(y, Ordering::Relaxed);
 }
 
+/// Posição de referência do próximo delta (só os testes a leem).
+#[cfg(test)]
+pub(crate) fn last_pos() -> (i32, i32) {
+    (
+        LAST_X.load(Ordering::Relaxed),
+        LAST_Y.load(Ordering::Relaxed),
+    )
+}
+
+/// Movimento injetado (SendInput/SetCursorPos do próprio agente quando o Mac controla o PC):
+/// não vira evento, mas move o cursor, então a referência do próximo delta físico acompanha —
+/// senão o primeiro delta depois dele sai inflado. Com o centro preso a referência é o centro.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn note_injected_move(pt: (i32, i32)) {
+    if !LOCKED.load(Ordering::Acquire) {
+        sync_last(pt.0, pt.1);
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct WindowsHooks {
     #[cfg(windows)]
@@ -162,7 +181,9 @@ mod imp {
         if code == HC_ACTION as i32 {
             // SAFETY: com HC_ACTION, lparam aponta para um MSLLHOOKSTRUCT válido.
             let s = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
-            if !mouse_injected(s.flags) {
+            if mouse_injected(s.flags) {
+                note_injected_move((s.pt.x, s.pt.y));
+            } else {
                 let pt = (s.pt.x, s.pt.y);
                 let locked = LOCKED.load(Ordering::Acquire);
                 let center = (
@@ -273,5 +294,23 @@ mod imp {
         }
         uninstall(hooks);
         SINK.with(|s| *s.borrow_mut() = None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn movimento_injetado_atualiza_a_referencia_do_delta() {
+        set_lock(None);
+        sync_last(10, 10);
+        note_injected_move((500, 300));
+        assert_eq!(last_pos(), (500, 300));
+        // Com o centro preso a referência é o centro: o movimento injetado não a altera.
+        set_lock(Some((50, 50)));
+        note_injected_move((700, 700));
+        assert_eq!(last_pos(), (500, 300));
+        set_lock(None);
     }
 }

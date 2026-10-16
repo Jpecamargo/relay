@@ -1,7 +1,7 @@
 //! dono: WI1
 //! O laço do agente: uma tarefa tokio dona da sessão, do `Receiver` e do guard do ponteiro.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use relay_core::crypto::{remove_peer, save_peer};
@@ -74,7 +74,7 @@ async fn recv_rev(rx: &mut Option<mpsc::UnboundedReceiver<Message>>) -> Option<M
 
 impl Pump {
     pub(super) fn new(
-        deps: AgentDeps,
+        mut deps: AgentDeps,
         shared: Arc<Shared>,
         listener: SessionListener,
         advertiser: Option<Advertiser>,
@@ -83,6 +83,13 @@ impl Pump {
         reverse: Option<ReverseDeps>,
     ) -> Self {
         let mut listener = listener;
+        // O mesmo gancho de eventos (mídia/clipboard) serve o Receiver e o Controller reverso.
+        let events_hook = deps.engine_events.take().map(|h| Arc::new(Mutex::new(h)));
+        let forward = |hook: &Option<Arc<Mutex<relay_core::engine::EventHandler>>>| {
+            hook.clone().map(|h| -> relay_core::engine::EventHandler {
+                Box::new(move |e| (h.lock().unwrap_or_else(|p| p.into_inner()))(e))
+            })
+        };
         let local = deps.displays.list().unwrap_or_default();
         let (rev, rev_out) = match reverse.zip(listener.take_input_producer()) {
             Some((rdeps, fast)) => {
@@ -97,6 +104,7 @@ impl Pump {
                         rdeps,
                         fast,
                         tx,
+                        forward(&events_hook),
                     )),
                     Some(rx),
                 )
@@ -108,7 +116,7 @@ impl Pump {
         if let Some(ex) = deps.executor {
             rx.set_executor(ex);
         }
-        if let Some(h) = deps.engine_events {
+        if let Some(h) = forward(&events_hook) {
             rx.set_event_handler(h);
         }
         // Cópia do layout já guardada: o retorno funciona logo na primeira conexão (D11).

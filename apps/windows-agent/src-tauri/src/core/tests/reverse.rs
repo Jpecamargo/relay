@@ -44,6 +44,7 @@ struct RevAgent {
     swallow: Arc<AtomicBool>,
     /// Teclas que o PC soltou localmente ao cruzar a borda.
     local_injected: Events,
+    engine_log: Arc<Mutex<Vec<relay_core::engine::EngineEvent>>>,
 }
 
 impl RevAgent {
@@ -85,6 +86,10 @@ fn start_reverse_agent() -> RevAgent {
         ..Ports::default()
     };
     config.transition.dwell_ms = 0;
+    config.clipboard.enabled = true;
+    config.clipboard.mode = relay_core::types::ClipboardMode::OnSwitch;
+    let engine_log: Arc<Mutex<Vec<relay_core::engine::EngineEvent>>> = Arc::default();
+    let sink = engine_log.clone();
     let store = Arc::new(MemoryKeyStore::default());
     let deps = AgentDeps {
         keystore: store.clone(),
@@ -113,7 +118,7 @@ fn start_reverse_agent() -> RevAgent {
         bind_ip: LO,
         advertise: false,
         message_hook: None,
-        engine_events: None,
+        engine_events: Some(Box::new(move |e| sink.lock().unwrap().push(e))),
     };
     let sink: Sink = Arc::default();
     let swallow = Arc::new(AtomicBool::new(false));
@@ -150,6 +155,7 @@ fn start_reverse_agent() -> RevAgent {
         sink,
         swallow,
         local_injected,
+        engine_log,
     }
 }
 
@@ -277,6 +283,18 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
     mac.pump_until("FocusEnter no Mac", |m| m.rx.is_active())
         .await;
     eventually("input engolido no PC", || ra.swallow.load(Ordering::SeqCst)).await;
+
+    // Ao assumir o Mac o PC perde o foco: oferece o clipboard (ClipboardSwitch) uma vez.
+    eventually("ClipboardSwitch do PC", || {
+        ra.engine_log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| **e == relay_core::engine::EngineEvent::ClipboardSwitch)
+            .count()
+            == 1
+    })
+    .await;
 
     // 2. Ctrl+C no PC chega como Cmd+C no Mac (D25); a repetição do sistema não vai.
     ra.key(CTRL, true);

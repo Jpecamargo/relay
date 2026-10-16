@@ -81,7 +81,8 @@ pub(crate) fn spawn<P: Platform>(
     let capture = Shared::new(inner.platform.new_capture());
     let cursor = Shared::new(inner.platform.new_cursor());
     let injector = Shared::new(inner.platform.new_injector());
-    let rev = {
+    let (ev_tx, ev_rx) = mpsc::channel();
+    let mut rev = {
         let st = inner.st();
         MacReverse::<P>::new(
             &st.config,
@@ -91,7 +92,10 @@ pub(crate) fn spawn<P: Platform>(
             st.profile.clone(),
         )
     };
-    let (ev_tx, ev_rx) = mpsc::channel();
+    let switch_tx = ev_tx.clone();
+    rev.set_switch_handler(move || {
+        let _ = switch_tx.send(EngineEvent::ClipboardSwitch);
+    });
     let (_, cap_rx) = RingBuffer::new(1);
     let (_, ctl_out) = RingBuffer::new(1);
     let core = Core::<P> {
@@ -582,6 +586,7 @@ impl<P: Platform> Core<P> {
                 if let Some(c) = self.ctl.as_mut() {
                     c.apply_config(&cfg);
                 }
+                self.rev.set_clipboard_config(cfg.clipboard.clone());
                 self.refresh_profile();
                 self.send_layout();
             }
