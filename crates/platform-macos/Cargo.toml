@@ -19,6 +19,7 @@ objc2-foundation.workspace = true
 objc2-app-kit.workspace = true
 objc2-service-management.workspace = true
 cpal.workspace = true
+rubato.workspace = true
 keyring.workspace = true
 tokio.workspace = true
 tracing.workspace = true
