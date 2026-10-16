@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use relay_core::clipboard::ClipboardSync;
-use relay_core::crypto::{StaticKeypair, load_or_create_identity, load_peer};
+use relay_core::crypto::{StaticKeypair, load_active_peer, load_or_create_identity};
 use relay_core::engine::{EngineEvent, EventHandler};
 use relay_core::net::AudioLink;
 use relay_core::platform::{ClipboardBackend, KeyStore};
@@ -366,16 +366,9 @@ impl Worker {
     fn on_link(&mut self, link: Option<AudioLink>) {
         if let Some(l) = &link {
             let identity = load_or_create_identity(&*self.keystore).ok();
-            let peer = self
-                .keystore
-                .get(ACTIVE_PEER_ACCOUNT)
+            let peer = load_active_peer(&*self.keystore, ACTIVE_PEER_ACCOUNT)
                 .ok()
-                .flatten()
-                .and_then(|id| {
-                    load_peer(&*self.keystore, &String::from_utf8_lossy(&id))
-                        .ok()
-                        .flatten()
-                });
+                .flatten();
             let mut ctx = self.ctx.lock().unwrap_or_else(|e| e.into_inner());
             ctx.addr = Some(SocketAddr::new(
                 l.remote_ip,

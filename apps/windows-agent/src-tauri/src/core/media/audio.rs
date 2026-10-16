@@ -2,9 +2,8 @@
 //! Áudio do agente (D2, D13, D14): som do PC → Mac (UDP 47802) e microfone do Mac → "CABLE Input"
 //! (UDP 47803), ambos cifrados com as chaves de `Session::audio_link`.
 //!
-//! Datagrama (contrato no mural): `hdr17 ++ seal(seq, aad = hdr17, plain)`, com
-//! `hdr17 = stream u8, seq u64 LE, ts_samples u64 LE` (os 17 primeiros bytes do `AudioPacket`)
-//! e `plain = codec u8, channels u8, frames u16 LE, PCM s16le` (o resto do `AudioPacket`).
+//! Datagrama (contrato no mural): `relay_core::audio::{seal,open}_datagram`; `stream` 0 = som do
+//! PC, 1 = microfone do Mac.
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -12,9 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+pub use relay_core::audio::DATAGRAM_LEN;
 use relay_core::audio::{
-    AudioHeader, CHANNELS, CODEC_PCM16, FRAMES_PER_PACKET, HEADER_LEN, JitterBuffer,
-    PACKET_PAYLOAD_BYTES, i16_to_f32, i16_to_pcm_bytes,
+    CHANNELS, JitterBuffer, PLAIN_LEN, STREAM_MIC, STREAM_PC, i16_to_f32, open_datagram,
+    seal_datagram,
 };
 use relay_core::crypto::{ReplayMode, UdpAead};
 use relay_core::net::AudioLink;
@@ -24,79 +24,20 @@ use relay_platform_windows::audio_endpoints::{find_vbcable, find_virtual_output}
 
 use super::platform::{AudioHost, OutputGuard};
 
-/// `stream` do cabeçalho: 0 = som do PC, 1 = microfone do Mac.
-pub const STREAM_PC: u8 = 0;
-pub const STREAM_MIC: u8 = 1;
-
-/// Bytes do cabeçalho autenticado (AAD) no fio.
-const HDR17: usize = 17;
-/// Parte cifrada: codec, channels, frames (4 B) + PCM.
-const PLAIN_LEN: usize = (HEADER_LEN - HDR17) + PACKET_PAYLOAD_BYTES;
 const TAG_LEN: usize = 16;
-pub const DATAGRAM_LEN: usize = HDR17 + PLAIN_LEN + TAG_LEN;
 
 /// Frames de 5 ms que o ring do dispositivo de reprodução mantém cheios (15 ms).
 const RING_FILL_FRAMES: usize = 3;
 const RING_SAMPLES: usize = AUDIO_FRAME_SAMPLES * CHANNELS * 8;
+/// Espera máxima do `recv` do microfone: o datagrama acorda o laço na hora; o timeout só limita
+/// o atraso do reabastecimento do ring (alvo de 15 ms), então 2 ms poupam despertares à toa.
+const READ_TIMEOUT: Duration = Duration::from_millis(2);
 
 fn plat_err(e: &PlatformError) -> String {
     match e {
         PlatformError::Unsupported => error_code::UNSUPPORTED.to_string(),
         other => other.to_string(),
     }
-}
-
-/// Monta o datagrama de um quadro em `wire` (substitui o conteúdo).
-pub fn encode_datagram(
-    aead: &UdpAead,
-    stream: u8,
-    seq: u64,
-    frame: &AudioFrame,
-    plain: &mut Vec<u8>,
-    cipher: &mut Vec<u8>,
-    wire: &mut Vec<u8>,
-) -> bool {
-    let mut hdr = [0u8; HDR17];
-    hdr[0] = stream;
-    hdr[1..9].copy_from_slice(&seq.to_le_bytes());
-    hdr[9..17].copy_from_slice(&(seq * FRAMES_PER_PACKET as u64).to_le_bytes());
-    plain.clear();
-    plain.push(CODEC_PCM16);
-    plain.push(CHANNELS as u8);
-    plain.extend_from_slice(&(FRAMES_PER_PACKET as u16).to_le_bytes());
-    let start = plain.len();
-    plain.resize(start + PACKET_PAYLOAD_BYTES, 0);
-    if i16_to_pcm_bytes(frame, &mut plain[start..]).is_err() {
-        return false;
-    }
-    if aead.seal(seq, &hdr, plain, cipher).is_err() {
-        return false;
-    }
-    wire.clear();
-    wire.extend_from_slice(&hdr);
-    wire.extend_from_slice(cipher);
-    true
-}
-
-/// Abre um datagrama; devolve `(seq, payload PCM)` em `pkt` (`hdr17 ++ plain`, reaproveitado).
-pub fn decode_datagram<'a>(
-    aead: &mut UdpAead,
-    wire: &[u8],
-    stream: u8,
-    plain: &mut Vec<u8>,
-    pkt: &'a mut Vec<u8>,
-) -> Option<(u64, &'a [u8])> {
-    if wire.len() != DATAGRAM_LEN || wire[0] != stream {
-        return None;
-    }
-    let (hdr, cipher) = wire.split_at(HDR17);
-    let seq = u64::from_le_bytes(hdr[1..9].try_into().ok()?);
-    aead.open(seq, hdr, cipher, plain).ok()?;
-    pkt.clear();
-    pkt.extend_from_slice(hdr);
-    pkt.extend_from_slice(plain);
-    let (h, payload) = AudioHeader::parse(pkt).ok()?;
-    Some((h.seq, payload))
 }
 
 fn unspecified(ip: IpAddr) -> IpAddr {
@@ -216,7 +157,7 @@ fn start_pc(
                     Ok(frame) => {
                         // Contador por sessão e canal: nunca repete seq com a mesma chave (nonce).
                         let seq = next_seq.fetch_add(1, Ordering::Relaxed);
-                        if encode_datagram(
+                        if seal_datagram(
                             &aead,
                             STREAM_PC,
                             seq,
@@ -285,7 +226,7 @@ fn start_mic(
     ))
     .map_err(|e| e.to_string())?;
     socket
-        .set_read_timeout(Some(Duration::from_millis(1)))
+        .set_read_timeout(Some(READ_TIMEOUT))
         .map_err(|e| e.to_string())?;
     let addr = socket.local_addr().map_err(|e| e.to_string())?;
     let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(RING_SAMPLES);
@@ -301,16 +242,13 @@ fn start_mic(
         .name("relay-audio-rx".into())
         .spawn(move || {
             let mut wire = vec![0u8; DATAGRAM_LEN + 64];
-            let (mut plain, mut pkt) = (
-                Vec::with_capacity(PLAIN_LEN + TAG_LEN),
-                Vec::with_capacity(HDR17 + PLAIN_LEN),
-            );
+            let mut plain = Vec::with_capacity(PLAIN_LEN + TAG_LEN);
             let mut pcm = [0i16; AUDIO_FRAME_SAMPLES * CHANNELS];
             let mut f = [0f32; AUDIO_FRAME_SAMPLES * CHANNELS];
             while !flag.load(Ordering::Acquire) {
                 if let Ok(n) = socket.recv(&mut wire) {
                     if let Some((seq, payload)) =
-                        decode_datagram(&mut aead, &wire[..n], STREAM_MIC, &mut plain, &mut pkt)
+                        open_datagram(&mut aead, &wire[..n], STREAM_MIC, &mut plain)
                     {
                         let _ = jitter.push_payload(seq, payload);
                     }

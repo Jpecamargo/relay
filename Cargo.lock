@@ -3773,11 +3773,9 @@ dependencies = [
  "bincode",
  "blake2 0.11.0",
  "chacha20poly1305 0.11.0",
- "hdrhistogram",
  "hkdf 0.13.0",
  "keyring",
  "mdns-sd",
- "png 0.18.1",
  "rand",
  "rtrb",
  "rubato",
@@ -3803,7 +3801,6 @@ dependencies = [
  "relay-core",
  "rtrb",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -3824,7 +3821,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tempfile",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -3836,7 +3832,6 @@ dependencies = [
  "core-foundation",
  "core-graphics",
  "cpal",
- "keyring",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -3844,8 +3839,6 @@ dependencies = [
  "relay-core",
  "rtrb",
  "rubato",
- "thiserror 2.0.21",
- "tokio",
  "tracing",
 ]
 
@@ -3853,13 +3846,10 @@ dependencies = [
 name = "relay-platform-windows"
 version = "0.1.0"
 dependencies = [
- "keyring",
  "nvml-wrapper",
  "png 0.18.1",
  "relay-core",
  "rtrb",
- "thiserror 2.0.21",
- "tokio",
  "tracing",
  "wasapi",
  "windows 0.62.2",
@@ -3873,7 +3863,6 @@ dependencies = [
  "relay-core",
  "relay-platform-windows",
  "rtrb",
- "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -3890,11 +3879,9 @@ dependencies = [
 name = "relay-windows-service"
 version = "0.1.0"
 dependencies = [
- "relay-core",
  "relay-platform-windows",
  "tracing",
  "tracing-subscriber",
- "windows 0.62.2",
  "windows-service",
 ]
 

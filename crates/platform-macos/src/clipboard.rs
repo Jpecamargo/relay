@@ -12,7 +12,7 @@ use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSPasteboard};
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSString, NSURL};
-use relay_core::platform::{ChangeCallback, ClipboardBackend, FileProvider, PlatformError};
+use relay_core::platform::{ChangeCallback, ClipboardBackend, PlatformError};
 use relay_core::types::{ClipboardContent, FileEntry};
 
 /// Tipo extra gravado em toda escrita vinda do remoto; o callback ignora quem o tem.
@@ -30,7 +30,6 @@ pub struct MacClipboard {
     name: Option<String>,
     pasteboard: Pb,
     paths: Vec<PathBuf>,
-    provider: Option<Arc<FileProvider>>,
     stop: Arc<AtomicBool>,
     poller: Option<JoinHandle<()>>,
 }
@@ -78,7 +77,6 @@ impl MacClipboard {
             pasteboard: open(&name),
             name,
             paths: Vec::new(),
-            provider: None,
             stop: Arc::new(AtomicBool::new(false)),
             poller: None,
         }
@@ -201,12 +199,8 @@ impl ClipboardBackend for MacClipboard {
 
     fn write_remote(&mut self, content: ClipboardContent) -> Result<(), PlatformError> {
         match content {
-            ClipboardContent::FileList(entries) => {
-                let provider = self.provider.clone().ok_or(PlatformError::Unsupported)?;
-                let paths = provider(&entries).map_err(PlatformError::Platform)?;
-                self.paths = paths.clone();
-                return self.write_remote_files(&paths);
-            }
+            // Arquivos do PC viram "pendentes" no app, nunca vão ao pasteboard.
+            ClipboardContent::FileList(_) => return Err(PlatformError::Unsupported),
             other => {
                 let pb = &self.pasteboard.0;
                 pb.clearContents();
@@ -259,10 +253,6 @@ impl ClipboardBackend for MacClipboard {
 
     fn local_paths(&self) -> Vec<PathBuf> {
         self.paths.clone()
-    }
-
-    fn set_file_provider(&mut self, provider: FileProvider) {
-        self.provider = Some(Arc::new(provider));
     }
 }
 

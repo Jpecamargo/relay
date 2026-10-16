@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 use relay_core::config;
 use relay_core::crypto::{LocalDevice, MemoryKeyStore, load_or_create_identity};
 use relay_core::engine::Receiver;
+use relay_core::engine::testutil::{MockCursor, MockInjector};
 use relay_core::net::{ListenerConfig, SessionEvent, SessionListener};
 use relay_core::platform::{
-    CaptureError, ChangeCallback, CursorControl, DisplaySource, InjectError, InputCapture,
-    InputInjector, KeyStore, PlatformError,
+    CaptureError, ChangeCallback, DisplaySource, InjectError, InputCapture, InputInjector,
+    KeyStore, PlatformError,
 };
 use relay_core::types::{
     CapturedEvent, CommandResult, Config, ConnectionStatus, DisplayInfo, DisplaysPayload, DockInfo,
@@ -85,46 +86,6 @@ impl InputCapture for MockCapture {
     }
     fn is_swallowing(&self) -> bool {
         self.swallow.load(Ordering::SeqCst)
-    }
-}
-
-#[derive(Default)]
-pub(super) struct MockCursor {
-    log: Arc<Mutex<Vec<String>>>,
-}
-impl CursorControl for MockCursor {
-    fn hide(&mut self) -> Result<(), PlatformError> {
-        self.log.lock().unwrap().push("hide".into());
-        Ok(())
-    }
-    fn show(&mut self) -> Result<(), PlatformError> {
-        self.log.lock().unwrap().push("show".into());
-        Ok(())
-    }
-    fn associate(&mut self, a: bool) -> Result<(), PlatformError> {
-        self.log.lock().unwrap().push(format!("associate({a})"));
-        Ok(())
-    }
-    fn warp(&mut self, x: i32, y: i32) -> Result<(), PlatformError> {
-        self.log.lock().unwrap().push(format!("warp({x},{y})"));
-        Ok(())
-    }
-    fn position(&self) -> Result<(i32, i32), PlatformError> {
-        Ok((0, 0))
-    }
-}
-
-#[derive(Default, Clone)]
-pub(super) struct MockInjector {
-    events: Arc<Mutex<Vec<InputEvent>>>,
-}
-impl InputInjector for MockInjector {
-    fn inject(&mut self, event: &InputEvent) -> Result<(), InjectError> {
-        self.events.lock().unwrap().push(*event);
-        Ok(())
-    }
-    fn type_text(&mut self, _text: &str) -> Result<(), InjectError> {
-        Ok(())
     }
 }
 
@@ -212,14 +173,10 @@ impl Platform for MockPlatform {
         }
     }
     fn new_cursor(&self) -> MockCursor {
-        MockCursor {
-            log: self.cursor_log.clone(),
-        }
+        MockCursor::new(&self.cursor_log)
     }
     fn new_injector(&self) -> MockInjector {
-        MockInjector {
-            events: self.injected.clone(),
-        }
+        MockInjector::recording(self.injected.clone())
     }
     fn new_displays(&self) -> MockDisplays {
         MockDisplays {
@@ -398,14 +355,12 @@ async fn agent_main(
         public_key: identity.public,
         mac_address: [1, 2, 3, 4, 5, 6],
     };
-    let injector = MockInjector {
-        events: injected.clone(),
-    };
+    let injector = MockInjector::recording(injected.clone());
     let receiver: Arc<Mutex<AgentReceiver>> = Arc::new(Mutex::new(Receiver::new(
         &Config::default(),
         vec![dell_display()],
         injector,
-        MockCursor::default(),
+        MockCursor::new(&Default::default()),
     )));
     receiver.lock().unwrap().set_executor(Box::new(OkExecutor));
     let fast_rx = receiver.clone();

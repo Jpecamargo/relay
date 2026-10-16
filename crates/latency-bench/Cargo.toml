@@ -16,4 +16,3 @@ relay-core.workspace = true
 hdrhistogram.workspace = true
 rtrb.workspace = true
 tokio.workspace = true
-tracing.workspace = true

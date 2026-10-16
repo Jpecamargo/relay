@@ -16,9 +16,9 @@ use relay_core::crypto::{
     MemoryKeyStore, ReplayMode, StaticKeypair, UdpAead, UdpChannel, derive_udp_keys, device_id_of,
     load_or_create_identity,
 };
+use relay_core::engine::testutil::MockClip;
 use relay_core::platform::{
-    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, ChangeCallback, ClipboardBackend,
-    PlatformError,
+    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, ClipboardBackend, PlatformError,
 };
 use relay_core::transfer::{TransferClient, TransferServer};
 use relay_core::types::{
@@ -146,32 +146,6 @@ impl AudioCapture for MockCapture {
 /// 1 kHz a 48 kHz: 48 amostras por ciclo, fase contínua entre pacotes.
 fn sine(n: usize) -> i16 {
     ((TAU * n as f32 / 48.0).sin() * AMP * 32767.0) as i16
-}
-
-#[derive(Default)]
-struct ClipState {
-    content: Option<ClipboardContent>,
-    paths: Vec<PathBuf>,
-    written: Vec<ClipboardContent>,
-}
-
-#[derive(Clone, Default)]
-struct MockClip(Arc<Mutex<ClipState>>);
-
-impl ClipboardBackend for MockClip {
-    fn read(&mut self) -> Result<Option<ClipboardContent>, PlatformError> {
-        Ok(self.0.lock().unwrap().content.clone())
-    }
-    fn write_remote(&mut self, content: ClipboardContent) -> Result<(), PlatformError> {
-        let mut s = self.0.lock().unwrap();
-        s.written.push(content.clone());
-        s.content = Some(content);
-        Ok(())
-    }
-    fn set_change_callback(&mut self, _: ChangeCallback) {}
-    fn local_paths(&self) -> Vec<PathBuf> {
-        self.0.lock().unwrap().paths.clone()
-    }
 }
 
 struct MockPlatform {

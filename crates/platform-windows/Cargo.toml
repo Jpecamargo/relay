@@ -17,7 +17,4 @@ windows = { workspace = true, features = ["Win32_NetworkManagement_Ndis", "Win32
 windows-service.workspace = true
 wasapi.workspace = true
 nvml-wrapper.workspace = true
-keyring.workspace = true
-tokio.workspace = true
 tracing.workspace = true
-thiserror.workspace = true

@@ -1019,4 +1019,50 @@ mod tests {
         assert_eq!(code_to_scan("KeyL"), Some(0x26));
         assert_eq!(code_to_scan("Nada"), None);
     }
+
+    /// O tradutor não aloca em `translate` (alocador contador de `test_alloc`, por thread).
+    #[test]
+    fn dez_mil_eventos_sem_alocar() {
+        let mut t = KeymapTranslator::new(KeymapConfig::default());
+        let mut out = ArrayVec::new();
+        // Cmd+C, Cmd+Tab, Shift+Cmd+Z, Cmd+Backspace e uma tecla solta, em laço.
+        let seq: [(u16, bool); 20] = [
+            (CMD_L, true),
+            (0x2E, true),
+            (0x2E, false),
+            (CMD_L, false),
+            (CMD_L, true),
+            (TAB, true),
+            (TAB, false),
+            (CMD_L, false),
+            (SHIFT_L, true),
+            (CMD_L, true),
+            (0x2C, true),
+            (0x2C, false),
+            (CMD_L, false),
+            (SHIFT_L, false),
+            (CMD_L, true),
+            (BKSP, true),
+            (BKSP, false),
+            (CMD_L, false),
+            (0x1E, true),
+            (0x1E, false),
+        ];
+        let ((), allocs, _) = crate::test_alloc::measure(|| {
+            let mut n = 0;
+            while n < 10_000 {
+                for &(scan, down) in &seq {
+                    out.clear();
+                    let ev = KeyEvent {
+                        scan,
+                        down,
+                        autorepeat: false,
+                    };
+                    t.translate(ev, Some("WindowsTerminal.exe"), &mut out);
+                    n += 1;
+                }
+            }
+        });
+        assert_eq!(allocs, 0);
+    }
 }

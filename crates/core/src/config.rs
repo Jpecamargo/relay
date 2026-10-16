@@ -13,8 +13,6 @@ use crate::types::config::CONFIG_SCHEMA_VERSION;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("não implementado")]
-    NotImplemented,
     #[error("{0}")]
     Io(String),
     #[error("{0}")]

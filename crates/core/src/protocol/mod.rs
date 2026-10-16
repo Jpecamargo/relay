@@ -23,8 +23,6 @@ const KIND_SCROLL: u8 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
-    #[error("não implementado")]
-    NotImplemented,
     #[error("tamanho inválido para o kind: {0} bytes")]
     BadLength(usize),
     #[error("fase de scroll inválida: {0}")]

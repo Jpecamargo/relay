@@ -11,6 +11,9 @@ use relay_core::crypto::{
     LocalDevice, MemoryKeyStore, StaticKeypair, device_id_of, load_or_create_identity, load_peer,
 };
 use relay_core::engine::Controller;
+use relay_core::engine::testutil::{
+    MockCursor, MockInjector, Pos, dell_display, display, mac_display,
+};
 use relay_core::net::{DialerConfig, SessionDialer, SessionEvent};
 use relay_core::platform::{
     CaptureError, ChangeCallback, CursorControl, DisplaySource, InjectError, InputCapture,
@@ -53,31 +56,8 @@ impl UiEvents for Rec {
 }
 
 type Events = Arc<Mutex<Vec<InputEvent>>>;
-type Pos = Arc<Mutex<(i32, i32)>>;
-
-/// Injeta guardando os eventos; `MouseMove` desloca o cursor mock (como o Windows), limitado à tela.
-struct MockInj {
-    events: Events,
-    cursor: Option<Pos>,
-}
-
-impl InputInjector for MockInj {
-    fn inject(&mut self, event: &InputEvent) -> Result<(), InjectError> {
-        if let (InputEvent::MouseMove { dx, dy }, Some(pos)) = (event, &self.cursor) {
-            let mut p = pos.lock().unwrap();
-            p.0 = (p.0 + i32::from(*dx)).clamp(0, 2559);
-            p.1 = (p.1 + i32::from(*dy)).clamp(0, 1439);
-        }
-        self.events.lock().unwrap().push(*event);
-        Ok(())
-    }
-    fn type_text(&mut self, _: &str) -> Result<(), InjectError> {
-        Ok(())
-    }
-}
-
 struct MockPipe {
-    inj: MockInj,
+    inj: MockInjector,
     available: Arc<AtomicBool>,
 }
 
@@ -106,27 +86,6 @@ impl MockPipe {
 impl PipeInjector for MockPipe {
     fn is_available(&self) -> bool {
         self.available.load(Ordering::SeqCst)
-    }
-}
-
-struct MockCursor(Pos);
-
-impl CursorControl for MockCursor {
-    fn hide(&mut self) -> Result<(), PlatformError> {
-        Ok(())
-    }
-    fn show(&mut self) -> Result<(), PlatformError> {
-        Ok(())
-    }
-    fn associate(&mut self, _: bool) -> Result<(), PlatformError> {
-        Ok(())
-    }
-    fn warp(&mut self, x: i32, y: i32) -> Result<(), PlatformError> {
-        *self.0.lock().unwrap() = (x, y);
-        Ok(())
-    }
-    fn position(&self) -> Result<(i32, i32), PlatformError> {
-        Ok(*self.0.lock().unwrap())
     }
 }
 
@@ -162,40 +121,6 @@ impl Drop for Guard {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::SeqCst);
     }
-}
-
-fn display(
-    id: &str,
-    machine: Machine,
-    size: (u32, u32),
-    mm: (f32, f32),
-    builtin: bool,
-) -> DisplayInfo {
-    DisplayInfo {
-        id: id.into(),
-        name: id.into(),
-        machine,
-        origin_px: (0, 0),
-        size_px: size,
-        scale: 1.0,
-        size_mm: Some(mm),
-        is_primary: builtin,
-        is_builtin: builtin,
-    }
-}
-
-fn mac_display() -> DisplayInfo {
-    display("mac", Machine::Mac, (1440, 900), (300.0, 190.0), true)
-}
-
-fn dell_display() -> DisplayInfo {
-    display(
-        "dell",
-        Machine::Windows,
-        (2560, 1440),
-        (597.0, 336.0),
-        false,
-    )
 }
 
 /// Mac à esquerda, Dell à direita (mais alto: o segmento compartilhado é a altura do Mac).
@@ -270,20 +195,17 @@ fn start_agent_full(
 
     let (eng, live) = (engaged.clone(), live_guards.clone());
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(MockPipe {
-        inj: MockInj {
-            events: pipe_injected.clone(),
-            cursor: Some(cursor.clone()),
-        },
+        inj: MockInjector::recording(pipe_injected.clone())
+            .moving(cursor.clone(), (0, 0, 2560, 1440)),
         available: pipe_available.clone(),
     })));
     let deps = AgentDeps {
         keystore: store.clone(),
-        injector: Box::new(MockInj {
-            events: injected.clone(),
-            cursor: Some(cursor.clone()),
-        }),
+        injector: Box::new(
+            MockInjector::recording(injected.clone()).moving(cursor.clone(), (0, 0, 2560, 1440)),
+        ),
         pipe: Some(pipe),
-        cursor: Box::new(MockCursor(cursor.clone())),
+        cursor: Box::new(MockCursor::at(cursor.clone())),
         displays: Box::new(MockDisplays {
             list: displays.clone(),
             cb: display_cb.clone(),
@@ -824,19 +746,10 @@ fn injecao_usa_o_pipe_quando_disponivel_e_cai_para_o_local() {
     let piped = Events::default();
     let available = Arc::new(AtomicBool::new(true));
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(MockPipe {
-        inj: MockInj {
-            events: piped.clone(),
-            cursor: None,
-        },
+        inj: MockInjector::recording(piped.clone()),
         available: available.clone(),
     })));
-    let mut inj = RoutedInjector::new(
-        Box::new(MockInj {
-            events: local.clone(),
-            cursor: None,
-        }),
-        Some(pipe),
-    );
+    let mut inj = RoutedInjector::new(Box::new(MockInjector::recording(local.clone())), Some(pipe));
     let ev = InputEvent::Key {
         scan: KEY_A,
         down: true,

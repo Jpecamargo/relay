@@ -89,6 +89,41 @@ pub fn remove_peer(store: &dyn KeyStore, device_id: &str) -> Result<(), KeyStore
     store.delete(&peer_account(device_id))
 }
 
+/// Grava o peer e o marca como ativo: `active_account` guarda o `device_id` dele. O nome da conta
+/// é de cada app (`active_peer` no Mac, `active-peer` no agente) e não pode mudar, senão o
+/// pareamento já gravado some.
+pub fn save_active_peer(
+    store: &dyn KeyStore,
+    active_account: &str,
+    peer: &PairedPeer,
+) -> Result<(), KeyStoreError> {
+    save_peer(store, peer)?;
+    store.set(active_account, peer.device_id.as_bytes())
+}
+
+/// Lê o peer marcado como ativo em `active_account` (`None` sem conta ou sem peer salvo).
+pub fn load_active_peer(
+    store: &dyn KeyStore,
+    active_account: &str,
+) -> Result<Option<PairedPeer>, KeyStoreError> {
+    match store.get(active_account)? {
+        Some(id) => load_peer(store, &String::from_utf8_lossy(&id)),
+        None => Ok(None),
+    }
+}
+
+/// Esquece o peer ativo: remove o peer e a conta que o aponta. Tenta os dois mesmo se o primeiro
+/// falhar e devolve o primeiro erro.
+pub fn forget_active_peer(
+    store: &dyn KeyStore,
+    active_account: &str,
+    device_id: &str,
+) -> Result<(), KeyStoreError> {
+    let peer = remove_peer(store, device_id);
+    let account = store.delete(active_account);
+    peer.and(account)
+}
+
 /// KeyStore em memória, para testes.
 #[derive(Debug, Default)]
 pub struct MemoryKeyStore {
@@ -180,5 +215,32 @@ mod tests {
         remove_peer(&s, &peer.device_id).unwrap();
         assert_eq!(load_peer(&s, &peer.device_id).unwrap(), None);
         remove_peer(&s, &peer.device_id).unwrap();
+    }
+
+    #[test]
+    fn active_peer_save_load_forget() {
+        let s = MemoryKeyStore::default();
+        let pk = [3u8; 32];
+        let peer = PairedPeer {
+            device_id: device_id_of(&pk),
+            name: "PC".into(),
+            public_key: pk,
+            mac_address: [0; 6],
+        };
+        assert_eq!(load_active_peer(&s, "active_peer").unwrap(), None);
+        save_active_peer(&s, "active_peer", &peer).unwrap();
+        assert_eq!(
+            s.get("active_peer").unwrap(),
+            Some(peer.device_id.clone().into_bytes())
+        );
+        assert_eq!(
+            load_active_peer(&s, "active_peer").unwrap(),
+            Some(peer.clone())
+        );
+        // Outra conta não enxerga o ponteiro.
+        assert_eq!(load_active_peer(&s, "active-peer").unwrap(), None);
+        forget_active_peer(&s, "active_peer", &peer.device_id).unwrap();
+        assert_eq!(load_active_peer(&s, "active_peer").unwrap(), None);
+        assert_eq!(load_peer(&s, &peer.device_id).unwrap(), None);
     }
 }

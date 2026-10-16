@@ -180,7 +180,7 @@ async fn pc_main(
         },
         vec![dell_display()],
         NopCap,
-        MockCursor::default(),
+        MockCursor::new(&Default::default()),
         NopInj,
         fast,
         ctrl_p,
