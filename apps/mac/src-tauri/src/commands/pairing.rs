@@ -4,12 +4,13 @@ use tauri::State;
 use crate::state::AppState;
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn pair_with_code(
+pub async fn pair_with_code(
     state: State<'_, AppState>,
     code: String,
     address: Option<String>,
 ) -> Result<(), String> {
-    state.backend.pair_with_code(code, address)
+    let backend = state.backend.clone();
+    backend.pair_with_code(code, address).await
 }
 
 #[tauri::command(rename_all = "snake_case")]

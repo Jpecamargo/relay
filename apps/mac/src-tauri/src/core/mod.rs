@@ -1,0 +1,439 @@
+//! dono: MI1
+//! AppCore do Mac (D29): captura, Controller, sessão, descoberta, pareamento, telas, layout e
+//! eventos de status. Independente do Tauri e genérico sobre `Platform`.
+//!
+//! Três partes, ligadas por filas:
+//! - a thread `relay-core` (`engine`) é dona do `Controller`: captura → `handle`, `on_message`,
+//!   `tick` a cada ≤10 ms, `CommandDispatcher`, e esvazia a fila de controle do Controller;
+//! - o gerente de rede (`net`, tokio) é dono da `Session`: descoberta, pareamento, discagem,
+//!   reconexão e a bomba de mensagens entre a sessão e a thread do core;
+//! - a API pública (`AppCore`) só lê o estado compartilhado e manda comandos às duas.
+
+mod backend;
+mod engine;
+#[cfg(target_os = "macos")]
+mod mac;
+mod net;
+mod platform;
+#[cfg(test)]
+mod tests;
+
+use std::any::Any;
+use std::net::IpAddr;
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+use relay_core::config;
+use relay_core::platform::{DisplaySource, KeyStore};
+use relay_core::types::{
+    AudioState, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload,
+    LatencyStats, LayoutProfile, Machine, PairedPeer, PermissionsStatus, Ports, SaveLayoutResult,
+    StatusSnapshot,
+};
+use relay_core::{crypto, layout};
+use tokio::runtime::Handle;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
+use engine::CoreCmd;
+use net::NetCmd;
+
+#[cfg(target_os = "macos")]
+pub use mac::MacPlatform;
+pub use platform::{Browse, CoreEvents, MediaHooks, NoMedia, Platform, Shared, SysEvent};
+
+/// Conta do KeyStore com o `device_id` do PC pareado (um só par, usuário único).
+pub(crate) const ACTIVE_PEER_ACCOUNT: &str = "active_peer";
+
+/// Ajustes que os testes mudam; o app usa o padrão.
+#[derive(Debug, Clone)]
+pub struct CoreOptions {
+    /// IP em que a sessão abre o UDP de input.
+    pub bind_ip: IpAddr,
+    /// Portas locais do Mac; `None` usa `config.network.ports`.
+    pub local_ports: Option<Ports>,
+    /// Espera pelo mDNS antes de usar o endereço manual.
+    pub manual_grace: Duration,
+}
+
+impl Default for CoreOptions {
+    fn default() -> Self {
+        Self {
+            bind_ip: IpAddr::from([0, 0, 0, 0]),
+            local_ports: None,
+            manual_grace: Duration::from_secs(3),
+        }
+    }
+}
+
+/// Estado lido pela UI. Mudou o que alimenta `status`, `Inner::mutate` recalcula e emite.
+pub(crate) struct State {
+    pub status: StatusSnapshot,
+    emitted: Option<StatusSnapshot>,
+    pub config: Config,
+    pub peer: Option<PairedPeer>,
+    /// Status da sessão discando (`None`: não há sessão).
+    pub session: Option<ConnectionStatus>,
+    /// Geração da sessão atual: a bomba de uma sessão velha não escreve no estado.
+    pub session_gen: u64,
+    pub pairing: bool,
+    pub local: Vec<DisplayInfo>,
+    pub remote: Vec<DisplayInfo>,
+    pub profile: Option<LayoutProfile>,
+    pub discovered: Vec<DiscoveredPeer>,
+    pub latency: LatencyStats,
+}
+
+/// Status mostrado ao usuário a partir do que o AppCore sabe.
+pub(crate) fn derive_status(
+    paired: bool,
+    pairing: bool,
+    session: Option<ConnectionStatus>,
+) -> ConnectionStatus {
+    if pairing {
+        return ConnectionStatus::Pairing;
+    }
+    if !paired {
+        return ConnectionStatus::Disconnected;
+    }
+    match session {
+        None => ConnectionStatus::Discovering,
+        // A sessão nasce `Disconnected` até a primeira tentativa.
+        Some(ConnectionStatus::Disconnected) => ConnectionStatus::Connecting,
+        Some(s) => s,
+    }
+}
+
+impl State {
+    fn derive(&mut self) {
+        self.status.status = derive_status(self.peer.is_some(), self.pairing, self.session);
+        self.status.peer_name = self.peer.as_ref().map(|p| p.name.clone());
+    }
+}
+
+pub(crate) struct Inner<P: Platform> {
+    pub platform: Arc<P>,
+    pub events: Arc<dyn CoreEvents>,
+    pub media: Arc<dyn MediaHooks>,
+    pub opts: CoreOptions,
+    pub config_path: PathBuf,
+    pub state: Mutex<State>,
+    emit_lock: Mutex<()>,
+    pub core_tx: mpsc::Sender<CoreCmd>,
+    pub net_tx: UnboundedSender<NetCmd>,
+}
+
+impl<P: Platform> Inner<P> {
+    pub fn st(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Muda o estado e emite `relay:status` se o snapshot mudou.
+    pub fn mutate<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
+        let r = {
+            let mut st = self.st();
+            let r = f(&mut st);
+            st.derive();
+            r
+        };
+        self.flush_status();
+        r
+    }
+
+    /// Emite o snapshot mais novo, em ordem e sem segurar o lock do estado (o sink pode
+    /// esperar a thread principal, que por sua vez lê o estado). Quem não consegue o lock de
+    /// emissão sai: o dono dele relê o estado antes de soltá-lo.
+    fn flush_status(&self) {
+        loop {
+            if let Ok(_emitting) = self.emit_lock.try_lock() {
+                loop {
+                    let snap = {
+                        let mut st = self.st();
+                        if st.emitted.as_ref() == Some(&st.status) {
+                            break;
+                        }
+                        st.emitted = Some(st.status.clone());
+                        st.status.clone()
+                    };
+                    self.events.status(&snap);
+                }
+            } else {
+                return;
+            }
+            let settled = {
+                let st = self.st();
+                st.emitted.as_ref() == Some(&st.status)
+            };
+            if settled {
+                return;
+            }
+        }
+    }
+
+    pub fn persist_config(&self, cfg: &Config) {
+        if let Err(e) = config::save(&self.config_path, cfg) {
+            tracing::warn!("não consegui gravar o config: {e}");
+        }
+    }
+
+    pub fn core(&self, cmd: CoreCmd) {
+        let _ = self.core_tx.send(cmd);
+    }
+
+    pub fn net(&self, cmd: NetCmd) {
+        let _ = self.net_tx.send(cmd);
+    }
+
+    /// Esquece o PC pareado (Keychain e estado). A sessão é derrubada por `NetCmd::StopSession`.
+    pub fn forget_peer(&self) {
+        let peer = self.mutate(|s| {
+            s.session = None;
+            s.peer.take()
+        });
+        if let Some(peer) = peer {
+            let ks: Arc<dyn KeyStore> = self.platform.key_store();
+            if let Err(e) = crypto::remove_peer(&*ks, &peer.device_id) {
+                tracing::warn!("não consegui remover o peer do Keychain: {e}");
+            }
+            if let Err(e) = ks.delete(ACTIVE_PEER_ACCOUNT) {
+                tracing::warn!("não consegui limpar o peer ativo: {e}");
+            }
+        }
+    }
+
+    /// Acorda o PC pareado (Wake-on-LAN).
+    pub fn wake_pc(&self) -> Result<(), String> {
+        let mac = self
+            .st()
+            .peer
+            .as_ref()
+            .map(|p| p.mac_address)
+            .ok_or("nenhum PC pareado")?;
+        relay_core::wol::send_wol(mac).map_err(|e| e.to_string())
+    }
+}
+
+/// O núcleo do app Mac. Barato de clonar o `Arc` interno; `Drop` encerra as threads.
+pub struct AppCore<P: Platform> {
+    pub(crate) inner: Arc<Inner<P>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
+    /// Assinaturas de sistema; valem enquanto vivem.
+    _guards: Mutex<Vec<Box<dyn Any + Send>>>,
+}
+
+impl<P: Platform> AppCore<P> {
+    /// Carrega config e identidade, confere permissões, sobe a thread de captura e o gerente de
+    /// rede (no `runtime`). Chame da thread principal: o callback de telas do Mac precisa do
+    /// run loop dela.
+    pub fn start(
+        platform: Arc<P>,
+        events: Arc<dyn CoreEvents>,
+        media: Arc<dyn MediaHooks>,
+        opts: CoreOptions,
+        runtime: Handle,
+    ) -> Self {
+        let config_path = platform.config_path();
+        let config = config::load_or_default(&config_path).unwrap_or_else(|e| {
+            tracing::warn!("config ilegível, usando padrões: {e}");
+            Config::default()
+        });
+        let mut displays = platform.new_displays();
+        let local = displays.list().unwrap_or_else(|e| {
+            tracing::warn!("não consegui listar as telas: {e}");
+            Vec::new()
+        });
+        let (core_tx, core_rx) = mpsc::channel();
+        let (net_tx, net_rx) = unbounded_channel();
+        let tx = core_tx.clone();
+        displays.set_change_callback(Box::new(move || {
+            let _ = tx.send(CoreCmd::DisplaysChanged);
+        }));
+
+        let status = StatusSnapshot {
+            status: ConnectionStatus::Disconnected,
+            peer_name: None,
+            focus: Machine::Mac,
+            locked: false,
+            paused: false,
+            secure_input: false,
+            clipboard_sync: config.clipboard.enabled,
+            audio: AudioState::default(),
+        };
+        let inner = Arc::new(Inner {
+            platform: platform.clone(),
+            events,
+            media,
+            opts,
+            config_path,
+            state: Mutex::new(State {
+                status,
+                emitted: None,
+                config,
+                peer: None,
+                session: None,
+                session_gen: 0,
+                pairing: false,
+                local,
+                remote: Vec::new(),
+                profile: None,
+                discovered: Vec::new(),
+                latency: LatencyStats::default(),
+            }),
+            emit_lock: Mutex::new(()),
+            core_tx,
+            net_tx,
+        });
+
+        let thread = engine::spawn(inner.clone(), core_rx, displays);
+        runtime.spawn(net::manager(inner.clone(), net_rx));
+
+        let i = inner.clone();
+        let sys = platform.watch_system(Box::new(move |e| {
+            if matches!(e, SysEvent::DidWake | SysEvent::NetworkChanged) {
+                i.net(NetCmd::Reconnect);
+            }
+        }));
+        let i = inner.clone();
+        let secure = platform.watch_secure_input(Box::new(move |active| {
+            i.mutate(|s| s.status.secure_input = active);
+            i.events.secure_input(active);
+        }));
+        Self {
+            inner,
+            thread: Mutex::new(Some(thread)),
+            _guards: Mutex::new(vec![sys, secure]),
+        }
+    }
+
+    pub fn status(&self) -> StatusSnapshot {
+        self.inner.st().status.clone()
+    }
+
+    pub fn discovered(&self) -> Vec<DiscoveredPeer> {
+        self.inner.st().discovered.clone()
+    }
+
+    pub fn displays(&self) -> DisplaysPayload {
+        let st = self.inner.st();
+        DisplaysPayload {
+            mac: st.local.clone(),
+            windows: st.remote.clone(),
+        }
+    }
+
+    pub fn layout(&self) -> LayoutProfile {
+        let st = self.inner.st();
+        st.profile.clone().unwrap_or_else(|| LayoutProfile {
+            key: layout::profile_key(&st.local),
+            name: String::new(),
+            displays: Vec::new(),
+            windows_detached: false,
+        })
+    }
+
+    /// Valida, grava em `config.layout.profiles` (um por `key`) e, se for o perfil em uso,
+    /// aplica no Controller e manda `LayoutSync`. Devolve os avisos de Dock e Hot Corner.
+    pub fn save_layout(&self, profile: LayoutProfile) -> Result<SaveLayoutResult, String> {
+        layout::validate(&profile).map_err(|e| e.to_string())?;
+        let (dock, corners) = self.inner.platform.dock();
+        let cfg = self.inner.mutate(|s| {
+            let profiles = &mut s.config.layout.profiles;
+            match profiles.iter_mut().find(|p| p.key == profile.key) {
+                Some(p) => *p = profile.clone(),
+                None => profiles.push(profile.clone()),
+            }
+            s.config.clone()
+        });
+        self.inner.persist_config(&cfg);
+        self.inner.core(CoreCmd::ProfilesChanged);
+        let warnings =
+            layout::dock_warnings(&profile, dock, corners, cfg.transition.corner_dead_zone_mm);
+        Ok(SaveLayoutResult { warnings })
+    }
+
+    pub fn config(&self) -> Config {
+        self.inner.st().config.clone()
+    }
+
+    /// Grava o config vindo da UI. Os perfis de layout só mudam por `save_layout`.
+    pub fn save_config(&self, mut new: Config) -> Result<(), String> {
+        let manual = new.network.manual_address.clone();
+        if let Some(a) = &manual {
+            relay_core::discovery::parse_manual_address(a).map_err(|e| e.to_string())?;
+        }
+        let cfg = self.inner.mutate(|s| {
+            new.layout = s.config.layout.clone();
+            s.status.clipboard_sync = new.clipboard.enabled;
+            s.config = new;
+            s.config.clone()
+        });
+        self.inner.persist_config(&cfg);
+        self.inner.core(CoreCmd::ApplyConfig(Box::new(cfg)));
+        self.inner.net(NetCmd::ConfigChanged);
+        Ok(())
+    }
+
+    pub fn set_manual_address(&self, address: Option<String>) -> Result<(), String> {
+        let address = address
+            .map(|a| a.trim().to_owned())
+            .filter(|a| !a.is_empty());
+        if let Some(a) = &address {
+            relay_core::discovery::parse_manual_address(a).map_err(|e| e.to_string())?;
+        }
+        let cfg = self.inner.mutate(|s| {
+            s.config.network.manual_address = address;
+            s.config.clone()
+        });
+        self.inner.persist_config(&cfg);
+        self.inner.net(NetCmd::ConfigChanged);
+        Ok(())
+    }
+
+    /// Esquece o PC: remove o peer do Keychain e avisa o agente (`Message::Unpair`).
+    pub fn unpair(&self) -> Result<(), String> {
+        self.inner.forget_peer();
+        self.inner.net(NetCmd::StopSession { notify: true });
+        Ok(())
+    }
+
+    /// Derruba e refaz a sessão (também sai de `IncompatibleVersion`).
+    pub fn reconnect(&self) {
+        self.inner.net(NetCmd::Reconnect);
+    }
+
+    pub fn set_cursor_lock(&self, locked: bool) {
+        self.inner.mutate(|s| s.status.locked = locked);
+        self.inner.core(CoreCmd::SetLocked(locked));
+    }
+
+    pub fn set_sharing_paused(&self, paused: bool) {
+        self.inner.mutate(|s| s.status.paused = paused);
+        self.inner.core(CoreCmd::SetPaused(paused));
+    }
+
+    pub fn latency(&self) -> LatencyStats {
+        self.inner.st().latency
+    }
+
+    pub fn permissions(&self) -> PermissionsStatus {
+        self.inner.platform.check_permissions()
+    }
+
+    /// Encerra a thread do core e o gerente de rede.
+    pub fn shutdown(&self) {
+        self.inner.core(CoreCmd::Shutdown);
+        self.inner.net(NetCmd::Shutdown);
+        let t = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(t) = t {
+            let _ = t.join();
+        }
+    }
+}
+
+impl<P: Platform> Drop for AppCore<P> {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}

@@ -4,7 +4,9 @@
 
 pub mod backend;
 pub mod commands;
+pub mod core;
 pub mod events;
+pub mod sink;
 pub mod state;
 pub mod tray;
 
@@ -15,6 +17,8 @@ use tauri::{Manager, WindowEvent};
 
 use backend::{AppBackend, MockBackend};
 use commands::{audio, clipboard, config, controls, layout, pairing, status, system, updater};
+use core::{AppCore, CoreOptions, MacPlatform, NoMedia};
+use sink::TauriSink;
 use state::AppState;
 
 pub fn run() {
@@ -67,20 +71,34 @@ pub fn run() {
         .setup(|app| {
             // D30: sem ícone no Dock.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            let backend: Arc<dyn AppBackend> = Arc::new(MockBackend::default());
+            // RELAY_MOCK_BACKEND=1: UI com dados de mentira, sem rede nem permissões.
+            let mock = std::env::var_os("RELAY_MOCK_BACKEND").is_some();
+            let backend: Arc<dyn AppBackend> = if mock {
+                Arc::new(MockBackend::default())
+            } else {
+                let runtime = tauri::async_runtime::handle().inner().clone();
+                Arc::new(AppCore::start(
+                    Arc::new(MacPlatform),
+                    Arc::new(TauriSink(app.handle().clone())),
+                    Arc::new(NoMedia),
+                    CoreOptions::default(),
+                    runtime,
+                ))
+            };
             app.manage(AppState::new(backend.clone()));
             app.manage(updater::PendingUpdate::default());
             tray::setup(app.handle())?;
 
-            // Mock: relay:latency a 2 Hz.
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let mut tick = tokio::time::interval(Duration::from_millis(500));
-                loop {
-                    tick.tick().await;
-                    events::emit_latency(&handle, &backend.latency());
-                }
-            });
+            if mock {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut tick = tokio::time::interval(Duration::from_millis(500));
+                    loop {
+                        tick.tick().await;
+                        events::emit_latency(&handle, &backend.latency());
+                    }
+                });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

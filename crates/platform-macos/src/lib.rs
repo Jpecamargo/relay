@@ -7,6 +7,7 @@ pub mod audio;
 pub mod capture;
 pub mod clipboard;
 pub mod cursor;
+pub mod cursor_bg;
 pub mod displays;
 pub mod dock;
 pub mod files;

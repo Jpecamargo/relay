@@ -1,7 +1,9 @@
-//! dono: MAC1
-//! `AppBackend`: a fronteira entre os comandos Tauri e o core. O MI1 troca o `MockBackend`
-//! pelo AppCore real sem mexer nos handlers.
+//! dono: MAC1 (MI1: trait sem os métodos de atualização; o app usa o `AppCore` real)
+//! `AppBackend`: a fronteira entre os comandos Tauri e o core. O `MockBackend` fica para
+//! desenvolver a UI (`RELAY_MOCK_BACKEND=1`) e para testes.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Mutex;
 
 use relay_core::types::{
@@ -13,10 +15,15 @@ use relay_core::types::{
 
 pub type BackendResult<T> = Result<T, String>;
 
+/// Futuro `'static` para os comandos que esperam a rede (pareamento).
+pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
+
 pub trait AppBackend: Send + Sync {
     fn get_status(&self) -> StatusSnapshot;
     fn list_discovered(&self) -> Vec<DiscoveredPeer>;
-    fn pair_with_code(&self, code: String, address: Option<String>) -> BackendResult<()>;
+    /// `address` é `host`, `host:porta` ou `None` (usa o PC descoberto).
+    fn pair_with_code(&self, code: String, address: Option<String>)
+    -> BoxFuture<BackendResult<()>>;
     fn unpair(&self) -> BackendResult<()>;
     fn set_manual_address(&self, address: Option<String>) -> BackendResult<()>;
     fn get_displays(&self) -> DisplaysPayload;
@@ -42,9 +49,6 @@ pub trait AppBackend: Send + Sync {
     fn check_permissions(&self) -> PermissionsStatus;
     fn open_permission_settings(&self, kind: PermissionKind) -> BackendResult<()>;
     fn set_launch_at_login(&self, enabled: bool) -> BackendResult<()>;
-    /// Versão disponível, ou `None` se já está atualizado.
-    fn check_updates(&self) -> BackendResult<Option<String>>;
-    fn install_update(&self) -> BackendResult<()>;
     /// Amostra atual de latência (o emissor a 2 Hz chama isto).
     fn latency(&self) -> LatencyStats;
 }
@@ -190,8 +194,12 @@ impl AppBackend for MockBackend {
             protocol_version: relay_core::types::consts::PROTOCOL_VERSION,
         }]
     }
-    fn pair_with_code(&self, _code: String, _address: Option<String>) -> BackendResult<()> {
-        Ok(())
+    fn pair_with_code(
+        &self,
+        _code: String,
+        _address: Option<String>,
+    ) -> BoxFuture<BackendResult<()>> {
+        Box::pin(async { Ok(()) })
     }
     fn unpair(&self) -> BackendResult<()> {
         self.with(|s| {
@@ -296,12 +304,6 @@ impl AppBackend for MockBackend {
     }
     fn set_launch_at_login(&self, enabled: bool) -> BackendResult<()> {
         self.with(|s| s.config.general.launch_at_login = enabled);
-        Ok(())
-    }
-    fn check_updates(&self) -> BackendResult<Option<String>> {
-        Ok(None)
-    }
-    fn install_update(&self) -> BackendResult<()> {
         Ok(())
     }
     fn latency(&self) -> LatencyStats {
