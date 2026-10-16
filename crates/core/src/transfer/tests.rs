@@ -329,3 +329,61 @@ async fn existing_names_are_not_overwritten() {
     assert_eq!(std::fs::read(&out[0]).unwrap(), b"novo");
     assert_eq!(out[0].file_name().unwrap(), "a (2).txt");
 }
+
+#[test]
+fn sanitize_windows_reserved_and_trailing() {
+    for n in [
+        "CON",
+        "con",
+        "Nul.txt",
+        "aux.tar.gz",
+        "COM1",
+        "lpt9.log",
+        "PRN ",
+    ] {
+        assert!(sanitize_component(n).starts_with('_'), "{n}");
+    }
+    assert_eq!(sanitize_component("COM0"), "COM0");
+    assert_eq!(sanitize_component("console"), "console");
+    assert_eq!(sanitize_component("a. ."), "a");
+    assert_eq!(sanitize_component("nome."), "nome");
+    assert_eq!(sanitize_component("..."), "_");
+    assert_eq!(sanitize_path("x/CON/y.")[1], "_CON");
+}
+
+#[tokio::test]
+async fn oversized_chunk_is_rejected_before_writing() {
+    let (mac, pc) = (ident(), ident());
+    let (mac_p, pc_p) = (peer_of(&mac, "Mac"), peer_of(&pc, "PC"));
+    let dest = tempfile::tempdir().unwrap();
+    let client = TransferClient::new(mac, pc_p);
+    let (nc, mut np) = (AtomicBool::new(false), |_: TransferProgress| {});
+    let (mut a, mut b) = duplex(1 << 17);
+    let evil = async move {
+        let mut s = noise_accept(&mut b, &pc, &[mac_p]).await.unwrap();
+        let (mut plain, mut c) = (Vec::new(), Vec::new());
+        recv(&mut b, &mut s, &mut plain).await.unwrap();
+        let mut begin = vec![MSG_BEGIN];
+        begin.extend_from_slice(&3u64.to_be_bytes());
+        send(&mut b, &mut s, &begin, &mut c).await.unwrap();
+        let mut e = vec![MSG_ENTRY, 0];
+        e.extend_from_slice(&3u64.to_be_bytes());
+        e.extend_from_slice(&1u16.to_be_bytes());
+        e.push(b'f');
+        send(&mut b, &mut s, &e, &mut c).await.unwrap();
+        let big = [&[MSG_CHUNK][..], &[7u8; 5000]].concat();
+        send(&mut b, &mut s, &big, &mut c).await.unwrap();
+        // mantém aberto para provar que o erro vem antes de qualquer espera
+        let _ = recv(&mut b, &mut s, &mut plain).await;
+    };
+    let client_side = async {
+        let r = client
+            .download(&mut a, &[0], dest.path(), 1, &nc, &mut np)
+            .await;
+        drop(a);
+        r
+    };
+    let (res, ()) = tokio::join!(client_side, evil);
+    assert!(matches!(res, Err(TransferError::Protocol(_))), "{res:?}");
+    assert_eq!(std::fs::read_dir(dest.path()).unwrap().count(), 0);
+}
