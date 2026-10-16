@@ -36,7 +36,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/relay-service"
     ],
@@ -56,7 +56,7 @@
       "endpoints": [
         "https://github.com/Jpecamargo/relay/releases/latest/download/latest.json"
       ],
-      "pubkey": "PLACEHOLDER_PUBKEY_GERADA_PELO_ITEM_REL"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZFOEY2QzdBRkRERjdFQ0EKUldUS2Z0LzllbXlQYmtvNVJiM21uRlp0N0xZSDJkRUsrOHhxdXZVeDV5UjBwdGo3SUxiZDRlL3EK"
     }
   }
 }
