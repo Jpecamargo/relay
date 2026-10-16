@@ -43,6 +43,7 @@ fn profile() -> LayoutProfile {
                 h: 196.0,
             },
             sensitivity: 1.0,
+            rotation: None,
         }],
         windows_detached: false,
     }

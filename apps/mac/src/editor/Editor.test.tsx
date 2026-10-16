@@ -104,3 +104,18 @@ test("painel lateral mostra o pulo (Ctrl+Option+n) e sensibilidade 0,25 a 4,0 po
   const saved = mock.invoke.mock.calls.find((c) => c[0] === "save_layout")![1].profile;
   expect(saved.displays[1].sensitivity).toBe(2);
 });
+
+test("orientação por tela: Retrato troca largura e altura do Dell e salva o override", async () => {
+  backend();
+  render(<Editor />);
+  await screen.findByTestId("display-mac");
+  const selects = screen.getAllByLabelText("Orientação") as HTMLSelectElement[];
+  expect(selects).toHaveLength(2); // só as telas Windows
+  fireEvent.change(selects[0]!, { target: { value: "90" } });
+  // o Dell 1 é 597x336 no fixture e o mesmo EDID em retrato vira 336x597
+  expect(screen.getByTestId("display-d1").textContent).toContain("336 × 597 mm");
+  fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+  await waitFor(() => expect(mock.invoke.mock.calls.some((c) => c[0] === "save_layout")).toBe(true));
+  const saved = mock.invoke.mock.calls.find((c) => c[0] === "save_layout")![1].profile;
+  expect(saved.displays[1].rotation).toBe(90);
+});

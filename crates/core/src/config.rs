@@ -323,6 +323,7 @@ mod tests {
                     h: 200.0,
                 },
                 sensitivity: 1.0,
+                rotation: None,
             }],
             windows_detached: false,
         });
