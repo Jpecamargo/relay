@@ -7,6 +7,7 @@
 //! pipe `relay-inject`. A lógica sem Win32 (SDDL, backoff, decisão de relançar) é pura e testada
 //! no Mac; o resto fica em `win`, sob `cfg(windows)`.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Nome do serviço no SCM (glossário).
@@ -23,7 +24,7 @@ pub const NO_SESSION: u32 = 0xFFFF_FFFF;
 /// (ninguém logado), só o SYSTEM. DACL protegida: não herda nada.
 pub fn pipe_sddl(user_sid: Option<&str>) -> String {
     match user_sid {
-        Some(sid) => format!("D:P(A;;GA;;;SY)(A;;GRGW;;;{sid})"),
+        Some(sid) => format!("D:P(A;;GA;;;SY)(A;;0x100002;;;{sid})"),
         None => "D:P(A;;GA;;;SY)".to_string(),
     }
 }
@@ -69,6 +70,49 @@ pub fn needs_relaunch(helper_session: Option<u32>, active_session: u32) -> bool 
     active_session != NO_SESSION && helper_session != Some(active_session)
 }
 
+/// Nomes de imagem aceitos para o agente instalado (binário do cargo e nome do produto).
+pub const AGENT_IMAGE_NAMES: [&str; 2] = ["relay-windows-agent.exe", "relay agent.exe"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientDenied {
+    /// O diretório do próprio serviço não está sob Program Files: nada garante a integridade.
+    InstallDirUntrusted,
+    /// A imagem do cliente não está no diretório do produto.
+    WrongDirectory,
+    /// A imagem do cliente não é o agente.
+    WrongImage,
+}
+
+fn lowered(p: &Path) -> PathBuf {
+    PathBuf::from(p.to_string_lossy().to_lowercase())
+}
+
+/// Decide se o cliente do pipe é o agente instalado. Recebe caminhos já canônicos (o chamador
+/// usa `fs::canonicalize`); a comparação ignora maiúsculas (NTFS) e é por componente.
+pub fn verify_client_image(
+    client_image: &Path,
+    install_dir: &Path,
+    trusted_roots: &[PathBuf],
+) -> Result<(), ClientDenied> {
+    let dir = lowered(install_dir);
+    let under_root = trusted_roots.iter().any(|r| {
+        let r = lowered(r);
+        dir != r && dir.starts_with(&r)
+    });
+    if !under_root {
+        return Err(ClientDenied::InstallDirUntrusted);
+    }
+    let image = lowered(client_image);
+    if image.parent() != Some(dir.as_path()) {
+        return Err(ClientDenied::WrongDirectory);
+    }
+    let name = image.file_name().map(|n| n.to_string_lossy().into_owned());
+    match name {
+        Some(n) if AGENT_IMAGE_NAMES.contains(&n.as_str()) => Ok(()),
+        _ => Err(ClientDenied::WrongImage),
+    }
+}
+
 #[cfg(windows)]
 pub use win::*;
 
@@ -94,8 +138,8 @@ mod win {
         FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND, ReadFile,
     };
     use windows::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE,
-        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId,
+        PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
     };
     use windows::Win32::System::RemoteDesktop::{
         ProcessIdToSessionId, WTSGetActiveConsoleSessionId, WTSQueryUserToken,
@@ -106,8 +150,9 @@ mod win {
     };
     use windows::Win32::System::Threading::{
         CREATE_NO_WINDOW, CreateProcessAsUserW, GetCurrentProcess, GetCurrentProcessId,
-        GetCurrentThreadId, OpenProcessToken, PROCESS_INFORMATION, STARTUPINFOW, TerminateProcess,
-        WaitForSingleObject,
+        GetCurrentThreadId, OpenProcess, OpenProcessToken, PROCESS_INFORMATION, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, STARTUPINFOW,
+        TerminateProcess, WaitForSingleObject,
     };
     use windows::core::{PCWSTR, PWSTR};
     use windows_service::service::{
@@ -426,7 +471,7 @@ mod win {
                 PCWSTR(name.as_ptr()),
                 open_mode,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                1,
+                2,
                 0,
                 64 * 1024,
                 0,
@@ -443,31 +488,86 @@ mod win {
         }
     }
 
-    /// Corpo do `--session-helper`: serve o pipe até o processo ser encerrado. Um cliente por vez;
-    /// quadro inválido ou queda do cliente derruba a conexão e volta a aguardar.
+    /// Caminho canônico da imagem do processo cliente do pipe.
+    fn client_image(pipe: HANDLE) -> Option<PathBuf> {
+        // SAFETY: `pid` e o buffer vivem durante as chamadas; o handle é fechado ao fim.
+        unsafe {
+            let mut pid = 0u32;
+            GetNamedPipeClientProcessId(pipe, &mut pid).ok()?;
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+            let mut buf = [0u16; 1024];
+            let mut len = buf.len() as u32;
+            let r = QueryFullProcessImageNameW(
+                h,
+                PROCESS_NAME_WIN32,
+                PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            );
+            let _ = CloseHandle(h);
+            r.ok()?;
+            let raw = String::from_utf16_lossy(&buf[..len as usize]);
+            std::fs::canonicalize(raw).ok()
+        }
+    }
+
+    fn trusted_roots() -> Vec<PathBuf> {
+        ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(std::env::var_os)
+            .filter_map(|v| std::fs::canonicalize(v).ok())
+            .collect()
+    }
+
+    /// Só o agente instalado (imagem no diretório deste executável, sob Program Files) é aceito.
+    fn client_is_agent(pipe: HANDLE, install_dir: Option<&Path>) -> bool {
+        let Some(dir) = install_dir else {
+            tracing::warn!("diretório de instalação desconhecido: cliente recusado");
+            return false;
+        };
+        let Some(image) = client_image(pipe) else {
+            tracing::warn!("imagem do cliente do pipe ilegível: recusado");
+            return false;
+        };
+        match verify_client_image(&image, dir, &trusted_roots()) {
+            Ok(()) => true,
+            Err(why) => {
+                tracing::warn!("cliente do pipe recusado ({why:?}): {}", image.display());
+                false
+            }
+        }
+    }
+
+    /// Corpo do `--session-helper`: serve o pipe até o processo ser encerrado. Um cliente por vez.
+    /// Sempre há uma instância a escutar (a próxima nasce antes de servir a atual), e a primeira
+    /// é criada com FIRST_PIPE_INSTANCE: ninguém sequestra o nome. Cliente que não é o agente, quadro
+    /// inválido ou queda derrubam só aquela conexão.
     pub fn run_helper() -> ServiceResult<()> {
         let sddl = pipe_sddl(session_user_sid().as_deref());
+        let install_dir = std::env::current_exe()
+            .ok()
+            .and_then(|e| std::fs::canonicalize(e).ok())
+            .and_then(|e| e.parent().map(Path::to_path_buf));
         let mut injector = WindowsInjector::default();
         let mut desktop = DesktopFollower::new();
-        let mut first = true;
+        let mut listening = create_pipe(true, &sddl)?;
         loop {
-            let pipe = create_pipe(first, &sddl)?;
-            first = false;
-            // SAFETY: `pipe` é válido até o CloseHandle abaixo.
-            unsafe {
-                if let Err(e) = ConnectNamedPipe(pipe, None)
-                    && GetLastError() != ERROR_PIPE_CONNECTED
-                {
-                    tracing::warn!("ConnectNamedPipe: {e}");
-                    let _ = CloseHandle(pipe);
-                    continue;
+            // SAFETY: `listening` é válido até ser fechado abaixo.
+            let connected = unsafe {
+                match ConnectNamedPipe(listening, None) {
+                    Ok(()) => true,
+                    Err(_) => GetLastError() == ERROR_PIPE_CONNECTED,
                 }
+            };
+            let current = listening;
+            // A próxima instância existe antes de atender esta.
+            listening = create_pipe(false, &sddl)?;
+            if connected && client_is_agent(current, install_dir.as_deref()) {
+                serve_client(current, &mut injector, &mut desktop);
             }
-            serve_client(pipe, &mut injector, &mut desktop);
             // SAFETY: encerra a conexão e fecha o handle possuído.
             unsafe {
-                let _ = DisconnectNamedPipe(pipe);
-                let _ = CloseHandle(pipe);
+                let _ = DisconnectNamedPipe(current);
+                let _ = CloseHandle(current);
             }
         }
     }
@@ -535,7 +635,7 @@ mod tests {
     fn sddl_restricts_to_system_and_session_user() {
         assert_eq!(
             pipe_sddl(Some("S-1-5-21-1-2-3-1001")),
-            "D:P(A;;GA;;;SY)(A;;GRGW;;;S-1-5-21-1-2-3-1001)"
+            "D:P(A;;GA;;;SY)(A;;0x100002;;;S-1-5-21-1-2-3-1001)"
         );
         assert_eq!(pipe_sddl(None), "D:P(A;;GA;;;SY)");
         assert!(!pipe_sddl(None).contains("WD") && !pipe_sddl(None).contains("BU"));
@@ -565,6 +665,55 @@ mod tests {
         assert_eq!(
             helper_command_line(r"C:\Program Files\Relay\relay-service.exe"),
             r#""C:\Program Files\Relay\relay-service.exe" --session-helper"#
+        );
+    }
+
+    fn roots() -> Vec<PathBuf> {
+        vec![PathBuf::from("/Program Files")]
+    }
+
+    #[test]
+    fn client_verification() {
+        let dir = Path::new("/Program Files/Relay Agent");
+        let ok = Path::new("/program files/relay agent/Relay-Windows-Agent.EXE");
+        assert_eq!(verify_client_image(ok, dir, &roots()), Ok(()));
+        let ok2 = Path::new("/Program Files/Relay Agent/Relay Agent.exe");
+        assert_eq!(verify_client_image(ok2, dir, &roots()), Ok(()));
+        let other_dir = Path::new("/Users/x/AppData/relay-windows-agent.exe");
+        assert_eq!(
+            verify_client_image(other_dir, dir, &roots()),
+            Err(ClientDenied::WrongDirectory)
+        );
+        let sub = Path::new("/Program Files/Relay Agent/sub/relay-windows-agent.exe");
+        assert_eq!(
+            verify_client_image(sub, dir, &roots()),
+            Err(ClientDenied::WrongDirectory)
+        );
+        let other_exe = Path::new("/Program Files/Relay Agent/evil.exe");
+        assert_eq!(
+            verify_client_image(other_exe, dir, &roots()),
+            Err(ClientDenied::WrongImage)
+        );
+    }
+
+    #[test]
+    fn client_verification_requires_trusted_install_dir() {
+        let dir = Path::new("/Users/x/Downloads/relay");
+        let img = Path::new("/Users/x/Downloads/relay/relay-windows-agent.exe");
+        assert_eq!(
+            verify_client_image(img, dir, &roots()),
+            Err(ClientDenied::InstallDirUntrusted)
+        );
+        // A raiz em si e prefixos de string parecidos não valem.
+        let root = Path::new("/Program Files");
+        assert_eq!(
+            verify_client_image(&root.join("relay-windows-agent.exe"), root, &roots()),
+            Err(ClientDenied::InstallDirUntrusted)
+        );
+        let sibling = Path::new("/Program Files (x86)/Relay");
+        assert_eq!(
+            verify_client_image(&sibling.join("relay-windows-agent.exe"), sibling, &roots()),
+            Err(ClientDenied::InstallDirUntrusted)
         );
     }
 }
