@@ -70,6 +70,25 @@ pub fn needs_relaunch(helper_session: Option<u32>, active_session: u32) -> bool 
     active_session != NO_SESSION && helper_session != Some(active_session)
 }
 
+/// Estado do serviço visto pelo `install`, sem depender do tipo do `windows-service`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservedState {
+    Stopped,
+    StopPending,
+    /// Rodando, iniciando ou qualquer outro: não há o que iniciar.
+    Other,
+}
+
+/// O `install` deve chamar start? Só se estiver parado (ou parando).
+pub fn needs_start(state: ObservedState) -> bool {
+    matches!(state, ObservedState::Stopped | ObservedState::StopPending)
+}
+
+/// ERROR_SERVICE_ALREADY_RUNNING (1056) conta como sucesso.
+pub fn is_already_running(os_error: Option<i32>) -> bool {
+    os_error == Some(1056)
+}
+
 /// Nomes de imagem aceitos para o agente instalado (binário do cargo e nome do produto).
 pub const AGENT_IMAGE_NAMES: [&str; 2] = ["relay-windows-agent.exe", "relay agent.exe"];
 
@@ -178,7 +197,8 @@ mod win {
 
     // ---- registro no SCM -------------------------------------------------------------------
 
-    /// Cria o serviço `RelayService` (início automático, LocalSystem) e o inicia.
+    /// Cria o serviço `RelayService` (início automático, LocalSystem) e o inicia. Idempotente:
+    /// se já existe (update por cima), atualiza a configuração e o inicia se estiver parado.
     pub fn install() -> ServiceResult<()> {
         let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
         let manager = ServiceManager::local_computer(
@@ -198,16 +218,40 @@ mod win {
             account_name: None,
             account_password: None,
         };
-        let service = manager
-            .create_service(
-                &info,
-                ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS,
-            )
-            .map_err(|e| format!("criar o serviço: {e}"))?;
-        // Descrição e início imediato são conveniências: falhar neles não desfaz a instalação.
+        let access =
+            ServiceAccess::CHANGE_CONFIG | ServiceAccess::START | ServiceAccess::QUERY_STATUS;
+        let service = match manager.open_service(SERVICE_NAME, access) {
+            Ok(existing) => {
+                existing
+                    .change_config(&info)
+                    .map_err(|e| format!("atualizar o serviço: {e}"))?;
+                existing
+            }
+            Err(_) => manager
+                .create_service(&info, access)
+                .map_err(|e| format!("criar o serviço: {e}"))?,
+        };
+        // Descrição e início são conveniências: falhar neles não desfaz a instalação.
         let _ = service.set_description(SERVICE_DESCRIPTION);
-        if let Err(e) = service.start::<&OsStr>(&[]) {
-            tracing::warn!("serviço instalado, mas não iniciou: {e}");
+        let observed = match service.query_status().map(|s| s.current_state) {
+            Ok(ServiceState::Stopped) => ObservedState::Stopped,
+            Ok(ServiceState::StopPending) => ObservedState::StopPending,
+            _ => ObservedState::Other,
+        };
+        if needs_start(observed) {
+            if observed == ObservedState::StopPending {
+                // Deixa a parada terminar; start durante STOP_PENDING falha.
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            if let Err(e) = service.start::<&OsStr>(&[]) {
+                let code = match &e {
+                    windows_service::Error::Winapi(io) => io.raw_os_error(),
+                    _ => None,
+                };
+                if !is_already_running(code) {
+                    tracing::warn!("serviço instalado, mas não iniciou: {e}");
+                }
+            }
         }
         Ok(())
     }
@@ -715,5 +759,15 @@ mod tests {
             verify_client_image(&sibling.join("relay-windows-agent.exe"), sibling, &roots()),
             Err(ClientDenied::InstallDirUntrusted)
         );
+    }
+
+    #[test]
+    fn install_start_decision() {
+        assert!(needs_start(ObservedState::Stopped));
+        assert!(needs_start(ObservedState::StopPending));
+        assert!(!needs_start(ObservedState::Other));
+        assert!(is_already_running(Some(1056)));
+        assert!(!is_already_running(Some(5)));
+        assert!(!is_already_running(None));
     }
 }

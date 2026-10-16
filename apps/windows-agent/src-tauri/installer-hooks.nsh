@@ -15,6 +15,9 @@
   ; Serviço RelayService (SYSTEM) + regras de firewall do Relay (somente perfil privado).
   nsExec::ExecToLog '"$INSTDIR\relay-service.exe" install'
   Pop $0
+  ; Rede de segurança: garante o início mesmo se o install não conseguiu (já rodando = ok).
+  nsExec::ExecToLog 'sc.exe start RelayService'
+  Pop $0
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Relay"'
   Pop $0
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Relay" dir=in action=allow protocol=TCP localport=47800,47804 profile=private'
