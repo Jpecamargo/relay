@@ -92,6 +92,11 @@ impl<P: Platform> AppBackend for AppCore<P> {
         Ok(())
     }
 
+    fn jump_to(&self, n: u8) -> BackendResult<()> {
+        AppCore::jump_to(self, n);
+        Ok(())
+    }
+
     fn set_sharing_paused(&self, paused: bool) -> BackendResult<()> {
         AppCore::set_sharing_paused(self, paused);
         Ok(())

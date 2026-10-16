@@ -9,3 +9,9 @@ export async function openMain(section?: Section): Promise<void> {
   await invokeCommand("open_window", { label: "main" });
   if (section) await emitTo("main", "relay:navigate", section);
 }
+
+/** Esconde a janela atual (o painel, depois de uma ação que leva o foco para outro lugar). */
+export async function hideCurrentWindow(): Promise<void> {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().hide();
+}

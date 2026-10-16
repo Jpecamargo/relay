@@ -10,7 +10,7 @@ const CONFIRM: Record<"Restart" | "Shutdown", { title: string; message: string; 
 };
 
 /** Linha "PC ›" que abre, no próprio painel, as ações de energia. Reiniciar/desligar confirmam. */
-export function PcMenu({ act, online, canWake }: { act: Act; online: boolean; canWake: boolean }) {
+export function PcMenu({ act, online, canWake, wakeShortcut }: { act: Act; online: boolean; canWake: boolean; wakeShortcut?: string }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<"Restart" | "Shutdown">();
   const power = (label: string, action: PowerAction, confirm: boolean) =>
@@ -25,7 +25,7 @@ export function PcMenu({ act, online, canWake }: { act: Act; online: boolean; ca
           <MenuRow nested label="Reiniciar" icon="restart" disabled={!online} onClick={() => setPending("Restart")} />
           <MenuRow nested label="Desligar" icon="power" disabled={!online} onClick={() => setPending("Shutdown")} />
           <MenuRow
-            nested label="Ligar o PC" icon="wifi" disabled={!canWake}
+            nested label="Ligar o PC" icon="wifi" disabled={!canWake} shortcut={wakeShortcut}
             onClick={() => void act("Ligar o PC", () => invokeCommand("wake_pc"))}
           />
         </>

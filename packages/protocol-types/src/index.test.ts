@@ -2,9 +2,9 @@ import { describe, expect, test } from "vitest";
 import { COMMANDS, invokeCommand, listenEvent } from "./index";
 
 describe("bridge", () => {
-  test("COMMANDS cobre os 27 comandos do Mac e os 8 do agente, cada nome igual à chave", () => {
+  test("COMMANDS cobre os 28 comandos do Mac e os 8 do agente, cada nome igual à chave", () => {
     const entries = Object.entries(COMMANDS);
-    expect(entries).toHaveLength(35);
+    expect(entries).toHaveLength(36);
     for (const [key, value] of entries) expect(value).toBe(key);
     expect(entries.filter(([k]) => k.startsWith("agent_"))).toHaveLength(8);
   });

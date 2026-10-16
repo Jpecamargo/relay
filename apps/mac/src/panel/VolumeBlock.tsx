@@ -32,21 +32,21 @@ export function VolumeBlock({ act, online }: { act: Act; online: boolean }) {
         <button
           type="button" className={styles.iconBtn} disabled={!online}
           aria-label="Mudo no Windows" aria-pressed={muted}
-          onClick={() => { const m = !muted; setMuted(m); void act("Mudo", () => send({ SetMute: { muted: m } }), true); }}
+          onClick={() => { const m = !muted; setMuted(m); void act("Mudo", () => send({ SetMute: { muted: m } })); }}
         >
           <Icon name={icon} size={16} />
         </button>
         <Slider
           compact label="Volume do Windows" value={volume} min={0} max={1} step={0.01} debounceMs={50}
           format={(v) => `${Math.round(v * 100)}%`} disabled={!online}
-          onChange={(v) => { setVolume(v); void act("Volume", () => send({ SetVolume: { level: v } }), true); }}
+          onChange={(v) => { setVolume(v); void act("Volume", () => send({ SetVolume: { level: v } })); }}
         />
       </div>
       <div className={styles.media}>
         {MEDIA.map((m) => (
           <button
             key={m.action} type="button" className={styles.iconBtn} disabled={!online} aria-label={m.label}
-            onClick={() => void act(m.label, () => send({ Media: { action: m.action } }), true)}
+            onClick={() => void act(m.label, () => send({ Media: { action: m.action } }))}
           >
             <Icon name={m.icon} size={16} />
           </button>

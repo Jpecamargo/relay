@@ -1,7 +1,8 @@
 import type { PlacedDisplay } from "@relay/protocol-types";
 import { expect, test } from "vitest";
+import { jumpIds } from "../shared/jump";
 import type { DisplayInfo } from "@relay/protocol-types";
-import { alignDisplays, defaultLayout, dragDisplays, dragWithGuides, jumpIds, orientationOf, reconcile, rotateDisplay, sharedSegments, sizeMm, snapDelta, snapRect } from "./geometry";
+import { alignDisplays, defaultLayout, dragDisplays, dragWithGuides, orientationOf, reconcile, rotateDisplay, sharedSegments, sizeMm, snapDelta, snapRect } from "./geometry";
 
 const placed = (id: string, machine: PlacedDisplay["machine"], x: number, y: number, w: number, h: number): PlacedDisplay => ({
   display_id: id,

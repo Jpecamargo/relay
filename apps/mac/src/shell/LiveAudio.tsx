@@ -52,7 +52,7 @@ export function LiveAudio({ act, online, audio, stats, refresh }: {
   }, [online]);
 
   const streams = (label: string, next: AudioState) =>
-    void act(label, () => invokeCommand("set_audio_streams", next), true).then(refresh);
+    void act(label, () => invokeCommand("set_audio_streams", next)).then(refresh);
 
   return (
     <>
@@ -62,7 +62,7 @@ export function LiveAudio({ act, online, audio, stats, refresh }: {
         <Slider
           label="Volume do stream" value={streamVolume} min={0} max={1} step={0.01} debounceMs={50}
           format={(v) => `${Math.round(v * 100)}%`}
-          onChange={(v) => { setStreamVolume(v); void act("Volume do stream", () => invokeCommand("set_stream_volume", { volume: v }), true); }}
+          onChange={(v) => { setStreamVolume(v); void act("Volume do stream", () => invokeCommand("set_stream_volume", { volume: v })); }}
         />
         <div className={styles.infoRow}>
           <span>Latência do áudio</span>
@@ -72,15 +72,15 @@ export function LiveAudio({ act, online, audio, stats, refresh }: {
       <Section title="Dispositivos" grouped>
         <Select
           label="Saída do Windows" value={pcOutput} options={deviceOptions(pcOutputs)} disabled={!online || pcOutputs.length === 0}
-          onChange={(id) => { setPcOutput(id); void act("Saída do Windows", () => send({ SetOutputDevice: { id } }), true); }}
+          onChange={(id) => { setPcOutput(id); void act("Saída do Windows", () => send({ SetOutputDevice: { id } })); }}
         />
         <Select
           label="Saída do Mac" value={macOut} options={deviceOptions(macDevices?.outputs ?? [])} disabled={!macDevices?.outputs.length}
-          onChange={(id) => { setMacOut(id); void act("Saída do Mac", () => invokeCommand("set_audio_devices", { output_id: id }), true); }}
+          onChange={(id) => { setMacOut(id); void act("Saída do Mac", () => invokeCommand("set_audio_devices", { output_id: id })); }}
         />
         <Select
           label="Entrada do Mac" value={macIn} options={deviceOptions(macDevices?.inputs ?? [])} disabled={!macDevices?.inputs.length}
-          onChange={(id) => { setMacIn(id); void act("Entrada do Mac", () => invokeCommand("set_audio_devices", { input_id: id }), true); }}
+          onChange={(id) => { setMacIn(id); void act("Entrada do Mac", () => invokeCommand("set_audio_devices", { input_id: id })); }}
         />
       </Section>
     </>

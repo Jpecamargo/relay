@@ -13,6 +13,12 @@ export function keyLabel(code: string): string {
   return KEY_GLYPH[code] ?? code.replace(/^(Key|Digit|Numpad)/, "");
 }
 
+/** Combinação como texto de atalho de menu ("⌃⌥L"). */
+export function comboLabel(combo: KeyComboValue): string {
+  const mods = MODIFIER_ORDER.filter((m) => combo.modifiers.includes(m)).map((m) => MODIFIER_GLYPH[m]);
+  return [...mods, keyLabel(combo.key)].join("");
+}
+
 export interface KeyComboProps {
   combo: KeyComboValue;
 }

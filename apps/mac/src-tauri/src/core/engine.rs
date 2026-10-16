@@ -44,6 +44,8 @@ pub(crate) enum CoreCmd {
     Fast(InputEvent),
     SetLocked(bool),
     SetPaused(bool),
+    /// Pulo para a tela de número `n` (D19), pelo menu do painel.
+    JumpTo(u8),
     ApplyConfig(Box<Config>),
     ProfilesChanged,
     DisplaysChanged,
@@ -588,6 +590,12 @@ impl<P: Platform> Core<P> {
                 self.user_locked = l;
                 if let Some(c) = self.ctl.as_mut() {
                     c.set_locked(l);
+                }
+                self.drain_events(false);
+            }
+            CoreCmd::JumpTo(n) => {
+                if let Some(c) = self.ctl.as_mut() {
+                    c.jump_to(n, now);
                 }
                 self.drain_events(false);
             }

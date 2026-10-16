@@ -411,6 +411,10 @@ impl<P: Platform> AppCore<P> {
         self.inner.core(CoreCmd::SetLocked(locked));
     }
 
+    pub fn jump_to(&self, n: u8) {
+        self.inner.core(CoreCmd::JumpTo(n));
+    }
+
     pub fn set_sharing_paused(&self, paused: bool) {
         self.inner.mutate(|s| s.status.paused = paused);
         self.inner.core(CoreCmd::SetPaused(paused));

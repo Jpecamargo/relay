@@ -46,6 +46,7 @@ pub fn run() {
             controls::send_command,
             controls::set_cursor_lock,
             controls::set_sharing_paused,
+            controls::jump_to,
             controls::wake_pc,
             controls::reconnect,
             clipboard::clipboard_send_now,
