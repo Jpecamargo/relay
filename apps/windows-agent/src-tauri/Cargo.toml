@@ -34,6 +34,7 @@ rtrb.workspace = true
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls"] }
+tauri-plugin-process = "2"
 
 [dev-dependencies]
 tempfile.workspace = true

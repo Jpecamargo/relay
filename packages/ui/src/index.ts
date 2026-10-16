@@ -17,3 +17,7 @@ export { Tabs, type TabItem, type TabsProps } from "./Tabs";
 export { Toast, type ToastProps } from "./Toast";
 export { Toggle, type ToggleProps } from "./Toggle";
 export { useRelayEvent } from "./hooks";
+export { useUpdate, type UpdaterContextValue } from "./updater/context";
+export { OPEN_UPDATE_EVENT, UpdaterProvider } from "./updater/UpdaterProvider";
+export { UpdateAbout } from "./updater/UpdateAbout";
+export { updateOf, useUpdater, type UpdaterState } from "./updater/useUpdater";

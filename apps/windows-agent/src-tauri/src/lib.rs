@@ -33,6 +33,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             commands::status::agent_get_status,
             commands::status::agent_get_service_status,
@@ -41,8 +42,7 @@ pub fn run() {
             commands::config::agent_get_config,
             commands::config::agent_save_config,
             commands::system::agent_set_autostart,
-            commands::updater::agent_check_updates,
-            commands::updater::agent_install_update,
+            commands::system::agent_set_update_available,
         ])
         .setup(|app| {
             let config = relay_core::config::load_or_default(&relay_core::config::config_path())

@@ -4,7 +4,7 @@
 
 use relay_core::types::{
     AudioStats, CommandResult, DisplaysPayload, LatencyStats, PairingEvent, PermissionsStatus,
-    SecureInputPayload, StatusSnapshot, SystemMetrics, TransferProgress, UpdateAvailable,
+    SecureInputPayload, StatusSnapshot, SystemMetrics, TransferProgress,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -50,7 +50,4 @@ pub fn emit_audio_stats(app: &AppHandle, a: &AudioStats) {
 }
 pub fn emit_pairing(app: &AppHandle, p: &PairingEvent) {
     emit(app, "relay:pairing", p);
-}
-pub fn emit_update_available(app: &AppHandle, version: String) {
-    emit(app, "relay:update-available", UpdateAvailable { version });
 }

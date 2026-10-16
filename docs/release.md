@@ -1,7 +1,7 @@
 # Release
 
 Release por tag: `.github/workflows/release.yml` dispara em `v*` e publica **um único** GitHub Release
-(`draft=false`, notas geradas) com:
+(`draft=false`, notas = seção da versão no `CHANGELOG.md`) com:
 
 - Mac: `Relay_<v>_aarch64.dmg` e `Relay_<v>_x64.dmg` (+ `.app.tar.gz` e `.sig` do updater);
 - Windows: instalador NSIS do agente (`Relay Agent_<v>_x64-setup.exe`, com o `relay-service` como sidecar) + `.sig`;
@@ -11,8 +11,15 @@ Release por tag: `.github/workflows/release.yml` dispara em `v*` e publica **um 
 Jobs: `create-release` (cria o release) -> `mac` (matrix aarch64 e x86_64, em sequência) -> `windows`.
 Em sequência de propósito: cada build regrava o `latest.json`, e em paralelo um apagaria a entrada do outro.
 
+## Notas da versão
+
+As notas vêm do `CHANGELOG.md` (seção `## X.Y.Z`, extraída por `scripts/release-notes.sh vX.Y.Z`), vão para o corpo do Release
+e para `releaseBody` do tauri-action; assim o `latest.json` traz `notes`, que o modal "Nova versão do Relay" mostra em "O que mudou".
+Sem a seção, o workflow cai nas notas geradas do GitHub.
+
 ## Cortar uma release
 
+    # renomeie "Não publicado" no CHANGELOG.md para 0.2.0
     scripts/bump-version.sh 0.2.0      # sem o "v"
     git diff                           # Cargo.toml, Cargo.lock, os dois tauri.conf.json
     git commit -am "chore: v0.2.0"

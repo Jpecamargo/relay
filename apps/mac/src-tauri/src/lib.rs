@@ -17,7 +17,7 @@ use std::time::Duration;
 use tauri::{Manager, WindowEvent};
 
 use backend::{AppBackend, MockBackend};
-use commands::{audio, clipboard, config, controls, layout, pairing, status, system, updater};
+use commands::{audio, clipboard, config, controls, layout, pairing, status, system};
 use core::media::{MacMedia, RealMedia};
 use core::{AppCore, CoreOptions, MacPlatform};
 use sink::TauriSink;
@@ -31,6 +31,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             status::get_status,
             status::list_discovered,
@@ -57,8 +58,6 @@ pub fn run() {
             system::check_permissions,
             system::open_permission_settings,
             system::set_launch_at_login,
-            updater::check_updates,
-            updater::install_update,
             system::open_window,
             system::quit_app,
         ])
@@ -93,7 +92,6 @@ pub fn run() {
                 ))
             };
             app.manage(AppState::new(backend.clone()));
-            app.manage(updater::PendingUpdate::default());
             tray::setup(app.handle())?;
             controls::spawn_metrics_poller(app.handle().clone());
 

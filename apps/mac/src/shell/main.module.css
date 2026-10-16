@@ -54,3 +54,5 @@
 .linkAction:hover { background: var(--relay-fill); }
 .linkAction svg { color: var(--relay-text-2); }
 .linkAction:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: -2px; }
+.update, .update svg { color: var(--relay-accent); }
+.update span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

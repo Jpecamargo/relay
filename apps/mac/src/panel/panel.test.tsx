@@ -32,7 +32,6 @@ beforeEach(() => {
     switch (name) {
       case "get_status": return STATUS;
       case "check_permissions": return { accessibility: "Granted", input_monitoring: "Granted" };
-      case "check_updates": return null;
       case "list_audio_devices": return { outputs: [], inputs: [] };
       case "get_config": return { audio: { stream_volume: 1 } };
       case "get_displays": return { mac: [], windows: [] };

@@ -11,4 +11,3 @@ pub mod layout;
 pub mod pairing;
 pub mod status;
 pub mod system;
-pub mod updater;
