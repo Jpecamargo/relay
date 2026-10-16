@@ -26,6 +26,7 @@ let sendResult: unknown;
 
 beforeEach(() => {
   bridge.listeners.clear();
+  bridge.invoke.mockReset();
   sendResult = { id: 1, ok: true, output: null, error: null };
   bridge.invoke.mockImplementation(async (name: string) => {
     switch (name) {
