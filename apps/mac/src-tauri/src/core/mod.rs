@@ -199,11 +199,8 @@ impl<P: Platform> Inner<P> {
         });
         if let Some(peer) = peer {
             let ks: Arc<dyn KeyStore> = self.platform.key_store();
-            if let Err(e) = crypto::remove_peer(&*ks, &peer.device_id) {
+            if let Err(e) = crypto::forget_active_peer(&*ks, ACTIVE_PEER_ACCOUNT, &peer.device_id) {
                 tracing::warn!("não consegui remover o peer do Keychain: {e}");
-            }
-            if let Err(e) = ks.delete(ACTIVE_PEER_ACCOUNT) {
-                tracing::warn!("não consegui limpar o peer ativo: {e}");
             }
         }
     }

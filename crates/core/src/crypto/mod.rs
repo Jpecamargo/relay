@@ -12,8 +12,8 @@ use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
 
 pub use keystore::{
-    MemoryKeyStore, StaticKeypair, SystemKeyStore, device_id_of, load_or_create_identity,
-    load_peer, remove_peer, save_peer,
+    MemoryKeyStore, StaticKeypair, SystemKeyStore, device_id_of, forget_active_peer,
+    load_active_peer, load_or_create_identity, load_peer, remove_peer, save_active_peer, save_peer,
 };
 pub use noise::{NoiseSession, noise_accept, noise_dial, read_frame, write_frame};
 pub use pairing::{LocalDevice, pair};

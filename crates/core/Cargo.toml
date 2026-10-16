@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Expõe `engine::testutil` (mocks de plataforma) para os testes dos apps.
+test-util = []
+
 [dependencies]
 tokio.workspace = true
 rtrb.workspace = true
@@ -25,9 +29,7 @@ blake2.workspace = true
 x25519-dalek.workspace = true
 rand.workspace = true
 mdns-sd.workspace = true
-hdrhistogram.workspace = true
 rubato.workspace = true
-png.workspace = true
 arrayvec.workspace = true
 socket2.workspace = true
 keyring.workspace = true

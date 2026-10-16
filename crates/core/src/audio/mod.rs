@@ -6,22 +6,22 @@
 //! `DriftCompensator::process`, conversões) trabalha só sobre buffers do chamador.
 
 mod convert;
+mod datagram;
 mod drift;
 mod jitter;
 mod packet;
 
 pub use convert::{
-    f32_to_i16, i16_to_f32, i16_to_pcm_bytes, mono_to_stereo, pcm_bytes_to_i16, stereo_to_mono_f32,
-    stereo_to_mono_i16,
+    FrameSplitter, f32_sample_to_i16, f32_to_i16, i16_to_f32, i16_to_pcm_bytes, mono_to_stereo,
+    pcm_bytes_to_i16, stereo_to_mono_f32, stereo_to_mono_i16,
 };
+pub use datagram::{DATAGRAM_LEN, PLAIN_LEN, STREAM_MIC, STREAM_PC, open_datagram, seal_datagram};
 pub use drift::DriftCompensator;
 pub use jitter::{JitterBuffer, JitterStats, ReadStatus};
 pub use packet::{AudioHeader, AudioPacket, HEADER_LEN};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {
-    #[error("não implementado")]
-    NotImplemented,
     #[error("pacote inválido")]
     InvalidPacket,
     #[error("buffer com tamanho incompatível")]

@@ -4,10 +4,8 @@
 //! PC→Mac: UDP `audio_pc_to_mac` → `UdpAead` → `JitterBuffer` → `DriftCompensator` → ring f32 →
 //! `AudioPlayback`. Mac→PC: `AudioCapture` → `AudioPacket` → `UdpAead` → UDP `audio_mac_to_pc`.
 //!
-//! Datagrama (contrato do WI3, os dois sentidos): os 17 primeiros bytes do `AudioPacket`
-//! (stream, seq, ts_samples) em claro, que são o AAD; depois o resto do pacote (codec, channels,
-//! frames e os 960 bytes de PCM) cifrado, com tag de 16. O nonce usa o `seq`. `stream` = 0 no
-//! PC→Mac e 1 no Mac→PC.
+//! Datagrama (contrato do WI3, os dois sentidos): `relay_core::audio::{seal,open}_datagram`.
+//! `stream` = 0 no PC→Mac e 1 no Mac→PC.
 
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,8 +14,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use relay_core::audio::{
-    AudioPacket, CHANNELS, CODEC_PCM16, DriftCompensator, FRAMES_PER_PACKET, HEADER_LEN,
-    JitterBuffer, PACKET_PAYLOAD_BYTES, i16_to_f32, i16_to_pcm_bytes,
+    CHANNELS, DATAGRAM_LEN, DriftCompensator, JitterBuffer, PLAIN_LEN, STREAM_MIC, STREAM_PC,
+    i16_to_f32, open_datagram, seal_datagram,
 };
 use relay_core::crypto::{ReplayMode, UdpAead};
 use relay_core::platform::{AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback};
@@ -27,11 +25,6 @@ use super::Sh;
 use crate::core::{CoreEvents, SessionCtx};
 
 const TAG_LEN: usize = 16;
-/// Parte do cabeçalho do `AudioPacket` que vai em claro (stream u8, seq u64, ts_samples u64).
-const CLEAR_LEN: usize = 17;
-/// Codec, canais e frames (u16): o início do trecho cifrado.
-const SEALED_HEAD: usize = HEADER_LEN - CLEAR_LEN;
-const STREAM_MAC_TO_PC: u8 = 1;
 const READ_TIMEOUT: Duration = Duration::from_millis(20);
 /// Frames por chamada do compensador (2,5 ms: abaixo do pacote, o alvo do jitter fica livre).
 const CHUNK_FRAMES: usize = 120;
@@ -271,7 +264,7 @@ fn start_playback(
     let jb = jitter.clone();
     stopper.spawn("relay-audio-rx", move || {
         let mut buf = [0u8; 2048];
-        let mut plain = Vec::with_capacity(SEALED_HEAD + PACKET_PAYLOAD_BYTES + TAG_LEN);
+        let mut plain = Vec::with_capacity(PLAIN_LEN + TAG_LEN);
         while !flag.load(Ordering::Relaxed) {
             let Ok((n, from)) = socket.recv_from(&mut buf) else {
                 continue;
@@ -279,7 +272,8 @@ fn start_playback(
             if from.ip() != peer_ip {
                 continue;
             }
-            let Some((seq, payload)) = open_datagram(&mut aead, &buf[..n], &mut plain) else {
+            let Some((seq, payload)) = open_datagram(&mut aead, &buf[..n], STREAM_PC, &mut plain)
+            else {
                 continue;
             };
             jb.lock()
@@ -299,30 +293,6 @@ fn start_playback(
         cur_device: cfg.mac_output_id.clone(),
         stopper,
     })
-}
-
-/// Confere e decifra um datagrama; devolve `(seq, payload PCM)`.
-fn open_datagram<'a>(
-    aead: &mut UdpAead,
-    datagram: &[u8],
-    plain: &'a mut Vec<u8>,
-) -> Option<(u64, &'a [u8])> {
-    if datagram.len() != CLEAR_LEN + SEALED_HEAD + PACKET_PAYLOAD_BYTES + TAG_LEN {
-        return None;
-    }
-    let (header, cipher) = datagram.split_at(CLEAR_LEN);
-    let seq = u64::from_le_bytes(header[1..9].try_into().ok()?);
-    aead.open(seq, header, cipher, plain).ok()?;
-    let (head, payload) = plain.split_at_checked(SEALED_HEAD)?;
-    let frames = u16::from_le_bytes([head[2], head[3]]);
-    if head[0] != CODEC_PCM16
-        || usize::from(head[1]) != CHANNELS
-        || usize::from(frames) != FRAMES_PER_PACKET
-        || payload.len() != PACKET_PAYLOAD_BYTES
-    {
-        return None;
-    }
-    Some((seq, payload))
 }
 
 /// Mantém o ring do dispositivo cheio até `RING_CHUNKS` chunks, tirando do jitter buffer pelo
@@ -346,7 +316,9 @@ fn play_loop(
     while !stop.load(Ordering::Relaxed) {
         let filled = capacity - ring.slots();
         if filled >= RING_CHUNKS * chunk_samples {
-            thread::sleep(Duration::from_micros(500));
+            // O ring guarda `RING_CHUNKS` chunks (10 ms): reabastecer com ≤3 ms de atraso não
+            // chega perto de esvaziá-lo e poupa ~1000 despertares/s.
+            thread::sleep(Duration::from_millis(2));
         } else {
             let n = {
                 let mut jb = jitter.lock().unwrap_or_else(|e| e.into_inner());
@@ -407,40 +379,29 @@ fn start_capture(
     let flag = stopper.flag.clone();
     let counter = sh.st().tx_seq.clone();
     stopper.spawn("relay-audio-tx", move || {
-        let mut pkt = AudioPacket {
-            stream: STREAM_MAC_TO_PC,
-            seq: 0,
-            ts_samples: 0,
-            codec: CODEC_PCM16,
-            channels: CHANNELS as u8,
-            frames: FRAMES_PER_PACKET as u16,
-            payload: vec![0; PACKET_PAYLOAD_BYTES],
-        };
-        let mut wire = Vec::with_capacity(HEADER_LEN + PACKET_PAYLOAD_BYTES);
-        let mut sealed = Vec::with_capacity(SEALED_HEAD + PACKET_PAYLOAD_BYTES + TAG_LEN);
-        let mut datagram = Vec::with_capacity(HEADER_LEN + PACKET_PAYLOAD_BYTES + TAG_LEN);
+        let (mut plain, mut sealed, mut datagram) = (
+            Vec::with_capacity(PLAIN_LEN),
+            Vec::with_capacity(PLAIN_LEN + TAG_LEN),
+            Vec::with_capacity(DATAGRAM_LEN),
+        );
         while !flag.load(Ordering::Relaxed) {
             let Ok(frame) = consumer.pop() else {
                 thread::sleep(Duration::from_millis(1));
                 continue;
             };
             debug_assert_eq!(frame.len(), AUDIO_FRAME_SAMPLES * CHANNELS);
-            if i16_to_pcm_bytes(&frame, &mut pkt.payload).is_err() {
+            let seq = counter.fetch_add(1, Ordering::Relaxed);
+            if !seal_datagram(
+                &aead,
+                STREAM_MIC,
+                seq,
+                &frame,
+                &mut plain,
+                &mut sealed,
+                &mut datagram,
+            ) {
                 continue;
             }
-            pkt.seq = counter.fetch_add(1, Ordering::Relaxed);
-            pkt.ts_samples = pkt.seq * FRAMES_PER_PACKET as u64;
-            wire.clear();
-            if pkt.encode(&mut wire).is_err() {
-                continue;
-            }
-            let (header, payload) = wire.split_at(CLEAR_LEN);
-            if aead.seal(pkt.seq, header, payload, &mut sealed).is_err() {
-                continue;
-            }
-            datagram.clear();
-            datagram.extend_from_slice(header);
-            datagram.extend_from_slice(&sealed);
             let _ = socket.send_to(&datagram, dest);
         }
     });

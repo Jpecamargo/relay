@@ -314,7 +314,8 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use crate::audio_convert::{FrameSplitter, f32_from_le, fill_f32_le};
+    use crate::audio_convert::{f32_from_le, fill_f32_le, push_f32_interleaved};
+    use relay_core::audio::FrameSplitter;
     use std::sync::mpsc;
     use wasapi::{
         AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat,
@@ -525,7 +526,7 @@ mod imp {
                 }
                 f32_from_le(&bytes[..len], &mut samples);
                 // Ring cheio: descarta o quadro (consumidor atrasado), nunca bloqueia.
-                splitter.push_f32_interleaved(&samples, s.channels, |f| {
+                push_f32_interleaved(&mut splitter, &samples, s.channels, |f| {
                     let _ = sink.push(*f);
                 });
             }

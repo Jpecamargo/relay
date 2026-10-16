@@ -93,12 +93,11 @@ fn start_reverse_agent() -> RevAgent {
     let store = Arc::new(MemoryKeyStore::default());
     let deps = AgentDeps {
         keystore: store.clone(),
-        injector: Box::new(MockInj {
-            events: injected.clone(),
-            cursor: Some(cursor.clone()),
-        }),
+        injector: Box::new(
+            MockInjector::recording(injected.clone()).moving(cursor.clone(), (0, 0, 2560, 1440)),
+        ),
         pipe: None,
-        cursor: Box::new(MockCursor(cursor.clone())),
+        cursor: Box::new(MockCursor::at(cursor.clone())),
         displays: Box::new(MockDisplays {
             list: displays.clone(),
             cb: Cb::default(),
@@ -129,11 +128,8 @@ fn start_reverse_agent() -> RevAgent {
             sink: sink.clone(),
             swallow: swallow.clone(),
         }),
-        cursor: Box::new(MockCursor(Arc::default())),
-        injector: Box::new(MockInj {
-            events: local_injected.clone(),
-            cursor: None,
-        }),
+        cursor: Box::new(MockCursor::at(Arc::default())),
+        injector: Box::new(MockInjector::recording(local_injected.clone())),
     };
     let core = AgentCore::start_with_reverse(deps, config, rec.clone(), Some(reverse)).unwrap();
     RevAgent {
@@ -163,7 +159,7 @@ fn start_reverse_agent() -> RevAgent {
 /// O Mac falso: sessão discada + `Receiver` em modo Mac com injetor e cursor mock.
 struct FakeMac {
     dialer: SessionDialer,
-    rx: Receiver<MockInj, MockCursor>,
+    rx: Receiver<MockInjector, MockCursor>,
     fast: StdRx<InputEvent>,
     injected: Events,
     received: Vec<Message>,
@@ -197,11 +193,8 @@ async fn connect_mac(ra: &RevAgent, mac_id: &StaticKeypair, peer: PairedPeer) ->
     let mut rx = Receiver::new(
         &config,
         vec![mac_display()],
-        MockInj {
-            events: injected.clone(),
-            cursor: None,
-        },
-        MockCursor(cursor),
+        MockInjector::recording(injected.clone()),
+        MockCursor::at(cursor),
     );
     rx.set_machine(Machine::Mac);
     rx.set_profile(profile());

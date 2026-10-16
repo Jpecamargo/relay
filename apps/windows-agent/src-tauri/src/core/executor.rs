@@ -23,7 +23,6 @@ pub trait SystemOps: Send {
     fn media(&mut self, key: MediaKey) -> Result<(), PlatformError>;
     fn power(&mut self, action: PowerAction) -> Result<(), PlatformError>;
     fn open_target(&mut self, target: &str) -> Result<(), PlatformError>;
-    fn type_text(&mut self, text: &str) -> Result<(), PlatformError>;
     fn capture_screen(&mut self, display_id: &str) -> Result<Vec<u8>, PlatformError>;
     fn metrics(&mut self) -> SystemMetrics;
 }
@@ -74,7 +73,8 @@ impl<O: SystemOps> CommandRunner<O> {
                 Ok(None)
             }
             RemoteCommand::OpenTarget { target } => self.ops.open_target(target).map(|()| None),
-            RemoteCommand::TypeText { text } => self.ops.type_text(text).map(|()| None),
+            // O Receiver digita pelo injetor antes de chegar ao executor.
+            RemoteCommand::TypeText { .. } => Err(PlatformError::Unsupported),
             RemoteCommand::GetMetrics => Ok(Some(CommandOutput::Metrics(self.ops.metrics()))),
         }
     }
@@ -141,11 +141,6 @@ impl SystemOps for WindowsOps {
     }
     fn open_target(&mut self, target: &str) -> Result<(), PlatformError> {
         shell::open_target(target)
-    }
-    fn type_text(&mut self, text: &str) -> Result<(), PlatformError> {
-        self.injector
-            .type_text(text)
-            .map_err(|e| PlatformError::Platform(e.to_string()))
     }
     fn capture_screen(&mut self, display_id: &str) -> Result<Vec<u8>, PlatformError> {
         screen_capture::capture_monitor_png(display_id)
@@ -220,9 +215,6 @@ mod tests {
         }
         fn open_target(&mut self, target: &str) -> Result<(), PlatformError> {
             self.rec(format!("open {target}"))
-        }
-        fn type_text(&mut self, text: &str) -> Result<(), PlatformError> {
-            self.rec(format!("type {text}"))
         }
         fn capture_screen(&mut self, display_id: &str) -> Result<Vec<u8>, PlatformError> {
             self.rec(format!("capture {display_id}"))?;
@@ -361,15 +353,6 @@ mod tests {
         });
         assert_eq!(r, CommandResult::ok(5, None));
         assert_eq!(c, ["open https://exemplo.com"]);
-    }
-
-    #[test]
-    fn type_text() {
-        let (r, c) = run(RemoteCommand::TypeText {
-            text: "olá".into()
-        });
-        assert_eq!(r, CommandResult::ok(5, None));
-        assert_eq!(c, ["type olá"]);
     }
 
     #[test]

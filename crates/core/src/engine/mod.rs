@@ -11,8 +11,9 @@ mod commands;
 mod controller;
 mod receiver;
 pub mod reverse;
-#[cfg(test)]
-mod testutil;
+/// Mocks de plataforma para testes (próprios e dos apps, via feature `test-util`).
+#[cfg(any(test, feature = "test-util"))]
+pub mod testutil;
 
 use crate::keymap::tables::mac_to_scan;
 use crate::types::{DisplayInfo, HotkeyAction, KeyCode, LayoutProfile, ProfileKey};

@@ -12,8 +12,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use relay_core::audio::{FrameSplitter, f32_sample_to_i16 as f32_to_i16};
 use relay_core::platform::{
-    AUDIO_CHANNELS, AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, PlatformError,
+    AUDIO_CHANNELS, AudioCapture, AudioFrame, AudioPlayback, PlatformError,
 };
 use relay_core::types::{AudioDevice, AudioDevices};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
@@ -116,51 +117,6 @@ fn to_stereo_into(input: &[f32], channels: usize, out: &mut Vec<f32>) {
     }
 }
 
-fn f32_to_i16(s: f32) -> i16 {
-    (s.clamp(-1.0, 1.0) * 32767.0).round() as i16
-}
-
-/// Acumula estéreo i16 intercalado de tamanho arbitrário e emite quadros de exatamente
-/// `AUDIO_FRAME_SAMPLES` amostras por canal.
-pub struct FrameSplitter {
-    frame: AudioFrame,
-    filled: usize,
-}
-
-impl Default for FrameSplitter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FrameSplitter {
-    pub fn new() -> Self {
-        Self {
-            frame: [0; AUDIO_FRAME_SAMPLES * AUDIO_CHANNELS],
-            filled: 0,
-        }
-    }
-
-    /// Amostras (intercaladas) acumuladas e ainda não emitidas.
-    pub fn pending(&self) -> usize {
-        self.filled
-    }
-
-    pub fn push(&mut self, mut samples: &[i16], emit: &mut impl FnMut(&AudioFrame)) {
-        while !samples.is_empty() {
-            let room = self.frame.len() - self.filled;
-            let n = room.min(samples.len());
-            self.frame[self.filled..self.filled + n].copy_from_slice(&samples[..n]);
-            self.filled += n;
-            samples = &samples[n..];
-            if self.filled == self.frame.len() {
-                emit(&self.frame);
-                self.filled = 0;
-            }
-        }
-    }
-}
-
 /// Entrada do dispositivo (qualquer taxa/canais) -> quadros de 48 kHz estéreo i16.
 struct CaptureConverter {
     channels: usize,
@@ -225,7 +181,7 @@ impl CaptureConverter {
                     pcm.extend(acc.iter().map(|&s| f32_to_i16(s)));
                     acc.clear();
                 }
-                splitter.push(pcm, emit);
+                splitter.push_i16(pcm, &mut *emit);
             }
             Some(r) => {
                 to_stereo_into(data, *channels, acc);
@@ -256,7 +212,7 @@ impl CaptureConverter {
                             .iter()
                             .map(|&s| f32_to_i16(s)),
                     );
-                    splitter.push(pcm, emit);
+                    splitter.push_i16(pcm, &mut *emit);
                 }
             }
         }
@@ -495,6 +451,7 @@ impl AudioCapture for MacAudioCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use relay_core::platform::AUDIO_FRAME_SAMPLES;
 
     const FRAME: usize = AUDIO_FRAME_SAMPLES * AUDIO_CHANNELS;
 
@@ -506,7 +463,7 @@ mod tests {
             let mut splitter = FrameSplitter::new();
             let mut frames: Vec<AudioFrame> = Vec::new();
             for chunk in input.chunks(size) {
-                splitter.push(chunk, &mut |f| frames.push(*f));
+                splitter.push_i16(chunk, |f| frames.push(*f));
             }
             assert_eq!(frames.len(), 7, "callback de {size}");
             assert_eq!(splitter.pending(), 123);

@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use relay_core::crypto::{remove_peer, save_peer};
+use relay_core::crypto::{forget_active_peer, remove_peer, save_active_peer};
 use relay_core::discovery::Advertiser;
 use relay_core::engine::Receiver;
 use relay_core::net::{SessionEvent, SessionListener};
@@ -398,11 +398,7 @@ impl Pump {
 
     fn on_paired(&mut self, peer: PairedPeer) {
         self.pairing_until = None;
-        let saved = save_peer(&*self.keystore, &peer).and_then(|()| {
-            self.keystore
-                .set(ACTIVE_PEER_ACCOUNT, peer.device_id.as_bytes())
-        });
-        if let Err(e) = saved {
+        if let Err(e) = save_active_peer(&*self.keystore, ACTIVE_PEER_ACCOUNT, &peer) {
             tracing::error!(error = %e, "não foi possível guardar o peer pareado");
             self.listener.remove_peer(&peer.device_id);
             self.events
@@ -424,8 +420,7 @@ impl Pump {
 
     fn forget_peer(&mut self) -> Option<PairedPeer> {
         let peer = self.peer.take()?;
-        let _ = remove_peer(&*self.keystore, &peer.device_id);
-        let _ = self.keystore.delete(ACTIVE_PEER_ACCOUNT);
+        let _ = forget_active_peer(&*self.keystore, ACTIVE_PEER_ACCOUNT, &peer.device_id);
         self.listener.remove_peer(&peer.device_id);
         Some(peer)
     }

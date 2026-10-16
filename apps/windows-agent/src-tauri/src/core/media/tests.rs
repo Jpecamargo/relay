@@ -14,10 +14,10 @@ use relay_core::crypto::{
     MemoryKeyStore, ReplayMode, StaticKeypair, UdpAead, UdpChannel, derive_udp_keys, device_id_of,
     load_or_create_identity, save_peer,
 };
+use relay_core::engine::testutil::MockClip;
 use relay_core::net::AudioLink;
 use relay_core::platform::{
-    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, ChangeCallback, ClipboardBackend,
-    FileProvider, KeyStore, PlatformError,
+    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, KeyStore, PlatformError,
 };
 use relay_core::transfer::{TransferClient, TransferServer};
 use relay_core::types::{
@@ -26,9 +26,10 @@ use relay_core::types::{
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::audio::{DATAGRAM_LEN, STREAM_MIC, encode_datagram};
+use super::audio::DATAGRAM_LEN;
 use super::platform::{AudioHost, OutputGuard};
 use super::{ACTIVE_PEER_ACCOUNT, Media, MediaDeps, MediaOut, MediaPort};
+use relay_core::audio::{STREAM_MIC, seal_datagram};
 
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 const HH: [u8; 32] = [9; 32];
@@ -48,59 +49,6 @@ fn wait<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
 }
 
 // ---- mocks ----
-
-type Provider = Arc<dyn Fn(&[FileEntry]) -> Result<Vec<PathBuf>, String> + Send + Sync>;
-
-#[derive(Default)]
-struct ClipState {
-    content: Option<ClipboardContent>,
-    paths: Vec<PathBuf>,
-    written: Vec<ClipboardContent>,
-    callback: Option<Arc<dyn Fn() + Send + Sync>>,
-    provider: Option<Provider>,
-}
-
-#[derive(Clone, Default)]
-struct MockClip(Arc<Mutex<ClipState>>);
-
-impl MockClip {
-    /// Cópia local do usuário: guarda e dispara o callback.
-    fn copy(&self, c: ClipboardContent, paths: Vec<PathBuf>) {
-        let cb = {
-            let mut s = self.0.lock().unwrap();
-            s.content = Some(c);
-            s.paths = paths;
-            s.callback.clone()
-        };
-        if let Some(cb) = cb {
-            cb();
-        }
-    }
-    fn written(&self) -> Vec<ClipboardContent> {
-        self.0.lock().unwrap().written.clone()
-    }
-}
-
-impl ClipboardBackend for MockClip {
-    fn read(&mut self) -> Result<Option<ClipboardContent>, PlatformError> {
-        Ok(self.0.lock().unwrap().content.clone())
-    }
-    fn write_remote(&mut self, content: ClipboardContent) -> Result<(), PlatformError> {
-        let mut s = self.0.lock().unwrap();
-        s.content = Some(content.clone());
-        s.written.push(content);
-        Ok(())
-    }
-    fn set_change_callback(&mut self, callback: ChangeCallback) {
-        self.0.lock().unwrap().callback = Some(Arc::from(callback));
-    }
-    fn local_paths(&self) -> Vec<PathBuf> {
-        self.0.lock().unwrap().paths.clone()
-    }
-    fn set_file_provider(&mut self, provider: FileProvider) {
-        self.0.lock().unwrap().provider = Some(Arc::from(provider));
-    }
-}
 
 type Log = Arc<Mutex<Vec<String>>>;
 
@@ -422,14 +370,13 @@ fn system_mode_switches_output_streams_encrypted_and_restores() {
         derive_udp_keys(&HH, UdpChannel::AudioPcToMac, true),
         ReplayMode::Window64,
     );
-    let (mut wire, mut plain, mut pkt) = ([0u8; 2048], Vec::new(), Vec::new());
+    let (mut wire, mut plain) = ([0u8; 2048], Vec::new());
     let mut last = None;
     for _ in 0..20 {
         let n = mac.recv(&mut wire).unwrap();
         assert_eq!(n, DATAGRAM_LEN);
-        let (seq, payload) =
-            super::audio::decode_datagram(&mut aead, &wire[..n], 0, &mut plain, &mut pkt)
-                .expect("decifra");
+        let (seq, payload) = relay_core::audio::open_datagram(&mut aead, &wire[..n], 0, &mut plain)
+            .expect("decifra");
         if let Some(l) = last {
             assert_eq!(seq, l + 1, "quadros contínuos");
         }
@@ -520,7 +467,7 @@ fn mic_from_mac_reaches_cable_input_through_the_jitter_buffer() {
             f[2 * k] = s;
             f[2 * k + 1] = s;
         }
-        assert!(encode_datagram(
+        assert!(seal_datagram(
             &aead,
             STREAM_MIC,
             seq,

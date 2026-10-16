@@ -12,11 +12,9 @@ name = "relay-service"
 path = "src/main.rs"
 
 [dependencies]
-relay-core.workspace = true
 relay-platform-windows.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-service.workspace = true
-windows.workspace = true

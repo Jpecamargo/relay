@@ -47,8 +47,6 @@ pub const PAIRING_CODE_TTL: Duration = Duration::from_secs(120);
 
 #[derive(Debug, thiserror::Error)]
 pub enum NetError {
-    #[error("não implementado")]
-    NotImplemented,
     #[error("peer não pareado")]
     UnknownPeer,
     #[error("{0}")]

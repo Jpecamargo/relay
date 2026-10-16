@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use relay_core::crypto::{
-    LocalDevice, device_id_of, generate_pairing_code, load_or_create_identity, load_peer,
+    LocalDevice, device_id_of, generate_pairing_code, load_active_peer, load_or_create_identity,
 };
 use relay_core::discovery::Advertiser;
 use relay_core::engine::EventHandler;
@@ -321,17 +321,11 @@ async fn setup(
     let identity =
         load_or_create_identity(&*deps.keystore).map_err(|e| start_err("identidade", e))?;
     let device_id = device_id_of(&identity.public);
-    let peers: Vec<_> = match deps.keystore.get(ACTIVE_PEER_ACCOUNT) {
-        Ok(Some(id)) => {
-            let id = String::from_utf8_lossy(&id).into_owned();
-            load_peer(&*deps.keystore, &id)
-                .ok()
-                .flatten()
-                .into_iter()
-                .collect()
-        }
-        _ => Vec::new(),
-    };
+    let peers: Vec<_> = load_active_peer(&*deps.keystore, ACTIVE_PEER_ACCOUNT)
+        .ok()
+        .flatten()
+        .into_iter()
+        .collect();
     let device = LocalDevice {
         name: deps.device_name.clone(),
         public_key: identity.public,

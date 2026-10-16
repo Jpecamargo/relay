@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use relay_core::crypto::{
-    LocalDevice, StaticKeypair, device_id_of, load_or_create_identity, load_peer, save_peer,
+    LocalDevice, StaticKeypair, device_id_of, load_active_peer, load_or_create_identity,
+    save_active_peer,
 };
 use relay_core::discovery::parse_manual_address;
 use relay_core::net::{DialerConfig, FastEvent, SessionDialer, SessionEvent};
@@ -212,9 +213,7 @@ impl<P: Platform> Manager<P> {
         self.stop_session(false).await;
         let ks = self.inner.platform.key_store();
         let old = self.inner.st().peer.clone();
-        save_peer(&*ks, &peer).map_err(|e| e.to_string())?;
-        ks.set(ACTIVE_PEER_ACCOUNT, peer.device_id.as_bytes())
-            .map_err(|e| e.to_string())?;
+        save_active_peer(&*ks, ACTIVE_PEER_ACCOUNT, &peer).map_err(|e| e.to_string())?;
         if let Some(old) = old.filter(|o| o.device_id != peer.device_id) {
             let _ = relay_core::crypto::remove_peer(&*ks, &old.device_id);
         }
@@ -404,13 +403,7 @@ type Loaded = (StaticKeypair, Option<PairedPeer>);
 
 fn load_identity(ks: &dyn KeyStore) -> Result<Loaded, String> {
     let identity = load_or_create_identity(ks).map_err(|e| e.to_string())?;
-    let peer = match ks.get(ACTIVE_PEER_ACCOUNT).map_err(|e| e.to_string())? {
-        Some(bytes) => {
-            let id = String::from_utf8(bytes).map_err(|e| e.to_string())?;
-            load_peer(ks, &id).map_err(|e| e.to_string())?
-        }
-        None => None,
-    };
+    let peer = load_active_peer(ks, ACTIVE_PEER_ACCOUNT).map_err(|e| e.to_string())?;
     Ok((identity, peer))
 }
 
