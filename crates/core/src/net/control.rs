@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Notify, mpsc, watch};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
 
@@ -19,8 +19,8 @@ use super::fast::FastShared;
 use super::stats::{Backoff, RttTracker, now_us};
 use super::{DialerConfig, NetError, SessionEvent};
 use crate::crypto::{
-    CryptoError, LocalDevice, NoiseSession, StaticKeypair, UdpChannel, noise_accept, noise_dial,
-    pair, read_frame, write_frame,
+    CryptoError, LocalDevice, NoiseSession, PairingError, StaticKeypair, UdpChannel, noise_accept,
+    noise_dial, pair, read_frame, write_frame,
 };
 use crate::protocol::{FrameReader, FrameWriter};
 use crate::types::consts::HEARTBEAT_MS;
@@ -483,7 +483,29 @@ pub(super) async fn dial_pair(
 pub(super) struct PairingOffer {
     pub code: String,
     pub expires: Instant,
+    pub failures: u32,
+    pub next_allowed: Instant,
+    pub busy: bool,
 }
+
+impl PairingOffer {
+    pub(super) fn new(code: String, expires: Instant) -> Self {
+        Self {
+            code,
+            expires,
+            failures: 0,
+            next_allowed: Instant::now(),
+            busy: false,
+        }
+    }
+}
+
+/// Tentativas erradas (SPAKE2 com o código errado) antes de o código ser invalidado.
+pub(super) const MAX_PAIR_FAILURES: u32 = 3;
+/// Intervalo mínimo entre o fim de uma tentativa e o início da próxima.
+pub(super) const PAIR_RETRY_DELAY: Duration = Duration::from_millis(500);
+/// Handshakes (tag, Noise ou pareamento) simultâneos; acima disso a conexão é fechada.
+pub(super) const MAX_PENDING_HANDSHAKES: usize = 16;
 
 pub(super) struct ListenerState {
     pub identity: StaticKeypair,
@@ -494,13 +516,44 @@ pub(super) struct ListenerState {
 }
 
 impl ListenerState {
-    fn take_code(&self) -> Option<String> {
-        let offer = self
-            .offer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()?;
-        (Instant::now() < offer.expires).then_some(offer.code)
+    /// Reserva a vaga de tentativa de pareamento: só uma por vez, respeitando o atraso entre
+    /// tentativas e a validade. Não consome o código.
+    fn begin_pairing(&self) -> Result<String, &'static str> {
+        let mut guard = self.offer.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(offer) = guard.as_mut() else {
+            return Err("nenhum código de pareamento aberto");
+        };
+        let now = Instant::now();
+        if now >= offer.expires {
+            *guard = None;
+            return Err("código de pareamento expirado");
+        }
+        if offer.busy || now < offer.next_allowed {
+            return Err("tentativa de pareamento em andamento ou rápida demais");
+        }
+        offer.busy = true;
+        Ok(offer.code.clone())
+    }
+
+    /// Fecha a tentativa: sucesso consome o código; código errado conta (invalida em
+    /// `MAX_PAIR_FAILURES`); outras falhas só impõem o atraso.
+    fn end_pairing(&self, code: &str, outcome: Result<(), &PairingError>) {
+        let mut guard = self.offer.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(offer) = guard.as_mut().filter(|o| o.code == code) else {
+            return;
+        };
+        offer.busy = false;
+        offer.next_allowed = Instant::now() + PAIR_RETRY_DELAY;
+        match outcome {
+            Ok(()) => *guard = None,
+            Err(PairingError::CodeMismatch) => {
+                offer.failures += 1;
+                if offer.failures >= MAX_PAIR_FAILURES {
+                    *guard = None;
+                }
+            }
+            Err(_) => {}
+        }
     }
 
     async fn emit(&self, ev: SessionEvent) {
@@ -512,6 +565,7 @@ async fn handle_incoming(
     mut stream: TcpStream,
     st: Arc<ListenerState>,
     est_tx: mpsc::Sender<Established>,
+    _permit: OwnedSemaphorePermit,
 ) {
     let tag = match timeout(HANDSHAKE_TIMEOUT, read_frame(&mut stream)).await {
         Ok(Ok(f)) if f.len() == 1 => f[0],
@@ -534,12 +588,12 @@ async fn handle_incoming(
             }
         }
         TAG_PAIR => {
-            let Some(code) = st.take_code() else {
-                st.emit(SessionEvent::PairFailed(
-                    "nenhum código de pareamento aberto".into(),
-                ))
-                .await;
-                return;
+            let code = match st.begin_pairing() {
+                Ok(code) => code,
+                Err(why) => {
+                    st.emit(SessionEvent::PairFailed(why.into())).await;
+                    return;
+                }
             };
             match timeout(
                 PAIR_TIMEOUT,
@@ -548,6 +602,7 @@ async fn handle_incoming(
             .await
             {
                 Ok(Ok(peer)) => {
+                    st.end_pairing(&code, Ok(()));
                     {
                         let mut peers = st.peers.lock().unwrap_or_else(|e| e.into_inner());
                         peers.retain(|p| p.device_id != peer.device_id);
@@ -555,8 +610,14 @@ async fn handle_incoming(
                     }
                     st.emit(SessionEvent::Paired(peer)).await;
                 }
-                Ok(Err(e)) => st.emit(SessionEvent::PairFailed(e.to_string())).await,
-                Err(_) => st.emit(SessionEvent::PairFailed("timeout".into())).await,
+                Ok(Err(e)) => {
+                    st.end_pairing(&code, Err(&e));
+                    st.emit(SessionEvent::PairFailed(e.to_string())).await;
+                }
+                Err(_) => {
+                    st.end_pairing(&code, Err(&PairingError::Other("timeout".into())));
+                    st.emit(SessionEvent::PairFailed("timeout".into())).await;
+                }
             }
         }
         _ => {}
@@ -569,6 +630,7 @@ pub(super) async fn accept_loop(
     est_tx: mpsc::Sender<Established>,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let pending = Arc::new(Semaphore::new(MAX_PENDING_HANDSHAKES));
     loop {
         let accepted = tokio::select! {
             () = wait_shutdown(&mut shutdown) => return,
@@ -581,7 +643,11 @@ pub(super) async fn accept_loop(
         if stream.set_nodelay(true).is_err() {
             continue;
         }
-        tokio::spawn(handle_incoming(stream, st.clone(), est_tx.clone()));
+        // Sem vaga de handshake: fecha na hora, para quem enche a fila não segurar o agente.
+        let Ok(permit) = pending.clone().try_acquire_owned() else {
+            continue;
+        };
+        tokio::spawn(handle_incoming(stream, st.clone(), est_tx.clone(), permit));
     }
 }
 

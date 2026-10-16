@@ -387,12 +387,10 @@ impl SessionListener {
             .expect("canal rápido vive até o shutdown")
     }
 
-    /// Abre um código de pareamento (uso único; a primeira tentativa o consome, certa ou errada).
+    /// Abre um código de pareamento (uso único: só o sucesso o consome; 3 tentativas erradas o invalidam, com 500 ms entre tentativas).
     pub fn open_pairing(&self, code: String, ttl: Duration) {
-        *self.offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(PairingOffer {
-            code,
-            expires: Instant::now() + ttl,
-        });
+        *self.offer.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(PairingOffer::new(code, Instant::now() + ttl));
     }
 
     pub fn add_peer(&self, peer: PairedPeer) {
