@@ -112,6 +112,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3573,6 +3579,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "relay-core"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bincode",
  "blake2 0.11.0",
  "chacha20poly1305 0.11.0",
@@ -3586,7 +3593,9 @@ dependencies = [
  "serde",
  "sha2 0.11.1",
  "snow",
+ "socket2",
  "spake2",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
@@ -3632,6 +3641,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-service-management",
  "relay-core",
+ "rtrb",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -3644,6 +3654,7 @@ dependencies = [
  "keyring",
  "nvml-wrapper",
  "relay-core",
+ "rtrb",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -3772,7 +3783,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4666,10 +4677,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

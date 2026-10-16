@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 relay-core.workspace = true
+rtrb.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true

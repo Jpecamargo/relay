@@ -28,3 +28,8 @@ mdns-sd.workspace = true
 hdrhistogram.workspace = true
 rubato.workspace = true
 png.workspace = true
+arrayvec.workspace = true
+socket2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

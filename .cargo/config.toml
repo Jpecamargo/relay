@@ -1,0 +1,4 @@
+# ts-rs exporta os tipos para o pacote TS a cada `cargo test` (e em `pnpm gen:types`), nunca
+# para crates/core/bindings. `relative = true`: relativo à pasta que contém `.cargo`.
+[env]
+TS_RS_EXPORT_DIR = { value = "packages/protocol-types/src/generated", relative = true }

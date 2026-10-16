@@ -1,1 +1,20 @@
-//! relay-core: contrato compartilhado (tipos, protocolo, cripto, sessão). Conteúdo real vem do F2.
+//! relay-core: contrato compartilhado (tipos, protocolo, cripto, sessão, layout, transição,
+//! keymap). Puro Rust. Cada módulo tem dono (`//! dono: <item>` na primeira linha); ver
+//! `OWNERS.md`. Só o F2 edita este arquivo e `types/`.
+
+pub mod audio;
+pub mod clipboard;
+pub mod config;
+pub mod crypto;
+pub mod discovery;
+pub mod engine;
+pub mod input_shaping;
+pub mod keymap;
+pub mod layout;
+pub mod net;
+pub mod platform;
+pub mod protocol;
+pub mod transfer;
+pub mod transition;
+pub mod types;
+pub mod wol;

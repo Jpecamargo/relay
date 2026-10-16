@@ -44,6 +44,9 @@ sha2 = "0.11.1"
 blake2 = "0.11.0"
 x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
 rand = "0.10.3"
+arrayvec = "0.7.8"
+socket2 = { version = "0.6.5", features = ["all"] }
+tempfile = "3.27.0"
 
 # Rede, métricas, áudio, imagem
 mdns-sd = "0.21.5"
