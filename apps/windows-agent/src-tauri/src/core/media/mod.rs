@@ -109,7 +109,7 @@ impl Media {
         let (out, outbox) = unbounded_channel();
         let state: SharedAudioState = Arc::default();
         let addrs: Arc<Mutex<MediaAddrs>> = Arc::default();
-        let w = Worker::new(
+        let mut w = Worker::new(
             deps,
             config.clone(),
             rx,
@@ -118,6 +118,7 @@ impl Media {
             addrs.clone(),
             tx.clone(),
         );
+        w.install_hooks();
         let thread = std::thread::Builder::new()
             .name("relay-media".into())
             .spawn(move || w.run())
@@ -261,7 +262,9 @@ impl Worker {
         }
     }
 
-    fn run(mut self) {
+    /// Registra os callbacks do clipboard. Roda antes da thread subir, para uma cópia logo após
+    /// `Media::start` não se perder (corrida vista no CI do Windows).
+    fn install_hooks(&mut self) {
         let tx = Mutex::new(self.tx.clone());
         self.clipboard.set_change_callback(Box::new(move || {
             let _ = tx
@@ -270,6 +273,9 @@ impl Worker {
                 .send(Cmd::ClipboardChanged);
         }));
         self.install_file_provider();
+    }
+
+    fn run(mut self) {
         loop {
             match self.rx.recv_timeout(TICK) {
                 Ok(Cmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
