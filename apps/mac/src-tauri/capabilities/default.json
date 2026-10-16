@@ -9,6 +9,7 @@
   ],
   "permissions": [
     "core:default",
-    "positioner:default"
+    "positioner:default",
+    "updater:default"
   ]
 }

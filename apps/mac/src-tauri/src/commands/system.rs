@@ -22,16 +22,6 @@ pub fn set_launch_at_login(state: State<'_, AppState>, enabled: bool) -> Result<
     state.backend.set_launch_at_login(enabled)
 }
 
-#[tauri::command(rename_all = "snake_case")]
-pub fn check_updates(state: State<'_, AppState>) -> Result<Option<String>, String> {
-    state.backend.check_updates()
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub fn install_update(state: State<'_, AppState>) -> Result<(), String> {
-    state.backend.install_update()
-}
-
 /// Labels aceitos: `panel`, `settings` e `editor`.
 pub fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
