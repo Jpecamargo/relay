@@ -232,7 +232,7 @@ struct ClientState {
 impl ClientState {
     fn try_connect(&mut self, path: &str) -> bool {
         self.last_attempt = Some(Instant::now());
-        self.file = OpenOptions::new().write(true).open(path).ok();
+        self.file = open_pipe(path).ok();
         self.file.is_some()
     }
 
@@ -309,6 +309,20 @@ impl InjectPipeClient {
             st.file = None;
             InjectError::Platform(format!("falha ao escrever no pipe: {e}"))
         })
+    }
+}
+
+/// Abre o pipe só com FILE_WRITE_DATA|SYNCHRONIZE: é tudo que o ACL do servidor concede ao
+/// usuário (sem FILE_CREATE_PIPE_INSTANCE, ninguém cria instância falsa do nome).
+fn open_pipe(path: &str) -> std::io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        OpenOptions::new().access_mode(0x0010_0002).open(path)
+    }
+    #[cfg(not(windows))]
+    {
+        OpenOptions::new().write(true).open(path)
     }
 }
 

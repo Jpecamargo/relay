@@ -278,14 +278,9 @@ mod win {
                     LRESULT(0)
                 }
                 WM_RENDERALLFORMATS => {
-                    // O dono vai sair com dados pendentes: renderiza o que falta.
-                    let entries = lock(&shared.pending).clone();
-                    if !entries.is_empty() && open_clipboard(hwnd.0 as isize).is_ok() {
-                        if IsClipboardFormatAvailable(CF_HDROP).is_ok() {
-                            render_hdrop(shared, &entries);
-                        }
-                        let _ = CloseClipboard();
-                    }
+                    // O dono vai sair (logoff/encerramento): não baixa arquivo nenhum, o que
+                    // travaria a saída. O CF_HDROP atrasado é abandonado.
+                    lock(&shared.pending).clear();
                     LRESULT(0)
                 }
                 WM_DESTROYCLIPBOARD => {
