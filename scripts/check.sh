@@ -4,6 +4,7 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 cd "$RELAY_ROOT"
 cargo fmt --check
+bash scripts/prepare-sidecar.sh --stub
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 bash scripts/check-windows.sh

@@ -2,6 +2,8 @@
 //! (SYSTEM) e seu helper de sessão (item W7); nas demais plataformas só valida a CLI.
 
 mod cli;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod logging;
 #[cfg(windows)]
 mod supervisor;
 
@@ -23,6 +25,18 @@ fn main() -> ExitCode {
 #[cfg(windows)]
 fn execute(cmd: Command) -> ExitCode {
     use relay_platform_windows::service;
+    // `run` e o helper não têm console: sem subscriber os logs se perdem. Helper em outro arquivo
+    // (processo distinto, rotação independente); sem permissão de escrita segue sem log.
+    let log_file = match cmd {
+        Command::Run => Some("service.log"),
+        Command::SessionHelper => Some("helper.log"),
+        Command::Install | Command::Uninstall => None,
+    };
+    if let Some(name) = log_file
+        && let Err(e) = logging::init(name)
+    {
+        eprintln!("log em arquivo indisponível: {e}");
+    }
     let result = match cmd {
         Command::Install => service::install().map(|()| println!("RelayService instalado")),
         Command::Uninstall => service::uninstall().map(|()| println!("RelayService removido")),

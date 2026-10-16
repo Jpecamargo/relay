@@ -25,6 +25,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AgentState::new(Arc::new(MockBackend::default())))
         .invoke_handler(tauri::generate_handler![
             commands::status::agent_get_status,
@@ -34,6 +35,8 @@ pub fn run() {
             commands::config::agent_get_config,
             commands::config::agent_save_config,
             commands::system::agent_set_autostart,
+            commands::updater::agent_check_updates,
+            commands::updater::agent_install_update,
         ])
         .setup(|app| {
             #[cfg(windows)]

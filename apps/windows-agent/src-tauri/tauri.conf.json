@@ -11,19 +11,52 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Relay Agent", "width": 380, "height": 480, "visible": false, "resizable": false }
+      {
+        "label": "main",
+        "title": "Relay Agent",
+        "width": 380,
+        "height": 480,
+        "visible": false,
+        "resizable": false
+      }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": false,
+    "externalBin": [
+      "binaries/relay-service"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Jpecamargo/relay/releases/latest/download/latest.json"
+      ],
+      "pubkey": "PLACEHOLDER_PUBKEY_GERADA_PELO_ITEM_REL"
+    }
   }
 }
