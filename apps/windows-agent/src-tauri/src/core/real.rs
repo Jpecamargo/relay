@@ -55,8 +55,8 @@ pub fn query_service(helper_active: bool) -> ServiceStatus {
     }
 }
 
-/// Dependências de produção. O executor de comandos (WI2) e a mídia (WI3) se plugam depois pelos
-/// campos `executor` e `message_hook`.
+/// Dependências de produção. O executor de comandos (WI2) já está ligado; a mídia (WI3) se pluga pelo
+/// campo `message_hook`.
 pub fn real_deps() -> AgentDeps {
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(InjectPipeClient::default())));
     AgentDeps {
@@ -66,7 +66,7 @@ pub fn real_deps() -> AgentDeps {
         cursor: Box::new(relay_platform_windows::cursor::WindowsCursor::default()),
         displays: Box::new(WindowsDisplays::default()),
         foreground: Some(Box::new(ForegroundWatcher::default())),
-        executor: None,
+        executor: Some(super::executor::windows_executor()),
         pointer_guard: Box::new(|| Box::new(PointerPrecisionGuard::engage())),
         service_probe: Box::new(query_service),
         device_name: relay_core::discovery::local_hostname(),
