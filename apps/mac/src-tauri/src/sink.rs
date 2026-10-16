@@ -2,7 +2,8 @@
 //! `CoreEvents` do app: cada evento do AppCore vira um `emit_*` do glossário.
 
 use relay_core::types::{
-    CommandResult, DisplaysPayload, LatencyStats, PairingEvent, PermissionsStatus, StatusSnapshot,
+    AudioStats, CommandResult, DisplaysPayload, LatencyStats, PairingEvent, PermissionsStatus,
+    StatusSnapshot, TransferProgress,
 };
 use tauri::AppHandle;
 
@@ -32,5 +33,11 @@ impl CoreEvents for TauriSink {
     }
     fn command_result(&self, result: &CommandResult) {
         events::emit_command_result(&self.0, result);
+    }
+    fn audio_stats(&self, stats: &AudioStats) {
+        events::emit_audio_stats(&self.0, stats);
+    }
+    fn transfer_progress(&self, progress: &TransferProgress) {
+        events::emit_transfer_progress(&self.0, progress);
     }
 }
