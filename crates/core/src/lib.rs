@@ -18,3 +18,6 @@ pub mod transfer;
 pub mod transition;
 pub mod types;
 pub mod wol;
+
+#[cfg(test)]
+mod test_alloc;

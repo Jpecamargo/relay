@@ -200,26 +200,7 @@ impl UdpAead {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::cell::Cell;
-
-    struct Counting;
-    thread_local! { static ALLOCS: Cell<u64> = const { Cell::new(0) }; }
-    unsafe impl GlobalAlloc for Counting {
-        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
-            unsafe { System.alloc(l) }
-        }
-        unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-            unsafe { System.dealloc(p, l) }
-        }
-        unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
-            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
-            unsafe { System.realloc(p, l, n) }
-        }
-    }
-    #[global_allocator]
-    static A: Counting = Counting;
+    use crate::test_alloc::measure;
 
     const HH: [u8; 32] = [7; 32];
     const HDR: [u8; 17] = [1; 17];
@@ -336,12 +317,13 @@ mod tests {
         let mut a = Vec::with_capacity(256);
         let mut b = Vec::with_capacity(256);
         let plain = [3u8; 64];
-        let before = ALLOCS.with(|c| c.get());
-        for seq in 0..100 {
-            d.seal(seq, &HDR, &plain, &mut a).unwrap();
-            l.open(seq, &HDR, &a, &mut b).unwrap();
-        }
-        assert_eq!(ALLOCS.with(|c| c.get()), before);
+        let ((), allocs, _) = measure(|| {
+            for seq in 0..100 {
+                d.seal(seq, &HDR, &plain, &mut a).unwrap();
+                l.open(seq, &HDR, &a, &mut b).unwrap();
+            }
+        });
+        assert_eq!(allocs, 0);
         assert_eq!(b, plain);
     }
 
