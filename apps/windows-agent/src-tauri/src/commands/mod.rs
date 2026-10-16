@@ -5,3 +5,4 @@ pub mod config;
 pub mod pairing;
 pub mod status;
 pub mod system;
+pub mod updater;

@@ -15,6 +15,7 @@ path = "src/main.rs"
 relay-core.workspace = true
 relay-platform-windows.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-service.workspace = true

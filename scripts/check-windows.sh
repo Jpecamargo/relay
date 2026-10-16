@@ -8,5 +8,6 @@ cd "$RELAY_ROOT"
 if ! command -v llvm-rc >/dev/null 2>&1; then
   export PATH="$RELAY_ROOT/scripts/shim:$PATH"
 fi
+bash "$RELAY_ROOT/scripts/prepare-sidecar.sh" --stub
 cargo check --target x86_64-pc-windows-msvc \
   -p relay-core -p relay-platform-windows -p relay-windows-agent -p relay-windows-service
