@@ -128,6 +128,8 @@ pub trait MediaHooks: Send + Sync + 'static {
     fn audio_devices(&self) -> AudioDevices {
         AudioDevices::default()
     }
+    /// Um `CaptureScreen` foi enviado ao PC: o PNG que ele devolve é ação explícita do usuário.
+    fn capture_screen_requested(&self) {}
 }
 
 /// Sem mídia: o padrão até o MI3.

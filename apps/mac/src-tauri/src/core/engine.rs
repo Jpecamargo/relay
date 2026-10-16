@@ -506,6 +506,9 @@ impl<P: Platform> Core<P> {
         if !self.link {
             return false;
         }
+        if matches!(cmd, RemoteCommand::CaptureScreen { .. }) {
+            self.inner.media.capture_screen_requested();
+        }
         let msg = self.dispatcher.command_message(cmd, Instant::now());
         if let (Message::Command { id, .. }, Some(r)) = (&msg, reply) {
             self.waiters.insert(*id, r);

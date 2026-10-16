@@ -6,11 +6,13 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use relay_core::clipboard::ClipboardSync;
 use relay_core::platform::ClipboardBackend;
-use relay_core::types::{ClipboardConfig, ClipboardContent, Message};
+use relay_core::types::{
+    ClipboardConfig, ClipboardContent, ClipboardFormat, ClipboardMode, Message,
+};
 
 use super::Sh;
 
@@ -44,19 +46,27 @@ pub(super) fn spawn(sh: Arc<Sh>) -> Sender<ClipCmd> {
 }
 
 fn run(sh: &Sh, mut backend: Box<dyn ClipboardBackend>, rx: &mpsc::Receiver<ClipCmd>) {
-    let mut sync = ClipboardSync::new(ClipboardConfig::default());
+    let mut cfg = ClipboardConfig::default();
+    let mut sync = ClipboardSync::new(cfg.clone());
+    // Só PNG, sempre ligado: recebe o resultado de CaptureScreen mesmo com o clipboard desligado.
+    let mut shot = capture_sync(&cfg);
     loop {
         let cmd = match rx.recv_timeout(TICK) {
             Ok(c) => c,
             Err(RecvTimeoutError::Timeout) => {
-                sync.expire(std::time::Instant::now());
+                sync.expire(Instant::now());
+                shot.expire(Instant::now());
                 continue;
             }
             Err(RecvTimeoutError::Disconnected) => return,
         };
         match cmd {
             ClipCmd::Quit => return,
-            ClipCmd::Config(c) => sync.set_config(c),
+            ClipCmd::Config(c) => {
+                sync.set_config(c.clone());
+                shot = capture_sync(&c);
+                cfg = c;
+            }
             ClipCmd::Local => {
                 if let Some(c) = read(sh, &mut *backend) {
                     send_all(sh, sync.on_local_change(c));
@@ -74,12 +84,32 @@ fn run(sh: &Sh, mut backend: Box<dyn ClipboardBackend>, rx: &mpsc::Receiver<Clip
                 tracing::info!("o PC não enviou o clipboard: {reason}");
             }
             ClipCmd::Msg(msg) => {
-                if let Some(content) = sync.on_message(msg) {
+                let expecting = sh.st().capture_until.is_some_and(|t| Instant::now() < t);
+                let via_shot =
+                    expecting && (!cfg.enabled || !cfg.formats.contains(&ClipboardFormat::Png));
+                let content = if via_shot {
+                    shot.on_message(msg)
+                } else {
+                    sync.on_message(msg)
+                };
+                if let Some(content) = content {
+                    if via_shot {
+                        sh.st().capture_until = None;
+                    }
                     apply_remote(sh, &mut *backend, content);
                 }
             }
         }
     }
+}
+
+fn capture_sync(cfg: &ClipboardConfig) -> ClipboardSync {
+    ClipboardSync::new(ClipboardConfig {
+        enabled: true,
+        mode: ClipboardMode::OnCopy,
+        max_bytes: cfg.max_bytes,
+        formats: vec![ClipboardFormat::Png],
+    })
 }
 
 /// Lê o pasteboard; uma lista de arquivos também aponta o servidor de transferência para eles.
@@ -91,8 +121,13 @@ fn read(sh: &Sh, backend: &mut dyn ClipboardBackend) -> Option<ClipboardContent>
             return None;
         }
     };
-    if matches!(content, ClipboardContent::FileList(_)) {
-        sh.files.set_paths(sh, backend.local_paths());
+    if let ClipboardContent::FileList(mut entries) = content {
+        // Ids globais na sessão: a lista anterior continua servida enquanto o PC a guardar.
+        let base = sh.files.add_list(sh, backend.local_paths());
+        for e in &mut entries {
+            e.id += base;
+        }
+        return Some(ClipboardContent::FileList(entries));
     }
     Some(content)
 }

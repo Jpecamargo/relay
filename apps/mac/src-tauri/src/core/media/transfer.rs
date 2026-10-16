@@ -9,7 +9,7 @@ use std::net::{SocketAddr, TcpListener as StdListener};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use relay_core::transfer::{TransferClient, TransferServer};
 use relay_core::types::{FileEntry, Message, TransferProgress};
@@ -32,14 +32,40 @@ pub(crate) struct Files {
     inner: Mutex<FilesInner>,
 }
 
-#[derive(Default)]
+/// Quanto tempo uma lista oferecida continua servida (o PC pode colar bem depois de copiar).
+const LIST_TTL: Duration = Duration::from_secs(600);
+/// Espera pelo primeiro byte de uma conexão de transferência antes de largá-la.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 struct FilesInner {
     server: Arc<Mutex<Option<Arc<TransferServer>>>>,
+    /// Todos os caminhos já oferecidos na sessão; o índice é o `FileEntry.id` do fio. Listas
+    /// velhas ficam como `PathBuf` vazio (id estável, pedido falha em vez de entregar outro arquivo).
+    all: Vec<PathBuf>,
+    lists: Vec<(Instant, std::ops::Range<usize>)>,
+    ttl: Duration,
+    handshake_timeout: Duration,
     addr: Option<SocketAddr>,
     task: Option<JoinHandle<()>>,
     /// Download em andamento (um por vez).
     download: Option<Arc<Download>>,
     next_transfer: u32,
+}
+
+impl Default for FilesInner {
+    fn default() -> Self {
+        Self {
+            server: Arc::default(),
+            all: Vec::new(),
+            lists: Vec::new(),
+            ttl: LIST_TTL,
+            handshake_timeout: HANDSHAKE_TIMEOUT,
+            addr: None,
+            task: None,
+            download: None,
+            next_transfer: 0,
+        }
+    }
 }
 
 struct Download {
@@ -84,30 +110,73 @@ impl Files {
             }
         };
         g.addr = std_listener.local_addr().ok();
-        let server = g.server.clone();
+        let (server, timeout) = (g.server.clone(), g.handshake_timeout);
         let _enter = sh.rt.enter();
         g.task = Some(sh.rt.spawn(async move {
             let Ok(listener) = TcpListener::from_std(std_listener) else {
                 return;
             };
-            accept_loop(listener, server).await;
+            accept_loop(listener, server, timeout).await;
         }));
     }
 
-    /// A partir de agora o PC baixa estes caminhos (`FileEntry.id` = índice).
-    pub fn set_paths(&self, sh: &Sh, paths: Vec<PathBuf>) {
-        let Some(ctx) = sh.session() else { return };
-        let server = TransferServer::new(ctx.identity.clone(), vec![ctx.peer.clone()], paths);
-        *self.lock().server.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(server));
+    /// Oferece uma lista nova sem tirar as anteriores do ar; devolve o `id` da primeira entrada
+    /// (some a `base` aos ids locais). Listas além do TTL são esvaziadas.
+    pub fn add_list(&self, sh: &Sh, paths: Vec<PathBuf>) -> u32 {
+        let ctx = sh.session();
+        let mut g = self.lock();
+        let now = Instant::now();
+        let ttl = g.ttl;
+        let FilesInner { all, lists, .. } = &mut *g;
+        lists.retain(|(at, range)| {
+            let live = now.duration_since(*at) < ttl;
+            if !live {
+                all[range.clone()].fill(PathBuf::new());
+            }
+            live
+        });
+        let base = g.all.len();
+        let range = base..base + paths.len();
+        g.all.extend(paths);
+        g.lists.push((now, range));
+        if let Some(ctx) = ctx {
+            let server =
+                TransferServer::new(ctx.identity.clone(), vec![ctx.peer.clone()], g.all.clone());
+            *g.server.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(server));
+        }
+        base as u32
+    }
+
+    #[cfg(test)]
+    pub fn restart_for_test(&self, sh: &Sh, ctx: &SessionCtx) {
+        self.lock().task = None;
+        self.listen(sh, ctx);
+    }
+
+    #[cfg(test)]
+    pub fn set_timeouts(&self, ttl: Duration, handshake: Duration) {
+        let mut g = self.lock();
+        g.ttl = ttl;
+        g.handshake_timeout = handshake;
     }
 }
 
-async fn accept_loop(listener: TcpListener, server: Arc<Mutex<Option<Arc<TransferServer>>>>) {
+async fn accept_loop(
+    listener: TcpListener,
+    server: Arc<Mutex<Option<Arc<TransferServer>>>>,
+    handshake_timeout: Duration,
+) {
     while let Ok((mut stream, remote)) = listener.accept().await {
         let _ = stream.set_nodelay(true);
         let current = server.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let Some(current) = current else { continue };
         tokio::spawn(async move {
+            // Quem conecta e não fala nada não prende a tarefa nem o socket.
+            let mut first = [0u8; 1];
+            let spoke = tokio::time::timeout(handshake_timeout, stream.peek(&mut first)).await;
+            if !matches!(spoke, Ok(Ok(n)) if n > 0) {
+                return;
+            }
             if let Err(e) = current.serve_connection(&mut stream).await {
                 tracing::warn!(%remote, "transferência encerrada: {e}");
             }
@@ -127,6 +196,8 @@ pub(super) fn session_down(sh: &Sh) {
         cancel(&d);
     }
     *g.server.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    g.all.clear();
+    g.lists.clear();
 }
 
 // ---- PC → Mac ----
@@ -236,10 +307,11 @@ pub(super) fn focus_changed(sh: &Arc<Sh>, remote: bool, left_down: bool) {
     if paths.is_empty() {
         return;
     }
+    let base = sh.files.add_list(sh, paths.clone());
     let files: Vec<FileEntry> = paths
         .iter()
         .enumerate()
-        .map(|(i, p)| entry_for(i as u32, p))
+        .map(|(i, p)| entry_for(base + i as u32, p))
         .collect();
     let offer_id = {
         let mut st = sh.st();
@@ -247,7 +319,6 @@ pub(super) fn focus_changed(sh: &Arc<Sh>, remote: bool, left_down: bool) {
         st.armed = Some(st.next_offer);
         st.next_offer
     };
-    sh.files.set_paths(sh, paths);
     sh.send(Message::FileOffer { offer_id, files });
 }
 

@@ -8,6 +8,8 @@
 	<string>O Relay captura teclado e trackpad para controlar o PC Windows.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>O Relay procura e conversa com o PC Windows na sua rede local.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>O Relay envia o microfone do Mac para o PC Windows quando você liga esse áudio.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_relay._tcp</string>

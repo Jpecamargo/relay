@@ -1001,3 +1001,195 @@ mod appcore {
         core.shutdown();
     }
 }
+
+// ---- revisão final: nonce, listas, handshake, PNG, Info.plist ----
+
+#[test]
+fn info_plist_declares_microphone_usage() {
+    let plist = include_str!("../../../Info.plist");
+    assert!(plist.contains("<key>NSMicrophoneUsageDescription</key>"));
+}
+
+/// Lê `n` datagramas do microfone e devolve os seq.
+fn mic_seqs(w: &World, n: usize) -> Vec<u64> {
+    let mut buf = [0u8; 2048];
+    (0..n)
+        .map(|_| {
+            let (len, _) = w.agent_udp.recv_from(&mut buf).expect("datagrama");
+            assert!(len > 17);
+            u64::from_le_bytes(buf[1..9].try_into().unwrap())
+        })
+        .collect()
+}
+
+#[test]
+fn mic_seq_keeps_counting_when_the_stream_is_toggled() {
+    let w = World::new(0);
+    w.media.set_audio_streams(false, true);
+    let first = mic_seqs(&w, 3);
+    w.media.set_audio_streams(false, false);
+    // Pacotes que ficaram na fila do socket antes de parar.
+    w.agent_udp.set_nonblocking(true).unwrap();
+    let mut buf = [0u8; 2048];
+    let mut last = *first.last().unwrap();
+    while let Ok((_, _)) = w.agent_udp.recv_from(&mut buf) {
+        last = last.max(u64::from_le_bytes(buf[1..9].try_into().unwrap()));
+    }
+    w.agent_udp.set_nonblocking(false).unwrap();
+    w.media.set_audio_streams(false, true);
+    let second = mic_seqs(&w, 3);
+    assert!(second[0] > last, "seq voltou: {last} -> {second:?}");
+
+    // Mesma sessão (mesmas chaves) reapresentada: o contador não zera.
+    let ctx = (*w.media.sh.session().unwrap()).clone();
+    w.media.session_up(ctx);
+    let third = mic_seqs(&w, 3);
+    assert!(third[0] > second[2], "{second:?} -> {third:?}");
+}
+
+fn file_list(id: u32, path: &Path) -> ClipboardContent {
+    ClipboardContent::FileList(vec![FileEntry {
+        id,
+        name: path.file_name().unwrap().to_string_lossy().into_owned(),
+        size: std::fs::metadata(path).unwrap().len(),
+        is_dir: false,
+    }])
+}
+
+fn offered_list(w: &mut World, path: &Path) -> Vec<FileEntry> {
+    {
+        let mut c = w.plat.clip.0.lock().unwrap();
+        c.paths = vec![path.to_path_buf()];
+        c.content = Some(file_list(0, path));
+    }
+    w.media.clipboard_switch();
+    let msgs = w.wait_msgs(|m| {
+        m.iter()
+            .any(|x| matches!(x, Message::ClipboardChunk { .. }))
+    });
+    let mut agent = agent_sync();
+    let Some(ClipboardContent::FileList(entries)) = msgs
+        .into_iter()
+        .fold(None, |acc, m| agent.on_message(m).or(acc))
+    else {
+        panic!("sem FileList")
+    };
+    entries
+}
+
+fn download_id(w: &World, id: u32, out: &Path) -> Result<Vec<PathBuf>, String> {
+    let addr = SocketAddr::new(LO, w.media.transfer_addr().unwrap().port());
+    std::fs::create_dir_all(out).unwrap();
+    let client = TransferClient::new(w.agent_id.clone(), w.mac_peer.clone());
+    let cancel = AtomicBool::new(false);
+    w.rt.block_on(async {
+        let mut s = TransferClient::connect(addr).await.unwrap();
+        client
+            .download(
+                &mut s,
+                &[id],
+                out,
+                u32::from(id as u16) + 10,
+                &cancel,
+                &mut |_| {},
+            )
+            .await
+            .map_err(|e| e.to_string())
+    })
+}
+
+#[test]
+fn earlier_offers_stay_servable_until_they_expire() {
+    let mut w = World::new(0);
+    let (x, y, z) = (
+        w.dir.join("x.bin"),
+        w.dir.join("y.bin"),
+        w.dir.join("z.bin"),
+    );
+    write_file(&x, 3000, 1);
+    write_file(&y, 4000, 2);
+    write_file(&z, 5000, 3);
+    let ex = offered_list(&mut w, &x);
+    // Arraste de outro arquivo depois da cópia: não pode trocar o que o PC ainda vai colar.
+    *w.plat.drag.lock().unwrap() = vec![y.clone()];
+    w.media.focus_changed(true, true);
+    let msgs = w.wait_msgs(|m| m.iter().any(|m| matches!(m, Message::FileOffer { .. })));
+    let Some(Message::FileOffer { files: ey, .. }) = msgs
+        .into_iter()
+        .find(|m| matches!(m, Message::FileOffer { .. }))
+    else {
+        unreachable!()
+    };
+    assert_ne!(ex[0].id, ey[0].id, "ids precisam ser estáveis e distintos");
+    let got_x = download_id(&w, ex[0].id, &w.dir.join("o1")).unwrap();
+    assert_eq!(hash(&got_x[0]), hash(&x));
+    let got_y = download_id(&w, ey[0].id, &w.dir.join("o2")).unwrap();
+    assert_eq!(hash(&got_y[0]), hash(&y));
+
+    // Expiração: com TTL curto, uma lista nova esvazia as velhas e o id antigo falha.
+    w.media
+        .sh
+        .files
+        .set_timeouts(Duration::from_millis(50), Duration::from_secs(10));
+    thread::sleep(Duration::from_millis(120));
+    let ez = offered_list(&mut w, &z);
+    assert!(download_id(&w, ex[0].id, &w.dir.join("o3")).is_err());
+    let got_z = download_id(&w, ez[0].id, &w.dir.join("o4")).unwrap();
+    assert_eq!(hash(&got_z[0]), hash(&z));
+}
+
+#[test]
+fn silent_transfer_connection_is_dropped() {
+    use std::io::Read;
+    let mut w = World::new(0);
+    let f = w.dir.join("a.bin");
+    write_file(&f, 10, 1);
+    offered_list(&mut w, &f);
+    w.media
+        .sh
+        .files
+        .set_timeouts(Duration::from_secs(600), Duration::from_millis(200));
+    // O timeout vale para conexões aceitas depois do ajuste: reinicia o listener.
+    w.media.sh.files.shutdown();
+    let ctx = w.media.sh.session().unwrap();
+    w.media.sh.files.restart_for_test(&w.media.sh, &ctx);
+    let addr = SocketAddr::new(LO, w.media.transfer_addr().unwrap().port());
+    let mut s = std::net::TcpStream::connect(addr).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    let mut b = [0u8; 1];
+    let r = s.read(&mut b);
+    assert!(matches!(r, Ok(0)), "conexão muda devia fechar: {r:?}");
+}
+
+#[test]
+fn capture_screen_png_applies_even_with_clipboard_sync_off() {
+    let w = World::new(0);
+    let mut cfg = Config::default();
+    cfg.clipboard.enabled = false;
+    w.media.config_changed(&cfg);
+    let png = vec![0x89, b'P', b'N', b'G', 9];
+    let mut pc = agent_sync();
+    // Sem pedido de captura, o toggle desligado vale.
+    deliver(
+        &w.media,
+        pc.on_local_change(ClipboardContent::Png(png.clone())),
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert!(w.plat.clip.0.lock().unwrap().written.is_empty());
+    // Com CaptureScreen em andamento, o PNG entra; texto comum continua barrado.
+    w.media.capture_screen_requested();
+    let mut pc = agent_sync();
+    deliver(
+        &w.media,
+        pc.on_local_change(ClipboardContent::Png(png.clone())),
+    );
+    wait_until("png aplicado", || {
+        w.plat.clip.0.lock().unwrap().written == [ClipboardContent::Png(png.clone())]
+    });
+    deliver(
+        &w.media,
+        pc.on_local_change(ClipboardContent::Text("não".into())),
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(w.plat.clip.0.lock().unwrap().written.len(), 1);
+}
