@@ -147,6 +147,16 @@ impl DialerConfig {
     }
 }
 
+/// Par e chaves UDP dos canais de áudio da sessão atual (derivadas do mesmo handshake Noise do
+/// canal de input, separadas por canal e direção). `pc_to_mac`/`mac_to_pc` já vêm orientadas
+/// para quem chama (`send`/`recv`).
+#[derive(Debug, Clone)]
+pub struct AudioLink {
+    pub remote_ip: IpAddr,
+    pub pc_to_mac: crate::crypto::UdpKeys,
+    pub mac_to_pc: crate::crypto::UdpKeys,
+}
+
 /// Handle de uma sessão (dialer ou listener).
 pub struct Session {
     shared: Arc<Shared>,
@@ -165,6 +175,18 @@ impl Session {
 
     pub fn stats(&self) -> watch::Receiver<LatencyStats> {
         self.shared.stats.subscribe()
+    }
+
+    /// IP do par e chaves de áudio da sessão atual (`None` fora de `Connected`).
+    pub fn audio_link(&self) -> Option<AudioLink> {
+        if *self.shared.status.borrow() != ConnectionStatus::Connected {
+            return None;
+        }
+        self.shared
+            .audio_link
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Sessões estabelecidas desde o início (sobe a cada reconexão).

@@ -46,6 +46,8 @@ pub(super) struct Shared {
     pub nodelay: AtomicU8,
     pub connections: AtomicU64,
     pub fast: Arc<FastShared>,
+    /// Endereço do par e chaves UDP de áudio da sessão atual (WI3/MI3).
+    pub audio_link: Mutex<Option<super::AudioLink>>,
 }
 
 impl Shared {
@@ -57,6 +59,7 @@ impl Shared {
             nodelay: AtomicU8::new(0),
             connections: AtomicU64::new(0),
             fast,
+            audio_link: Mutex::new(None),
         })
     }
 
@@ -202,6 +205,7 @@ async fn run_session(
         Ordering::Relaxed,
     );
     let peer = noise.peer.clone();
+    let remote_ip = stream.peer_addr().ok().map(|a| a.ip());
     let (mut rd, mut wr) = stream.into_split();
     let (ftx, mut frx) = mpsc::channel::<Vec<u8>>(64);
     let _reader = AbortOnDrop(tokio::spawn(async move {
@@ -278,6 +282,12 @@ async fn run_session(
     shared
         .fast
         .install(noise.udp_keys(UdpChannel::Input), ctx.fast_dest);
+    *shared.audio_link.lock().unwrap_or_else(|e| e.into_inner()) =
+        remote_ip.map(|remote_ip| super::AudioLink {
+            remote_ip,
+            pc_to_mac: noise.udp_keys(UdpChannel::AudioPcToMac),
+            mac_to_pc: noise.udp_keys(UdpChannel::AudioMacToPc),
+        });
     shared.connections.fetch_add(1, Ordering::Relaxed);
     shared.stats.send_replace(LatencyStats::default());
     shared.set_status(ConnectionStatus::Connected);
