@@ -5,7 +5,9 @@
 use std::sync::{Arc, Mutex};
 
 use relay_core::crypto::SystemKeyStore;
+use relay_core::platform::KeyStore;
 use relay_core::types::ServiceStatus;
+use relay_platform_windows::clipboard::WindowsClipboard;
 use relay_platform_windows::displays::WindowsDisplays;
 use relay_platform_windows::foreground::ForegroundWatcher;
 use relay_platform_windows::inject::WindowsInjector;
@@ -13,6 +15,8 @@ use relay_platform_windows::mouse_accel::PointerPrecisionGuard;
 use relay_platform_windows::pipe::InjectPipeClient;
 use relay_platform_windows::service::SERVICE_NAME;
 
+use super::media::platform::{WindowsAudioHost, windows_drop_target};
+use super::media::{CaptureSource, Media, MediaDeps};
 use super::routed::{PipeInjector, SharedPipe};
 use super::{AgentDeps, ForegroundSource};
 
@@ -55,12 +59,40 @@ pub fn query_service(helper_active: bool) -> ServiceStatus {
     }
 }
 
+/// Fila de PNGs do `CaptureScreen` (WI2) que a mídia oferece ao Mac como clipboard.
+/// TODO(integrador): com o WI2 integrado, trocar por `Box::new(super::executor::take_captures)`.
+fn real_captures() -> CaptureSource {
+    Box::new(Vec::new)
+}
+
+/// Mídia de produção: clipboard do Windows, Core Audio/VB-CABLE e Explorer.
+pub fn real_media(keystore: Arc<dyn KeyStore>) -> Media {
+    let config =
+        relay_core::config::load_or_default(&relay_core::config::config_path()).unwrap_or_default();
+    Media::start(
+        MediaDeps {
+            keystore,
+            clipboard: Box::new(WindowsClipboard::default()),
+            audio: Arc::new(WindowsAudioHost),
+            drop_target: windows_drop_target(),
+            temp_root: std::env::temp_dir(),
+            captures: real_captures(),
+        },
+        &config,
+    )
+}
+
 /// Dependências de produção. O executor de comandos (WI2) e a mídia (WI3) se plugam depois pelos
 /// campos `executor` e `message_hook`.
 pub fn real_deps() -> AgentDeps {
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(InjectPipeClient::default())));
+    let keystore: Arc<dyn KeyStore> = Arc::new(SystemKeyStore);
+    let media = real_media(keystore.clone());
     AgentDeps {
-        keystore: Arc::new(SystemKeyStore),
+        message_hook: Some(media.hook()),
+        engine_events: Some(media.engine_events()),
+        media: Some(Box::new(media)),
+        keystore,
         injector: Box::new(WindowsInjector::default()),
         pipe: Some(pipe),
         cursor: Box::new(relay_platform_windows::cursor::WindowsCursor::default()),
@@ -74,7 +106,5 @@ pub fn real_deps() -> AgentDeps {
         config_path: Some(relay_core::config::config_path()),
         bind_ip: [0, 0, 0, 0].into(),
         advertise: true,
-        message_hook: None,
-        engine_events: None,
     }
 }

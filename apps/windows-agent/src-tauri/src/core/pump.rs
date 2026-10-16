@@ -15,6 +15,7 @@ use relay_core::types::{
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Interval, MissedTickBehavior, interval};
 
+use super::media::{MediaOut, MediaPort};
 use super::routed::{BoxCursor, RoutedInjector};
 use super::{
     ACTIVE_PEER_ACCOUNT, AgentDeps, Cmd, ForegroundSource, MessageHook, Shared, UiEvents, now_ms,
@@ -48,6 +49,8 @@ pub(super) struct Pump {
     pointer_guard: Box<dyn Fn() -> Box<dyn Send> + Send + Sync>,
     guard: Option<Box<dyn Send>>,
     hook: Option<MessageHook>,
+    media: Option<Box<dyn MediaPort>>,
+    media_out: Option<mpsc::UnboundedReceiver<MediaOut>>,
     status_rx: watch::Receiver<ConnectionStatus>,
     peer: Option<PairedPeer>,
     foreground: Option<String>,
@@ -80,6 +83,8 @@ impl Pump {
             rx.set_profile(p);
         }
         let status_rx = listener.status();
+        let mut media = deps.media;
+        let media_out = media.as_mut().and_then(|m| m.take_outbox());
         Self {
             shared,
             listener,
@@ -92,6 +97,8 @@ impl Pump {
             pointer_guard: deps.pointer_guard,
             guard: None,
             hook: deps.message_hook,
+            media,
+            media_out,
             status_rx,
             peer: peers.into_iter().next(),
             foreground: None,
@@ -125,6 +132,11 @@ impl Pump {
                     if r.is_err() { break; }
                     self.on_stats(*stats_rx.borrow_and_update());
                 }
+                out = recv_media(&mut self.media_out) => match out {
+                    Some(MediaOut::Send(m)) => self.send_all(vec![m]).await,
+                    Some(MediaOut::State) => self.publish(),
+                    None => self.media_out = None,
+                },
                 _ = clock.tick() => self.on_tick(),
             }
             let active = self.rx.is_active();
@@ -136,6 +148,8 @@ impl Pump {
         }
         self.rx.focus_lost();
         self.guard = None;
+        // Desliga o áudio e restaura a saída padrão antes de fechar a sessão.
+        self.media = None;
         let Pump { listener, .. } = self;
         listener.shutdown().await;
     }
@@ -186,7 +200,11 @@ impl Pump {
             paused: self.paused,
             secure_input: false,
             clipboard_sync: self.shared.config().clipboard.enabled,
-            audio: Default::default(),
+            audio: self
+                .media
+                .as_ref()
+                .map(|m| m.audio_state())
+                .unwrap_or_default(),
         };
         let mut cur = self.shared.snapshot();
         if *cur != snap {
@@ -211,6 +229,14 @@ impl Pump {
         if !self.connected() {
             self.rx.focus_lost();
             self.guard = None;
+        }
+        // Sessão de pé: a mídia recebe IP do Mac e chaves de áudio; caiu: desliga o áudio.
+        let link = self
+            .connected()
+            .then(|| self.listener.audio_link())
+            .flatten();
+        if let Some(m) = self.media.as_mut() {
+            m.link_changed(link);
         }
         self.publish();
     }
@@ -237,6 +263,9 @@ impl Pump {
             self.guard = Some((self.pointer_guard)());
         }
         let local = self.displays.list().unwrap_or_default();
+        if let Some(m) = self.media.as_mut() {
+            m.link_changed(self.listener.audio_link());
+        }
         self.rx.set_local_displays(local.clone());
         let mut out = vec![Message::Displays(local)];
         if let Some(exe) = &self.foreground {
@@ -378,10 +407,22 @@ impl Pump {
             Cmd::ConfigChanged => {
                 let clipboard = self.shared.config().clipboard.clone();
                 self.rx.set_clipboard_config(clipboard);
+                let cfg = self.shared.config().clone();
+                if let Some(m) = self.media.as_mut() {
+                    m.config_changed(&cfg);
+                }
                 self.publish();
             }
             Cmd::Shutdown => {}
         }
+    }
+}
+
+/// Próxima saída da mídia (nunca resolve se não há mídia).
+async fn recv_media(rx: &mut Option<mpsc::UnboundedReceiver<MediaOut>>) -> Option<MediaOut> {
+    match rx {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
     }
 }
 
