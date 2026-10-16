@@ -47,6 +47,8 @@ pub struct Receiver<Inj, Cur> {
     return_sent: Option<Instant>,
     clipboard: ClipboardConfig,
     on_event: Option<EventHandler>,
+    /// Máquina em que o Receiver roda (Windows; Mac no sentido inverso, D24).
+    machine: Machine,
 }
 
 impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
@@ -77,7 +79,14 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             return_sent: None,
             clipboard: config.clipboard.clone(),
             on_event: None,
+            machine: Machine::Windows,
         }
+    }
+
+    /// Sentido inverso (D24): o Receiver roda no Mac, controlado pelo agente.
+    pub fn set_machine(&mut self, machine: Machine) {
+        self.machine = machine;
+        self.rebuild();
     }
 
     pub fn set_executor(&mut self, executor: Box<dyn CommandExecutor>) {
@@ -109,6 +118,11 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             self.layout.profile.clone(),
             self.layout.combined(),
         );
+        // O motor trata "local" como a máquina que controla: o receptor é o outro lado.
+        self.transition.set_local_machine(match self.machine {
+            Machine::Windows => Machine::Mac,
+            Machine::Mac => Machine::Windows,
+        });
         self.sensitivity = SensitivityScaler::default();
         for p in &self.layout.profile.displays {
             self.sensitivity.set(&p.display_id, p.sensitivity);
@@ -240,7 +254,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
 
     fn display_under(&self, p: (i32, i32)) -> Option<usize> {
         self.layout.local.iter().position(|d| {
-            d.machine == Machine::Windows
+            d.machine == self.machine
                 && p.0 >= d.origin_px.0
                 && p.0 < d.origin_px.0 + d.size_px.0 as i32
                 && p.1 >= d.origin_px.1

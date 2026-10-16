@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use arrayvec::ArrayVec;
 use rtrb::Producer;
 
+use super::reverse::map_scan;
 use super::{EngineEvent, EventHandler, LayoutState, sat_i16, scan_of};
 use crate::input_shaping::{PinchTracker, RotationMapper, ScrollAccumulator};
 use crate::keymap::hotkeys::{HotkeyMatcher, HotkeyOutcome};
@@ -18,7 +19,7 @@ use crate::transition::{LocalDecision, TransitionEngine};
 use crate::types::{
     CapturedEvent, ClipboardConfig, ClipboardMode, Config, DisplayInfo, HotkeyAction,
     HotkeyBinding, InputEvent, KeyCombo, KeymapConfig, LayoutProfile, Machine, Message, Modifier,
-    ScrollPhase, TransitionConfig,
+    ReverseModifiers, ScrollPhase, TransitionConfig,
 };
 
 const SC_LCTRL: u16 = 0x1D;
@@ -35,7 +36,7 @@ enum Focus {
     Remote,
 }
 
-/// Lado que captura e envia (Mac; o agente no sentido inverso não usa este tipo, D24).
+/// Lado que captura e envia: o Mac, ou o agente Windows no sentido inverso (`set_reverse`, D24).
 ///
 /// `handle`, `on_message` e `tick` devem rodar na mesma thread (a da captura). O `handle` não
 /// aloca fora das trocas de foco.
@@ -78,6 +79,10 @@ pub struct Controller<Cap, Cur, Inj> {
     started: Instant,
     dropped_fast: u64,
     dropped_control: u64,
+    /// Máquina que captura. No sentido inverso (Windows) as teclas não passam pelo tradutor Mac→
+    /// Windows: só trocam de modificador (D25).
+    local_machine: Machine,
+    reverse: Option<ReverseModifiers>,
 }
 
 fn matchers(hotkeys: &[HotkeyBinding]) -> (HotkeyMatcher, HotkeyMatcher) {
@@ -146,7 +151,18 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             started: Instant::now(),
             dropped_fast: 0,
             dropped_control: 0,
+            local_machine: Machine::Mac,
+            reverse: None,
         }
+    }
+
+    /// Sentido inverso (D24, D25): este Controller roda no Windows e controla o Mac. As telas
+    /// locais são as do Windows; Ctrl/Win/Alt viram os modificadores do Mac configurados.
+    pub fn set_reverse(&mut self, modifiers: ReverseModifiers) {
+        self.local_machine = Machine::Windows;
+        self.reverse = Some(modifiers);
+        self.cur_display = 0;
+        self.rebuild_transition();
     }
 
     pub fn set_event_handler(&mut self, handler: EventHandler) {
@@ -166,6 +182,9 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         self.matcher_no_cmd = n;
         self.transition_cfg = config.transition.clone();
         self.keymap_cfg = config.keymap.clone();
+        if self.reverse.is_some() {
+            self.reverse = Some(config.keymap.reverse_modifiers.clone());
+        }
         if self.focus == Focus::Local {
             self.translator = KeymapTranslator::new(config.keymap.clone());
         }
@@ -191,6 +210,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             self.layout.combined(),
         );
         self.transition.set_locked(self.locked);
+        self.transition.set_local_machine(self.local_machine);
     }
 
     pub fn is_remote(&self) -> bool {
@@ -362,7 +382,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
     /// Tela do Mac que contém `p`; mantém a anterior se o ponto cair na borda externa.
     fn display_under(&self, p: (i32, i32)) -> Option<usize> {
         let inside = |d: &DisplayInfo| {
-            d.machine == Machine::Mac
+            d.machine == self.local_machine
                 && p.0 >= d.origin_px.0
                 && p.0 < d.origin_px.0 + d.size_px.0 as i32
                 && p.1 >= d.origin_px.1
@@ -376,7 +396,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             .local
             .iter()
             .position(inside)
-            .or_else(|| (cur.machine == Machine::Mac).then_some(self.cur_display))
+            .or_else(|| (cur.machine == self.local_machine).then_some(self.cur_display))
     }
 
     fn on_key(&mut self, code: crate::types::KeyCode, down: bool, autorepeat: bool, now: Instant) {
@@ -406,7 +426,21 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             HotkeyOutcome::Pass => {
                 let Some(scan) = scan else { return };
                 match self.focus {
-                    Focus::Local => self.track_local(scan, down),
+                    Focus::Local => {
+                        self.track_local(scan, down);
+                    }
+                    Focus::Remote if self.reverse.is_some() => {
+                        if self.track_local(scan, down) {
+                            return;
+                        }
+                        let mapped = self.reverse.as_ref().map_or(scan, |m| map_scan(scan, m));
+                        let ev = KeyEvent {
+                            scan: mapped,
+                            down,
+                            autorepeat,
+                        };
+                        self.send_key(ev, now);
+                    }
                     Focus::Remote => {
                         let mut out: ArrayVec<KeyEvent, MAX_TRANSLATED> = ArrayVec::new();
                         self.translator.translate_at(
@@ -428,7 +462,9 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         }
     }
 
-    fn track_local(&mut self, scan: u16, down: bool) {
+    /// Registra a tecla física; `true` quando é um down de tecla que já estava segurada (os hooks
+    /// do Windows não distinguem a repetição do sistema, que o receptor gera sozinho, D12).
+    fn track_local(&mut self, scan: u16, down: bool) -> bool {
         let pos = self.local_held.iter().position(|&s| s == scan);
         match (down, pos) {
             (true, None) => {
@@ -437,8 +473,10 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             (false, Some(i)) => {
                 self.local_held.remove(i);
             }
+            (true, Some(_)) => return true,
             _ => {}
         }
+        false
     }
 
     fn on_scroll(&mut self, dx_px: f64, dy_px: f64, phase: ScrollPhase, continuous: bool) {
@@ -579,12 +617,12 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         else {
             return;
         };
-        let target_is_mac = self
+        let target_is_local = self
             .layout
             .local
             .iter()
-            .any(|d| d.id == display_id && d.machine == Machine::Mac);
-        match (self.focus, target_is_mac) {
+            .any(|d| d.id == display_id && d.machine == self.local_machine);
+        match (self.focus, target_is_local) {
             (Focus::Local, false) => self.enter_remote(display_id, entry_px),
             (Focus::Local, true) => {
                 let _ = self.cursor.warp(entry_px.0, entry_px.1);
