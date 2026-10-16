@@ -12,7 +12,7 @@ relay-core.workspace = true
 rtrb.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows.workspace = true
+windows = { workspace = true, features = ["Win32_NetworkManagement_Ndis"] }
 windows-service.workspace = true
 wasapi.workspace = true
 nvml-wrapper.workspace = true
