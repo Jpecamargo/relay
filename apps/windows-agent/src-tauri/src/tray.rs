@@ -65,7 +65,11 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
         return;
     };
     let snap = state.backend.status();
-    let _ = items.status.set_text(status_label(&snap));
+    let label = match state.backend.error() {
+        Some(e) => format!("Erro: {e} (tentando de novo)"),
+        None => status_label(&snap),
+    };
+    let _ = items.status.set_text(label);
     let _ = items.pause.set_text(pause_label(snap.paused));
 }
 

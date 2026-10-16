@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
-use crate::core::{AgentCore, ReverseDeps, real};
+use crate::core::{AgentCore, ResilientBackend, ReverseDeps, real};
 use crate::events::TauriEvents;
 use crate::state::AgentState;
 
@@ -46,13 +46,24 @@ pub fn run() {
             let config = relay_core::config::load_or_default(&relay_core::config::config_path())
                 .unwrap_or_default();
             let events = Arc::new(TauriEvents(app.handle().clone()));
-            let core = AgentCore::start_with_reverse(
-                real::real_deps(),
+            let (start_events, start_config) = (events, config.clone());
+            let refresh = app.handle().clone();
+            // Falha ao subir (porta ocupada, Credential Manager) não derruba o app: bandeja em
+            // estado de erro, nova tentativa a cada 5 s e a cada pedido de pareamento.
+            let backend = ResilientBackend::new(
+                Box::new(move || {
+                    AgentCore::start_with_reverse(
+                        real::real_deps(),
+                        start_config.clone(),
+                        start_events.clone(),
+                        Some(ReverseDeps::real()),
+                    )
+                }),
                 config,
-                events,
-                Some(ReverseDeps::real()),
-            )?;
-            app.manage(AgentState::new(Arc::new(core)));
+                Box::new(move || tray::refresh(&refresh)),
+                true,
+            );
+            app.manage(AgentState::new(backend));
             tray::setup(app.handle())?;
             Ok(())
         })

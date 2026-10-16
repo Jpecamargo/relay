@@ -25,6 +25,10 @@ pub trait AgentBackend: Send + Sync {
     fn service_status(&self) -> ServiceStatus;
     fn config(&self) -> Config;
     fn save_config(&self, config: Config) -> AgentResult<()>;
+    /// Mensagem de erro quando o núcleo não subiu (bandeja em estado de erro); `None` = ok.
+    fn error(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Validade do código de pareamento (D5).

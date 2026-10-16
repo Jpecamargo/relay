@@ -11,6 +11,7 @@ pub mod executor;
 pub mod media;
 mod pump;
 pub mod real;
+mod resilient;
 mod reverse;
 mod routed;
 #[cfg(test)]
@@ -37,6 +38,7 @@ use relay_core::types::{
 use tokio::sync::mpsc;
 
 use crate::backend::{AgentBackend, AgentError, AgentResult};
+pub use resilient::ResilientBackend;
 pub use reverse::{ReverseDeps, ReverseHandle};
 pub use routed::{BoxCursor, PipeInjector, RoutedInjector, SharedPipe};
 
@@ -351,9 +353,14 @@ async fn setup(
     let addrs = (listener.local_control_addr(), listener.local_input_addr());
 
     let advertiser = if deps.advertise {
-        Advertiser::start(&device_id)
-            .map_err(|e| tracing::warn!(error = %e, "mDNS indisponível; só pelo endereço manual"))
-            .ok()
+        Advertiser::start_with_ports(
+            &relay_core::discovery::local_hostname(),
+            &device_id,
+            addrs.0.port(),
+            addrs.1.port(),
+        )
+        .map_err(|e| tracing::warn!(error = %e, "mDNS indisponível; só pelo endereço manual"))
+        .ok()
     } else {
         None
     };

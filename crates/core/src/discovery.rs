@@ -59,11 +59,21 @@ impl Advertiser {
 
     /// Como `start`, com nome de instância explícito.
     pub fn start_named(instance: &str, device_id: &str) -> Result<Self, DiscoveryError> {
+        Self::start_with_ports(instance, device_id, PORT_CONTROL, PORT_INPUT)
+    }
+
+    /// Como `start_named`, anunciando as portas reais de escuta (TCP de controle e UDP de input).
+    pub fn start_with_ports(
+        instance: &str,
+        device_id: &str,
+        control_port: u16,
+        input_port: u16,
+    ) -> Result<Self, DiscoveryError> {
         let daemon = ServiceDaemon::new()?;
         let props = [
             ("id", device_id.to_string()),
             ("pv", PROTOCOL_VERSION.to_string()),
-            ("udp", PORT_INPUT.to_string()),
+            ("udp", input_port.to_string()),
         ];
         let host = format!("{instance}.local.");
         let info = ServiceInfo::new(
@@ -71,7 +81,7 @@ impl Advertiser {
             instance,
             &host,
             "",
-            PORT_CONTROL,
+            control_port,
             &props[..],
         )?
         .enable_addr_auto();
