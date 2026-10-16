@@ -1,0 +1,74 @@
+/* Tokens do kit. Claro por padrão, escuro pelo sistema (D22). Acento = laranja-coral do ícone. */
+:root {
+  color-scheme: light dark;
+
+  --relay-bg: #f6f5f3;
+  --relay-surface: #ffffff;
+  --relay-surface-sunken: #ecebe8;
+  --relay-border: #d9d7d2;
+  --relay-border-strong: #bdbab3;
+  --relay-text: #1d1c1a;
+  --relay-text-2: #5e5b55;
+  --relay-text-3: #8b8780;
+
+  --relay-accent: #d94f25;
+  --relay-accent-hover: #c2431d;
+  --relay-on-accent: #ffffff;
+  --relay-focus: #f2643a;
+
+  --relay-ok: #2c8a4b;
+  --relay-warn: #b7791f;
+  --relay-danger: #c93a32;
+  --relay-info: #4b5f7a;
+  --relay-ok-bg: #e4f1e8;
+  --relay-warn-bg: #f6ecd6;
+  --relay-danger-bg: #f8e1df;
+  --relay-info-bg: #e6eaf0;
+
+  --relay-shadow-float: 0 6px 20px rgb(0 0 0 / 0.16);
+
+  --relay-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --relay-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  --relay-text-xs: 11px;
+  --relay-text-sm: 12px;
+  --relay-text-md: 13px;
+  --relay-text-lg: 15px;
+
+  --relay-space-1: 4px;
+  --relay-space-2: 8px;
+  --relay-space-3: 12px;
+  --relay-space-4: 16px;
+  --relay-radius-sm: 4px;
+  --relay-radius-md: 6px;
+  --relay-radius-lg: 8px;
+  --relay-control-h: 24px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --relay-bg: #1e1d1b;
+    --relay-surface: #2a2926;
+    --relay-surface-sunken: #171614;
+    --relay-border: #3b3935;
+    --relay-border-strong: #55524c;
+    --relay-text: #f1efeb;
+    --relay-text-2: #aeaaa2;
+    --relay-text-3: #7d7971;
+
+    --relay-accent: #f2643a;
+    --relay-accent-hover: #ff7650;
+    --relay-on-accent: #1d0f09;
+    --relay-focus: #ff8a66;
+
+    --relay-ok: #5cc27d;
+    --relay-warn: #e0a84a;
+    --relay-danger: #f07168;
+    --relay-info: #8ea3c0;
+    --relay-ok-bg: #1f3326;
+    --relay-warn-bg: #3a2f17;
+    --relay-danger-bg: #3d211f;
+    --relay-info-bg: #252c36;
+
+    --relay-shadow-float: 0 6px 20px rgb(0 0 0 / 0.5);
+  }
+}

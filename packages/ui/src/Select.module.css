@@ -1,0 +1,9 @@
+.row { display: flex; align-items: center; justify-content: space-between; gap: var(--relay-space-3); min-height: 28px; }
+.label { font: var(--relay-text-md) var(--relay-font); color: var(--relay-text); }
+.select {
+  height: var(--relay-control-h); max-width: 60%; padding: 0 var(--relay-space-2);
+  font: var(--relay-text-md) var(--relay-font); color: var(--relay-text);
+  background: var(--relay-surface); border: 1px solid var(--relay-border-strong); border-radius: var(--relay-radius-md);
+}
+.select:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
+.select:disabled { opacity: 0.45; }

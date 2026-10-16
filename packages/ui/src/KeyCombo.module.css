@@ -1,0 +1,7 @@
+.combo { display: inline-flex; gap: 2px; }
+.key {
+  min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 500 var(--relay-text-sm) var(--relay-font); color: var(--relay-text);
+  background: var(--relay-surface-sunken); border: 1px solid var(--relay-border); border-radius: var(--relay-radius-sm);
+}

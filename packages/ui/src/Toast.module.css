@@ -1,0 +1,13 @@
+.toast {
+  display: flex; align-items: center; gap: var(--relay-space-3);
+  padding: var(--relay-space-2) var(--relay-space-3);
+  font: var(--relay-text-md) var(--relay-font); color: var(--relay-text);
+  background: var(--relay-surface); border: 1px solid var(--relay-border-strong);
+  border-left-width: 3px; border-radius: var(--relay-radius-md); box-shadow: var(--relay-shadow-float);
+}
+.info { border-left-color: var(--relay-info); }
+.ok { border-left-color: var(--relay-ok); }
+.danger { border-left-color: var(--relay-danger); }
+.close { margin-left: auto; padding: 0 var(--relay-space-1); font-size: var(--relay-text-lg); line-height: 1; color: var(--relay-text-2); background: none; border: 0; }
+.close:hover { color: var(--relay-text); }
+.close:focus-visible { outline: 2px solid var(--relay-focus); border-radius: var(--relay-radius-sm); }

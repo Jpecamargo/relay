@@ -1,0 +1,10 @@
+.banner {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--relay-space-3);
+  padding: var(--relay-space-2) var(--relay-space-3);
+  font: var(--relay-text-md) var(--relay-font); color: var(--relay-text);
+  border: 1px solid var(--relay-border); border-left-width: 3px; border-radius: var(--relay-radius-md);
+}
+.text { min-width: 0; }
+.info { background: var(--relay-info-bg); border-left-color: var(--relay-info); }
+.warn { background: var(--relay-warn-bg); border-left-color: var(--relay-warn); }
+.danger { background: var(--relay-danger-bg); border-left-color: var(--relay-danger); }

@@ -1,0 +1,19 @@
+.button {
+  height: var(--relay-control-h);
+  padding: 0 var(--relay-space-3);
+  font: 500 var(--relay-text-md) var(--relay-font);
+  color: var(--relay-text);
+  background: var(--relay-surface);
+  border: 1px solid var(--relay-border-strong);
+  border-radius: var(--relay-radius-md);
+  cursor: default;
+}
+.button:hover:not(:disabled) { background: var(--relay-surface-sunken); }
+.button:active:not(:disabled) { background: var(--relay-border); }
+.button:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
+.button:disabled { opacity: 0.45; }
+.primary { background: var(--relay-accent); border-color: var(--relay-accent); color: var(--relay-on-accent); }
+.primary:hover:not(:disabled) { background: var(--relay-accent-hover); }
+.primary:active:not(:disabled) { background: var(--relay-accent-hover); }
+.danger { color: var(--relay-danger); }
+.ghost { background: transparent; border-color: transparent; }
