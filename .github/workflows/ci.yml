@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+          cache-targets: true
+          cache-on-failure: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r build
+      - run: pnpm -r test
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+          cache-targets: true
+          cache-on-failure: false
+      - run: pnpm install --frozen-lockfile
+      # frontendDist dos apps Tauri precisa existir antes de compilar.
+      - run: pnpm -r build
+      - name: clippy
+        run: cargo clippy -p relay-core -p relay-platform-windows -p relay-windows-agent -p relay-windows-service --all-targets -- -D warnings
+      - name: test
+        run: cargo test -p relay-core -p relay-platform-windows -p relay-windows-agent -p relay-windows-service
+
+  types:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: types
+          cache-targets: true
+          cache-on-failure: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gen:types
+      # Tolerante: sem tipos gerados (gerador ainda ausente) não há diff e passa.
+      - name: tipos gerados estão em dia
+        run: |
+          git add -N packages/protocol-types
+          git diff --exit-code packages/protocol-types
