@@ -1,36 +1,27 @@
+/* Janela transparente com vibrancy nativa: nenhum fundo aqui, o material do macOS aparece. */
 .panel {
-  display: flex; flex-direction: column;
-  width: 360px; height: 520px; box-sizing: border-box; overflow: hidden;
-  background: var(--relay-bg); color: var(--relay-text);
-  font: var(--relay-text-md) var(--relay-font);
+  width: 360px; box-sizing: border-box; padding: 14px 6px 6px; overflow: hidden;
+  color: var(--relay-text); font: var(--relay-text-md) var(--relay-font);
+  -webkit-user-select: none; user-select: none;
 }
-.header {
-  display: flex; align-items: center; gap: var(--relay-space-2);
-  padding: var(--relay-space-3) var(--relay-space-4);
-  background: var(--relay-surface); border-bottom: 1px solid var(--relay-border);
+.header { padding: 0 12px 10px; }
+.titleRow { display: flex; align-items: baseline; justify-content: space-between; gap: var(--relay-space-3); }
+.title { margin: 0; font: 600 var(--relay-text-lg) var(--relay-font); }
+.peer { font: var(--relay-text-md) var(--relay-font); color: var(--relay-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subRow { display: flex; align-items: center; gap: 6px; margin-top: 3px; font: var(--relay-text-sm) var(--relay-font); font-variant-numeric: tabular-nums; color: var(--relay-text-2); }
+.focus { margin-left: auto; }
+.banners { display: flex; flex-direction: column; padding: 0 12px 6px; }
+.sep { height: 1px; margin: 5px 6px; border: 0; background: var(--relay-hairline); }
+.group { display: flex; flex-direction: column; }
+.volume { padding: 4px 6px 2px; display: flex; flex-direction: column; gap: 6px; }
+.volumeRow { display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 6px; }
+.media { display: flex; justify-content: center; gap: 14px; }
+.iconBtn {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0;
+  border: 0; border-radius: var(--relay-radius-sm); background: transparent; color: var(--relay-text-2); cursor: default;
 }
-.headerMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.badge { font: 600 var(--relay-text-lg) var(--relay-font); }
-.sub { font: var(--relay-text-xs) var(--relay-font-mono); color: var(--relay-text-2); font-variant-numeric: tabular-nums; }
-.focus { font: 600 var(--relay-text-xs) var(--relay-font); padding: 2px 8px; border-radius: 999px; background: var(--relay-accent); color: var(--relay-on-accent); }
-.banners { display: flex; flex-direction: column; gap: var(--relay-space-1); padding: var(--relay-space-2) var(--relay-space-4) 0; }
-.scroll { flex: 1; overflow-y: auto; padding: 0 var(--relay-space-4) var(--relay-space-4); }
-.row { display: flex; flex-wrap: wrap; gap: var(--relay-space-1); align-items: center; }
-.row > * { flex: 1 1 0; }
-.field { display: flex; gap: var(--relay-space-1); }
-.input {
-  flex: 1; min-width: 0; height: var(--relay-control-h); box-sizing: border-box;
-  padding: 0 var(--relay-space-2); border-radius: var(--relay-radius-sm);
-  border: 1px solid var(--relay-border-strong); background: var(--relay-surface);
-  color: var(--relay-text); font: var(--relay-text-sm) var(--relay-font);
-}
-.input:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
-.stat { display: flex; justify-content: space-between; font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); }
-.stat b { font-weight: 500; color: var(--relay-text); font-variant-numeric: tabular-nums; }
-.muted { color: var(--relay-text-3); font-size: var(--relay-text-sm); }
-.transfer { display: flex; flex-direction: column; gap: 2px; font-size: var(--relay-text-sm); }
-.transferHead { display: flex; justify-content: space-between; gap: var(--relay-space-2); }
-.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.err { color: var(--relay-danger); }
-.shot { max-width: 100%; border-radius: var(--relay-radius-sm); border: 1px solid var(--relay-border); }
-.toast { position: absolute; left: var(--relay-space-3); right: var(--relay-space-3); bottom: var(--relay-space-3); z-index: 10; }
+.iconBtn:hover:not(:disabled) { background: var(--relay-fill-hover); color: var(--relay-text); }
+.iconBtn:active:not(:disabled) { background: var(--relay-fill-active); }
+.iconBtn:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: -2px; }
+.iconBtn:disabled { opacity: 0.35; }
+.iconBtn[aria-pressed="true"] { color: var(--relay-accent); }

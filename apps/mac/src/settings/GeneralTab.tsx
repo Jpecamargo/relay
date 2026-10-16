@@ -52,10 +52,10 @@ export function GeneralTab({ config, update }: TabProps) {
   return (
     <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
-      <Section title="Início">
+      <Section title="Início" grouped>
         <Toggle label="Iniciar no login" checked={config.general.launch_at_login} onChange={setLogin} />
       </Section>
-      <Section title="Atualizações">
+      <Section title="Atualizações" grouped>
         <div className={styles.row}>
           <span className={styles.rowMain} role="status">
             {updateMsg}

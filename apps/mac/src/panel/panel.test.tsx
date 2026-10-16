@@ -49,11 +49,17 @@ const sentWith = (text: string) =>
 
 async function ready() {
   render(<Panel />);
-  await waitFor(() => expect(screen.getByRole("button", { name: "Bloquear" }).hasAttribute("disabled")).toBe(false));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Mudo no Windows" }).hasAttribute("disabled")).toBe(false));
 }
 
-test("Bloquear envia Power Lock sem confirmação e mostra toast de sucesso", async () => {
+/** Abre o submenu "PC ›" (energia). */
+const openPc = async () => {
   await ready();
+  fireEvent.click(screen.getByRole("button", { name: "PC" }));
+};
+
+test("Bloquear envia Power Lock sem confirmação e mostra toast de sucesso", async () => {
+  await openPc();
   fireEvent.click(screen.getByRole("button", { name: "Bloquear" }));
   await waitFor(() =>
     expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { Power: { action: "Lock", confirm: false } } }),
@@ -62,7 +68,7 @@ test("Bloquear envia Power Lock sem confirmação e mostra toast de sucesso", as
 });
 
 test("Reiniciar só envia depois de confirmar, com confirm:true", async () => {
-  await ready();
+  await openPc();
   fireEvent.click(screen.getByRole("button", { name: "Reiniciar" }));
   expect(sentWith("Power")).toHaveLength(0);
   fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
@@ -77,18 +83,39 @@ test("Reiniciar só envia depois de confirmar, com confirm:true", async () => {
 });
 
 test("CommandResult com erro vira toast de erro", async () => {
-  await ready();
+  await openPc();
   sendResult = { id: 2, ok: false, output: null, error: "timeout" };
   fireEvent.click(screen.getByRole("button", { name: "Suspender" }));
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("O PC não respondeu a tempo.");
 });
 
-test("evento de latência atualiza o texto", async () => {
-  render(<Panel />);
-  await waitFor(() => expect(bridge.listeners.has("relay:latency")).toBe(true));
+test("evento de latência atualiza o texto do cabeçalho", async () => {
+  await ready();
   await emit("relay:latency", { rtt_ms: 4.2, jitter_ms: 0.8, loss_pct: 0 });
-  expect(screen.getByText(/4\.2 ms · jitter 0\.8 ms/)).toBeTruthy();
+  expect(screen.getByText("Conectado · 4,2 ms")).toBeTruthy();
+});
+
+test("cabeçalho mostra o PC pareado e onde está o foco", async () => {
+  await ready();
+  expect(screen.getByText("Desktop")).toBeTruthy();
+  expect(screen.getByText("Foco: Mac")).toBeTruthy();
+  await emit("relay:status", { ...STATUS, focus: "Windows" });
+  expect(screen.getByText("Foco: Windows")).toBeTruthy();
+});
+
+test("toggle de cursor chama set_cursor_lock sem toast de sucesso", async () => {
+  await ready();
+  fireEvent.click(screen.getByRole("switch", { name: "Travar cursor" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_cursor_lock", { locked: true }));
+  expect(screen.queryByText(/Travar cursor: ok/)).toBeNull();
+});
+
+test("linhas de menu do rodapé: Ajustes e Encerrar", async () => {
+  await ready();
+  fireEvent.click(screen.getByRole("button", { name: /Encerrar/ }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("quit_app"));
+  expect(screen.getByRole("button", { name: /Ajustes/ }).textContent).toContain("⌘,");
 });
 
 test("banner de Secure Input aparece com active:true", async () => {
@@ -129,7 +156,7 @@ test("relay:command-result de áudio mostra toast e desliga o toggle", async () 
 });
 
 test("resultado igual por invoke e por evento gera um toast só", async () => {
-  await ready();
+  await openPc();
   sendResult = { id: 7, ok: false, output: null, error: "timeout" };
   fireEvent.click(screen.getByRole("button", { name: "Suspender" }));
   await screen.findByRole("alert");

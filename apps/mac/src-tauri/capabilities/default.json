@@ -1,14 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permiss\u00f5es das janelas do app",
+  "description": "Permissões das janelas do app",
   "windows": [
     "panel",
-    "settings",
-    "editor"
+    "main"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
     "positioner:default",
     "updater:default"
   ]

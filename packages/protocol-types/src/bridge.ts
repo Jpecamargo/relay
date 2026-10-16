@@ -65,6 +65,8 @@ export interface MacCommandMap {
   check_updates: { args: void; result: string | null };
   install_update: { args: void; result: void };
   open_window: { args: { label: WindowLabel }; result: void };
+  /** Encerra o app (linha "Encerrar" do painel). */
+  quit_app: { args: void; result: void };
 }
 
 /** Comandos do agente Windows: argumentos e retorno. */
@@ -113,6 +115,7 @@ export const COMMANDS = {
   check_updates: "check_updates",
   install_update: "install_update",
   open_window: "open_window",
+  quit_app: "quit_app",
   agent_get_status: "agent_get_status",
   agent_new_pairing_code: "agent_new_pairing_code",
   agent_revoke_pair: "agent_revoke_pair",

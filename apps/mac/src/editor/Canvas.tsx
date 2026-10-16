@@ -87,7 +87,7 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
             onPointerUp={onUp}
             onPointerCancel={onUp}
           >
-            <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={3 * unit} strokeWidth={1.5 * unit} />
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={7 * unit} strokeWidth={1.5 * unit} />
             <text x={r.x + r.w / 2} y={r.y + r.h / 2 - 4 * unit} textAnchor="middle" fontSize={13 * unit} className={styles.name}>
               {meta?.name ?? d.display_id}
             </text>

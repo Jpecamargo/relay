@@ -1,5 +1,5 @@
-.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--relay-space-4); background: rgb(0 0 0 / 0.35); }
-.dialog { width: 100%; max-width: 320px; padding: var(--relay-space-4); background: var(--relay-surface); border: 1px solid var(--relay-border-strong); border-radius: var(--relay-radius-lg); box-shadow: var(--relay-shadow-float); }
+.overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: var(--relay-space-4); background: rgb(0 0 0 / 0.28); }
+.dialog { width: 100%; max-width: 300px; padding: var(--relay-space-4); background: var(--relay-surface); border-radius: var(--relay-radius-xl); box-shadow: var(--relay-shadow-float); }
 .title { margin: 0 0 var(--relay-space-1); font: 600 var(--relay-text-lg) var(--relay-font); color: var(--relay-text); }
 .message { margin: 0 0 var(--relay-space-4); font: var(--relay-text-md) var(--relay-font); color: var(--relay-text-2); }
 .actions { display: flex; justify-content: flex-end; gap: var(--relay-space-2); }

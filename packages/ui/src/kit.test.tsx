@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ConfirmDialog, KeyCombo, Slider, Toggle, useRelayCommand, useRelayEvent } from "./index";
+import { ConfirmDialog, KeyCombo, MenuRow, Slider, Toggle, useRelayCommand, useRelayEvent } from "./index";
 
 const bridge = vi.hoisted(() => ({
   listeners: new Map<string, (p: unknown) => void>(),
@@ -93,4 +93,19 @@ test("useRelayCommand expõe resultado e erro", async () => {
 test("KeyCombo mostra modificadores em ordem e a tecla", () => {
   render(<KeyCombo combo={{ modifiers: ["Cmd", "Shift"], key: "KeyL" }} />);
   expect(screen.getByLabelText("Shift Cmd L")).toBeTruthy();
+});
+
+test("MenuRow como alternância expõe switch e inverte pelo clique", () => {
+  const onClick = vi.fn();
+  render(<MenuRow label="Travar cursor" icon="lock" checked={false} onClick={onClick} />);
+  const row = screen.getByRole("switch", { name: "Travar cursor" });
+  expect(row.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(row);
+  expect(onClick).toHaveBeenCalledOnce();
+});
+
+test("MenuRow de ação mostra o atalho e some o switch", () => {
+  render(<MenuRow label="Ajustes…" icon="gear" shortcut="⌘," />);
+  expect(screen.getByRole("button", { name: /Ajustes/ }).textContent).toContain("⌘,");
+  expect(screen.queryByRole("switch")).toBeNull();
 });

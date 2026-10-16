@@ -20,7 +20,7 @@ tauri-build.workspace = true
 
 [dependencies]
 relay-core.workspace = true
-tauri.workspace = true
+tauri = { workspace = true, features = ["macos-private-api"] }
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true

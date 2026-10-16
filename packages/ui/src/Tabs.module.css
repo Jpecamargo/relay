@@ -1,10 +1,10 @@
-.list { display: flex; gap: var(--relay-space-1); border-bottom: 1px solid var(--relay-border); }
+.list { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--relay-radius-md); background: var(--relay-fill); }
 .tab {
-  padding: var(--relay-space-1) var(--relay-space-3); margin-bottom: -1px;
+  padding: 2px var(--relay-space-3); height: 22px;
   font: 500 var(--relay-text-md) var(--relay-font); color: var(--relay-text-2);
-  background: none; border: 0; border-bottom: 2px solid transparent;
+  background: none; border: 0; border-radius: var(--relay-radius-sm);
 }
 .tab:hover { color: var(--relay-text); }
-.tab[aria-selected="true"] { color: var(--relay-text); border-bottom-color: var(--relay-accent); }
-.tab:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: -2px; border-radius: var(--relay-radius-sm); }
+.tab[aria-selected="true"] { color: var(--relay-text); background: var(--relay-surface); box-shadow: var(--relay-shadow-thumb); }
+.tab:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
 .panel { padding-top: var(--relay-space-3); }

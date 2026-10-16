@@ -1,18 +1,27 @@
-/* Tokens do kit. Claro por padrão, escuro pelo sistema (D22). Acento = laranja-coral do ícone. */
+/* Tokens do kit. Claro por padrão, escuro pelo sistema (D22). Acento = laranja-coral do ícone.
+   Visual de app nativo do macOS: raios generosos, preenchimentos translúcidos no lugar de bordas,
+   hierarquia por peso e cinza secundário. As superfícies "vibrantes" (painel, sidebar) deixam o
+   material da janela aparecer; `--relay-bg`/`--relay-surface` são para áreas opacas. */
 :root {
   color-scheme: light dark;
 
-  --relay-bg: #f6f5f3;
+  --relay-bg: #f5f5f4;
   --relay-surface: #ffffff;
-  --relay-surface-sunken: #ecebe8;
-  --relay-border: #d9d7d2;
-  --relay-border-strong: #bdbab3;
-  --relay-text: #1d1c1a;
-  --relay-text-2: #5e5b55;
-  --relay-text-3: #8b8780;
+  --relay-surface-sunken: #ebebe9;
+  --relay-border: #dcdbd8;
+  --relay-border-strong: #c4c2bd;
+  --relay-text: #1d1d1b;
+  --relay-text-2: #5f5e5a;
+  --relay-text-3: #8e8c87;
 
-  --relay-accent: #d94f25;
-  --relay-accent-hover: #c2431d;
+  /* Preenchimentos translúcidos: funcionam sobre vibrancy e sobre fundo opaco. */
+  --relay-fill: rgb(60 60 56 / 0.08);
+  --relay-fill-hover: rgb(60 60 56 / 0.12);
+  --relay-fill-active: rgb(60 60 56 / 0.18);
+  --relay-hairline: rgb(60 60 56 / 0.14);
+
+  --relay-accent: #e8562c;
+  --relay-accent-hover: #d44a22;
   --relay-on-accent: #ffffff;
   --relay-focus: #f2643a;
 
@@ -25,7 +34,8 @@
   --relay-danger-bg: #f8e1df;
   --relay-info-bg: #e6eaf0;
 
-  --relay-shadow-float: 0 6px 20px rgb(0 0 0 / 0.16);
+  --relay-shadow-float: 0 10px 30px rgb(0 0 0 / 0.18), 0 0 0 0.5px rgb(0 0 0 / 0.1);
+  --relay-shadow-thumb: 0 1px 3px rgb(0 0 0 / 0.3), 0 0 0 0.5px rgb(0 0 0 / 0.08);
 
   --relay-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   --relay-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
@@ -33,27 +43,35 @@
   --relay-text-sm: 12px;
   --relay-text-md: 13px;
   --relay-text-lg: 15px;
+  --relay-text-xl: 20px;
 
   --relay-space-1: 4px;
   --relay-space-2: 8px;
   --relay-space-3: 12px;
   --relay-space-4: 16px;
-  --relay-radius-sm: 4px;
-  --relay-radius-md: 6px;
-  --relay-radius-lg: 8px;
-  --relay-control-h: 24px;
+  --relay-space-5: 24px;
+  --relay-radius-sm: 6px;
+  --relay-radius-md: 8px;
+  --relay-radius-lg: 12px;
+  --relay-radius-xl: 14px;
+  --relay-control-h: 26px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --relay-bg: #1e1d1b;
-    --relay-surface: #2a2926;
-    --relay-surface-sunken: #171614;
-    --relay-border: #3b3935;
-    --relay-border-strong: #55524c;
-    --relay-text: #f1efeb;
-    --relay-text-2: #aeaaa2;
-    --relay-text-3: #7d7971;
+    --relay-bg: #1f1f1e;
+    --relay-surface: #2b2b29;
+    --relay-surface-sunken: #171716;
+    --relay-border: #3d3d3a;
+    --relay-border-strong: #575753;
+    --relay-text: #f3f2ef;
+    --relay-text-2: #b0aea8;
+    --relay-text-3: #7f7d77;
+
+    --relay-fill: rgb(255 255 255 / 0.08);
+    --relay-fill-hover: rgb(255 255 255 / 0.13);
+    --relay-fill-active: rgb(255 255 255 / 0.2);
+    --relay-hairline: rgb(255 255 255 / 0.12);
 
     --relay-accent: #f2643a;
     --relay-accent-hover: #ff7650;
@@ -69,6 +87,13 @@
     --relay-danger-bg: #3d211f;
     --relay-info-bg: #252c36;
 
-    --relay-shadow-float: 0 6px 20px rgb(0 0 0 / 0.5);
+    --relay-shadow-float: 0 10px 30px rgb(0 0 0 / 0.55), 0 0 0 0.5px rgb(255 255 255 / 0.1);
+    --relay-shadow-thumb: 0 1px 3px rgb(0 0 0 / 0.5), 0 0 0 0.5px rgb(0 0 0 / 0.2);
   }
+}
+
+/* Utilitário compartilhado: texto só para leitor de tela. */
+.relay-sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
 }

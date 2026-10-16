@@ -5,9 +5,11 @@ export interface LatencySparklineProps {
   values: ReadonlyArray<number>;
   width?: number;
   height?: number;
+  /** Esconde o número ao lado. */
+  hideValue?: boolean;
 }
 
-export function LatencySparkline({ values, width = 96, height = 24 }: LatencySparklineProps) {
+export function LatencySparkline({ values, width = 96, height = 24, hideValue }: LatencySparklineProps) {
   if (values.length === 0) return null;
   const max = Math.max(...values, 1);
   const stepX = values.length > 1 ? width / (values.length - 1) : 0;
@@ -24,10 +26,10 @@ export function LatencySparkline({ values, width = 96, height = 24 }: LatencySpa
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}
       >
-        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <circle cx={(values.length - 1) * stepX} cy={y(last)} r="2" fill="currentColor" />
+        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={(values.length - 1) * stepX} cy={y(last)} r="1.8" fill="currentColor" />
       </svg>
-      <span className={styles.value}>{Math.round(last)} ms</span>
+      {hideValue ? null : <span className={styles.value}>{Math.round(last)} ms</span>}
     </span>
   );
 }

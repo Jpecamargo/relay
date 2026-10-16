@@ -3,7 +3,8 @@
 .select {
   height: var(--relay-control-h); max-width: 60%; padding: 0 var(--relay-space-2);
   font: var(--relay-text-md) var(--relay-font); color: var(--relay-text);
-  background: var(--relay-surface); border: 1px solid var(--relay-border-strong); border-radius: var(--relay-radius-md);
+  background: var(--relay-fill); border: 0; border-radius: var(--relay-radius-md);
 }
+.select:hover:not(:disabled) { background: var(--relay-fill-hover); }
 .select:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
-.select:disabled { opacity: 0.45; }
+.select:disabled { opacity: 0.4; }

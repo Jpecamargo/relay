@@ -1,24 +1,19 @@
-// dono: U2
-import {
-  invokeCommand,
-  type CommandResult,
-  type AudioDevices,
-  type ConnectionStatus,
-  type LatencyStats,
-  type PermissionsStatus,
-  type StatusSnapshot,
-  type TransferProgress,
-} from "@relay/protocol-types";
-import { Banner, Button, LatencySparkline, StatusDot, Toast, useRelayEvent, type StatusTone } from "@relay/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText, isCommandResult } from "./errors";
+// dono: U2 (redesenho: ui-redesign). Painel do menu bar: só o essencial, no estilo de menu nativo.
+import { invokeCommand, type PermissionsStatus } from "@relay/protocol-types";
+import { Banner, Button, MenuRow, StatusDot, useRelayEvent } from "@relay/ui";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
+import { errorText } from "../shared/errors";
+import { decimal, STATUS_LABELS, statusKey, statusTone } from "../shared/status";
+import { useActions } from "../shared/useActions";
+import { useLiveStatus } from "../shared/useLiveStatus";
+import { openMain } from "../shared/windows";
 import styles from "./panel.module.css";
-import {
-  AudioSection, CursorClipboardSections, MediaSection, PowerSection,
-  SystemSection, TransfersSection, UtilitiesSection, type Act,
-} from "./sections";
+import { PcMenu } from "./PcMenu";
+import { useFitWindow } from "./useFitWindow";
+import { VolumeBlock } from "./VolumeBlock";
 
-const HISTORY = 30;
+const WIDTH = 360;
 
 /** Erros de áudio do PC e o toggle que eles desfazem. */
 const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
@@ -26,85 +21,30 @@ const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
   virtual_output_missing: "pc_to_mac",
 };
 
-const EMPTY: StatusSnapshot = {
-  status: "Disconnected", peer_name: null, focus: "Mac", locked: false, paused: false,
-  secure_input: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
-};
-
-const LABELS: Record<string, string> = {
-  Disconnected: "Desconectado", Discovering: "Procurando o PC", Connecting: "Conectando",
-  Pairing: "Pareando", Connected: "Conectado", Reconnecting: "Reconectando",
-  IncompatibleVersion: "Versão incompatível",
-};
-
-function statusKey(s: ConnectionStatus): string {
-  return typeof s === "string" ? s : Object.keys(s)[0] ?? "Disconnected";
+/** Abre a janela principal e some com o painel. */
+function openFromPanel(section?: Parameters<typeof openMain>[0]) {
+  void openMain(section)
+    .then(() => getCurrentWindow().hide())
+    .catch(() => undefined);
 }
-function tone(key: string): StatusTone {
-  if (key === "Connected") return "ok";
-  if (key === "Reconnecting" || key === "Connecting" || key === "Pairing") return "warn";
-  if (key === "IncompatibleVersion") return "danger";
-  return "idle";
-}
-
-interface ToastState { message: string; tone: "ok" | "danger"; n: number }
 
 export function Panel() {
-  const [initial, setInitial] = useState<StatusSnapshot>(EMPTY);
-  const statusEvent = useRelayEvent("relay:status");
-  const status = statusEvent ?? initial;
-
-  const [history, setHistory] = useState<number[]>([]);
-  const latency: LatencyStats | undefined = useRelayEvent("relay:latency", (l) =>
-    setHistory((h) => [...h.slice(-(HISTORY - 1)), l.rtt_ms]),
-  );
-  const metrics = useRelayEvent("relay:metrics");
-  const audioStats = useRelayEvent("relay:audio-stats");
+  const { status, latency, refresh } = useLiveStatus();
   const secureEvent = useRelayEvent("relay:secure-input");
   const permEvent = useRelayEvent("relay:permissions");
   const updateEvent = useRelayEvent("relay:update-available");
 
   const [perms, setPerms] = useState<PermissionsStatus>();
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
-  const [macDevices, setMacDevices] = useState<AudioDevices>();
-  const [streamVolume, setStreamVolume] = useState(1);
-  const [transfers, setTransfers] = useState<TransferProgress[]>([]);
-  const [toast, setToast] = useState<ToastState>();
-  const toastN = useRef(0);
-
-  const refresh = useCallback(() => {
-    invokeCommand("get_status").then(setInitial).catch(() => undefined);
-  }, []);
+  const { act, show, firstTime, toast } = useActions();
+  const root = useRef<HTMLElement>(null);
+  useFitWindow(root, WIDTH);
 
   useEffect(() => {
-    refresh();
     invokeCommand("check_permissions").then(setPerms).catch(() => undefined);
     invokeCommand("check_updates").then(setUpdateVersion).catch(() => undefined);
-    invokeCommand("list_audio_devices").then(setMacDevices).catch(() => undefined);
-    invokeCommand("get_config").then((c) => setStreamVolume(c.audio.stream_volume)).catch(() => undefined);
-  }, [refresh]);
+  }, []);
 
-  useRelayEvent("relay:transfer-progress", (t) =>
-    setTransfers((list) =>
-      list.some((x) => x.transfer_id === t.transfer_id)
-        ? list.map((x) => (x.transfer_id === t.transfer_id ? t : x))
-        : [...list, t],
-    ),
-  );
-
-  const show = (message: string, t: "ok" | "danger") => setToast({ message, tone: t, n: ++toastN.current });
-
-  // Resultados já mostrados (invoke e relay:command-result chegam em qualquer ordem). Id 0 não
-  // identifica comando: nesse caso a chave é o erro, com validade curta.
-  const seen = useRef(new Map<string, number>());
-  const firstTime = (r: CommandResult) => {
-    const k = r.id !== 0 ? `id:${r.id}` : `0:${r.error ?? ""}`;
-    const now = Date.now();
-    const at = seen.current.get(k);
-    seen.current.set(k, now);
-    for (const [key, t] of seen.current) if (now - t > 5000) seen.current.delete(key);
-    return at === undefined || (r.id === 0 && now - at > 1500);
-  };
   const statusRef = useRef(status);
   statusRef.current = status;
 
@@ -123,20 +63,21 @@ export function Panel() {
     else if (r.id !== 0) show("Comando executado", "ok");
   });
 
-  const act: Act = useCallback(async (label, fn) => {
-    try {
-      const r = await fn();
-      if (isCommandResult(r) && !firstTime(r)) return r;
-      if (isCommandResult(r) && !r.ok) {
-        show(`${label}: ${errorText(r.error ?? "falhou")}`, "danger");
-        return r;
+  // Atalhos do menu: ⌘, abre os Ajustes, ⌘Q encerra, Esc fecha o painel.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === ",") {
+        e.preventDefault();
+        openFromPanel("general");
+      } else if (e.metaKey && e.key.toLowerCase() === "q") {
+        e.preventDefault();
+        void invokeCommand("quit_app");
+      } else if (e.key === "Escape") {
+        void getCurrentWindow().hide().catch(() => undefined);
       }
-      show(`${label}: ok`, "ok");
-      return r;
-    } catch (e) {
-      show(`${label}: ${errorText(e)}`, "danger");
-      return undefined;
-    }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const key = statusKey(status.status);
@@ -150,61 +91,87 @@ export function Panel() {
   const update = updateEvent?.version ?? updateVersion;
   const incompatible = typeof status.status === "object" ? status.status.IncompatibleVersion : undefined;
 
-const retry = (
-    <Button onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
+  const retry = (
+    <Button variant="ghost" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
   );
+  const audio = status.audio;
+  const setAudio = (label: string, next: { pc_to_mac: boolean; mac_to_pc: boolean }) =>
+    void act(label, () => invokeCommand("set_audio_streams", next), true).then(refresh);
 
   return (
-    <main className={styles.panel} style={{ position: "relative" }}>
+    <main ref={root} className={styles.panel}>
       <header className={styles.header}>
-        <StatusDot tone={tone(key)} label={LABELS[key] ?? key} />
-        <div className={styles.headerMain}>
-          <span className={styles.badge}>{LABELS[key] ?? key}{status.peer_name ? ` · ${status.peer_name}` : ""}</span>
-          <span className={styles.sub}>
-            {latency ? `${latency.rtt_ms.toFixed(1)} ms · jitter ${latency.jitter_ms.toFixed(1)} ms` : "latência —"}
-          </span>
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>Relay</h1>
+          <span className={styles.peer}>{status.peer_name ?? ""}</span>
         </div>
-        <LatencySparkline values={history} width={64} height={22} />
-        <span className={styles.focus}>{status.focus === "Mac" ? "Foco: Mac" : "Foco: Windows"}</span>
+        <div className={styles.subRow}>
+          <StatusDot tone={statusTone(key)} label={STATUS_LABELS[key] ?? key} />
+          <span>{STATUS_LABELS[key] ?? key}{latency && online ? ` · ${decimal(latency.rtt_ms)} ms` : ""}</span>
+          <span className={styles.focus}>{status.focus === "Mac" ? "Foco: Mac" : "Foco: Windows"}</span>
+        </div>
       </header>
 
-      <div className={styles.banners}>
-        {secure ? <Banner tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
-        {missing.map(([kind, label]) => (
-          <Banner
-            key={kind} tone="danger"
-            action={<Button onClick={() => void act("Ajustes do sistema", () => invokeCommand("open_permission_settings", { kind }))}>Abrir ajustes</Button>}
-          >
-            Permissão faltando: {label}
-          </Banner>
-        ))}
-        {incompatible ? <Banner tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
-        {key === "Reconnecting" ? <Banner tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
-        {update ? (
-          <Banner tone="info" action={<Button variant="primary" onClick={() => void act("Atualização", () => invokeCommand("install_update"))}>Instalar</Button>}>
-            Atualização disponível: {update}
-          </Banner>
-        ) : null}
-      </div>
-
-      <div className={styles.scroll}>
-        <AudioSection
-          act={act} refresh={refresh} online={online} audio={status.audio} stats={audioStats}
-          macDevices={macDevices} streamVolume={streamVolume} setStreamVolume={setStreamVolume}
-        />
-        <MediaSection act={act} refresh={refresh} online={online} />
-        <PowerSection act={act} refresh={refresh} online={online} canWake={canWake} />
-        <CursorClipboardSections act={act} refresh={refresh} online={online} status={status} />
-        <SystemSection metrics={metrics} />
-        <UtilitiesSection act={act} refresh={refresh} online={online} />
-        <TransfersSection act={act} transfers={transfers} />
-      </div>
-
-      {toast ? (
-        <div className={styles.toast}>
-          <Toast key={toast.n} message={toast.message} tone={toast.tone} onDismiss={() => setToast(undefined)} />
+      {secure || missing.length > 0 || incompatible || key === "Reconnecting" || update ? (
+        <div className={styles.banners}>
+          {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
+          {missing.map(([kind, label]) => (
+            <Banner
+              key={kind} variant="line" tone="danger"
+              action={<Button variant="ghost" onClick={() => void act("Ajustes do sistema", () => invokeCommand("open_permission_settings", { kind }))}>Abrir ajustes</Button>}
+            >
+              Permissão faltando: {label}
+            </Banner>
+          ))}
+          {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
+          {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
+          {update ? (
+            <Banner variant="line" tone="info" action={<Button variant="primary" onClick={() => void act("Atualização", () => invokeCommand("install_update"))}>Instalar</Button>}>
+              Atualização disponível: {update}
+            </Banner>
+          ) : null}
         </div>
       ) : null}
+
+      <hr className={styles.sep} />
+      <VolumeBlock act={act} online={online} />
+      <hr className={styles.sep} />
+
+      <div className={styles.group}>
+        <MenuRow
+          label="Travar cursor" icon="lock" checked={status.locked}
+          onClick={() => void act("Travar cursor", () => invokeCommand("set_cursor_lock", { locked: !status.locked }), true).then(refresh)}
+        />
+        <MenuRow
+          label="Pausar compartilhamento" icon="pause" checked={status.paused}
+          onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused }), true).then(refresh)}
+        />
+        <MenuRow
+          label="Som do PC no Mac" icon="volume" checked={audio.pc_to_mac}
+          onClick={() => setAudio("Som do PC no Mac", { ...audio, pc_to_mac: !audio.pc_to_mac })}
+        />
+        <MenuRow
+          label="Microfone do Mac no PC" icon="mic" checked={audio.mac_to_pc}
+          onClick={() => setAudio("Microfone do Mac no PC", { ...audio, mac_to_pc: !audio.mac_to_pc })}
+        />
+      </div>
+      <hr className={styles.sep} />
+
+      <div className={styles.group}>
+        <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
+        <PcMenu act={act} online={online} canWake={canWake} />
+        <MenuRow
+          label="Enviar clipboard agora" icon="clipboard"
+          onClick={() => void act("Clipboard enviado", () => invokeCommand("clipboard_send_now"))}
+        />
+      </div>
+      <hr className={styles.sep} />
+
+      <div className={styles.group}>
+        <MenuRow label="Ajustes…" icon="gear" shortcut="⌘," onClick={() => openFromPanel("general")} />
+        <MenuRow label="Encerrar" icon="quit" shortcut="⌘Q" onClick={() => void invokeCommand("quit_app")} />
+      </div>
+      {toast}
     </main>
   );
 }

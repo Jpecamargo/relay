@@ -7,7 +7,7 @@ import styles from "./settings.module.css";
 
 export function HotkeysTab({ config, update, errors }: TabProps) {
   return (
-    <Section title="Atalhos globais">
+    <Section title="Atalhos globais" grouped>
       {HOTKEY_ACTIONS.map(({ action, label }) => {
         const k = actionKey(action);
         const current = config.hotkeys.find((b) => actionKey(b.action) === k)?.combo ?? null;

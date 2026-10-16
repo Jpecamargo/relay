@@ -10,7 +10,7 @@ export function KeyboardTab({ config, update, errors }: TabProps) {
 
   return (
     <>
-      <Section title="Toque do Cmd">
+      <Section title="Toque do Cmd" grouped>
         <NumberField label="Tempo do toque do Cmd" unit="ms" min={1} value={km.cmd_tap_timeout_ms} onChange={(v) => setKm({ cmd_tap_timeout_ms: v })} />
         {errors.cmd_tap_timeout_ms ? <span role="alert" className={styles.error}>{errors.cmd_tap_timeout_ms}</span> : null}
       </Section>

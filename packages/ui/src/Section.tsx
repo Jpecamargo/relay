@@ -6,11 +6,13 @@ export interface SectionProps {
   children: ReactNode;
   /** Controles alinhados à direita do título. */
   actions?: ReactNode;
+  /** Agrupa as linhas num bloco arredondado (use só quando os filhos são linhas uniformes). */
+  grouped?: boolean;
 }
 
-export function Section({ title, children, actions }: SectionProps) {
+export function Section({ title, children, actions, grouped }: SectionProps) {
   return (
-    <section className={styles.section}>
+    <section className={`${styles.section} ${grouped ? styles.grouped : ""}`}>
       <header className={styles.header}>
         <h2 className={styles.title}>{title}</h2>
         {actions}
