@@ -26,6 +26,8 @@ use tokio::time::{sleep, timeout};
 
 use super::*;
 
+mod reverse;
+
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 const KEY_A: u16 = 0x1E;
 

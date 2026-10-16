@@ -28,6 +28,8 @@ use tokio::runtime::Handle;
 use super::*;
 use crate::backend::AppBackend;
 
+mod reverse;
+
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
 fn mac_display() -> DisplayInfo {
@@ -146,6 +148,8 @@ struct MockPlatform {
     swallow: Arc<AtomicBool>,
     deny: Arc<AtomicBool>,
     cursor_log: Arc<Mutex<Vec<String>>>,
+    /// Eventos que o injetor do Mac recebeu (sentido inverso, R1).
+    injected: Arc<Mutex<Vec<InputEvent>>>,
     changed: Arc<Mutex<Option<ChangeCallback>>>,
     displays: Arc<Mutex<Vec<DisplayInfo>>>,
     sys_cb: SysCb,
@@ -166,6 +170,7 @@ impl MockPlatform {
             swallow: Arc::default(),
             deny: Arc::default(),
             cursor_log: Arc::default(),
+            injected: Arc::default(),
             changed: Arc::default(),
             displays: Arc::new(Mutex::new(vec![mac_display()])),
             sys_cb: Arc::default(),
@@ -211,7 +216,9 @@ impl Platform for MockPlatform {
         }
     }
     fn new_injector(&self) -> MockInjector {
-        MockInjector::default()
+        MockInjector {
+            events: self.injected.clone(),
+        }
     }
     fn new_displays(&self) -> MockDisplays {
         MockDisplays {

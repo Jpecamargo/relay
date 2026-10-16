@@ -15,6 +15,7 @@ mod engine;
 mod mac;
 mod net;
 mod platform;
+mod reverse;
 #[cfg(test)]
 mod tests;
 

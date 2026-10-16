@@ -24,6 +24,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Inner;
 use super::net::NetCmd;
 use super::platform::{Platform, Shared};
+use super::reverse::MacReverse;
 
 /// Comandos para a thread do core.
 pub(crate) enum CoreCmd {
@@ -36,6 +37,8 @@ pub(crate) enum CoreCmd {
     /// A sessão ficou `Connected` (ou deixou de estar).
     Link(bool),
     Peer(Message),
+    /// Movimento/rolagem do PC pelo canal rápido (sentido inverso).
+    Fast(InputEvent),
     SetLocked(bool),
     SetPaused(bool),
     ApplyConfig(Box<Config>),
@@ -72,6 +75,16 @@ pub(crate) fn spawn<P: Platform>(
     let capture = Shared::new(inner.platform.new_capture());
     let cursor = Shared::new(inner.platform.new_cursor());
     let injector = Shared::new(inner.platform.new_injector());
+    let rev = {
+        let st = inner.st();
+        MacReverse::<P>::new(
+            &st.config,
+            st.local.clone(),
+            injector.clone(),
+            cursor.clone(),
+            st.profile.clone(),
+        )
+    };
     let (ev_tx, ev_rx) = mpsc::channel();
     let (_, cap_rx) = RingBuffer::new(1);
     let (_, ctl_out) = RingBuffer::new(1);
@@ -97,6 +110,8 @@ pub(crate) fn spawn<P: Platform>(
         waiters: HashMap::new(),
         user_locked: false,
         user_paused: false,
+        rev,
+        rev_active: false,
     };
     std::thread::Builder::new()
         .name("relay-core".into())
@@ -126,6 +141,9 @@ struct Core<P: Platform> {
     waiters: HashMap<u32, Sender<CommandResult>>,
     user_locked: bool,
     user_paused: bool,
+    /// Sentido inverso: o PC controla o Mac (R1).
+    rev: MacReverse<P>,
+    rev_active: bool,
 }
 
 impl<P: Platform> Core<P> {
@@ -181,6 +199,7 @@ impl<P: Platform> Core<P> {
                 if let Some(c) = self.ctl.as_mut() {
                     c.tick(now);
                 }
+                self.rev.tick(now);
                 self.drain_events(false);
             }
             if now.duration_since(last_poll) >= POLL {
@@ -288,6 +307,7 @@ impl<P: Platform> Core<P> {
         if let Some(cfg) = new_cfg {
             self.inner.persist_config(&cfg);
         }
+        self.rev.set_profile(profile.clone());
         if let Some(c) = self.ctl.as_mut() {
             c.set_profile(profile);
         }
@@ -321,6 +341,7 @@ impl<P: Platform> Core<P> {
         if let Some(c) = self.ctl.as_mut() {
             c.set_local_displays(local.clone());
         }
+        self.rev.set_local_displays(local.clone());
         self.refresh_profile();
         if self.link {
             self.send(Message::Displays(local));
@@ -377,9 +398,11 @@ impl<P: Platform> Core<P> {
         self.inner.mutate(|s| s.status.focus = Machine::Mac);
     }
 
-    /// Pausa efetiva = pausa do usuário ou sem PC conectado (nunca engolir input sem destino).
+    /// Pausa efetiva = pausa do usuário, sem PC conectado (nunca engolir input sem destino) ou o
+    /// PC controlando o Mac (D24: só um lado controla por vez).
     fn sync_pause(&mut self) {
-        let effective = self.user_paused || !self.link;
+        self.rev_active = self.rev.is_active();
+        let effective = self.user_paused || !self.link || self.rev_active;
         if let Some(c) = self.ctl.as_mut()
             && c.is_paused() != effective
         {
@@ -474,6 +497,7 @@ impl<P: Platform> Core<P> {
             }
             CoreCmd::SessionDown => {
                 self.link = false;
+                self.rev.focus_lost();
                 self.teardown_controller();
                 self.out = None;
                 self.fail_waiters();
@@ -484,6 +508,9 @@ impl<P: Platform> Core<P> {
                     return;
                 }
                 self.link = up;
+                if !up {
+                    self.rev.focus_lost();
+                }
                 self.sync_pause();
                 if up {
                     self.send(Message::Displays(self.local_displays()));
@@ -493,6 +520,12 @@ impl<P: Platform> Core<P> {
                 self.inner.media.link_changed(up);
             }
             CoreCmd::Peer(msg) => self.on_peer(msg, now),
+            CoreCmd::Fast(ev) => {
+                let back = self.rev.on_input(ev, now);
+                for m in back {
+                    self.send(m);
+                }
+            }
             CoreCmd::SetLocked(l) => {
                 self.user_locked = l;
                 if let Some(c) = self.ctl.as_mut() {
@@ -537,6 +570,8 @@ impl<P: Platform> Core<P> {
     fn on_peer(&mut self, msg: Message, now: Instant) {
         match msg {
             Message::Displays(d) => {
+                self.rev
+                    .on_message(Message::Displays(d.clone()), false, now);
                 if let Some(c) = self.ctl.as_mut() {
                     c.on_message(Message::Displays(d.clone()), now);
                 }
@@ -545,6 +580,24 @@ impl<P: Platform> Core<P> {
                 self.send_layout();
                 self.publish_displays();
             }
+            // Sentido inverso: o PC pede o foco, manda input e devolve (R1). Com o PC no controle
+            // o `FocusReturn` é dele (confirmação), senão é pedido de retorno ao Controller.
+            m @ (Message::FocusEnter { .. } | Message::Input { .. }) => {
+                let mac_controls = self.ctl.as_ref().is_some_and(|c| c.is_remote());
+                for back in self.rev.on_message(m, mac_controls, now) {
+                    self.send(back);
+                }
+                self.sync_pause();
+                self.drain_events(true);
+            }
+            m @ Message::FocusReturn { .. } if self.rev.is_active() => {
+                for back in self.rev.on_message(m, false, now) {
+                    self.send(back);
+                }
+                self.sync_pause();
+            }
+            // Confirmação do PC a um FocusEnter que o Mac recusou: não é pedido de retorno.
+            Message::FocusReturn { .. } if self.rev.take_refusal_ack(now) => {}
             m @ (Message::FocusReturn { .. } | Message::ForegroundApp { .. }) => {
                 if let Some(c) = self.ctl.as_mut() {
                     c.on_message(m, now);

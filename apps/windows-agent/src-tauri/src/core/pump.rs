@@ -13,8 +13,10 @@ use relay_core::types::{
     ConnectionStatus, Machine, Message, PairedPeer, PairingEvent, PairingState, StatusSnapshot,
 };
 use tokio::sync::{mpsc, watch};
+
 use tokio::time::{Interval, MissedTickBehavior, interval};
 
+use super::reverse::{ReverseDeps, ReverseHandle};
 use super::routed::{BoxCursor, RoutedInjector};
 use super::{
     ACTIVE_PEER_ACCOUNT, AgentDeps, Cmd, ForegroundSource, MessageHook, Shared, UiEvents, now_ms,
@@ -54,6 +56,17 @@ pub(super) struct Pump {
     paused: bool,
     pairing_until: Option<Instant>,
     last_latency: Option<Instant>,
+    /// Sentido inverso (R1): Controller do PC sobre o Mac, em thread própria.
+    rev: Option<ReverseHandle>,
+    rev_out: Option<mpsc::UnboundedReceiver<Message>>,
+}
+
+/// Próxima mensagem do Controller reverso; sem sentido inverso nunca resolve.
+async fn recv_rev(rx: &mut Option<mpsc::UnboundedReceiver<Message>>) -> Option<Message> {
+    match rx {
+        Some(r) => r.recv().await,
+        None => std::future::pending().await,
+    }
 }
 
 impl Pump {
@@ -64,8 +77,29 @@ impl Pump {
         advertiser: Option<Advertiser>,
         events: Arc<dyn UiEvents>,
         peers: Vec<PairedPeer>,
+        reverse: Option<ReverseDeps>,
     ) -> Self {
+        let mut listener = listener;
         let local = deps.displays.list().unwrap_or_default();
+        let (rev, rev_out) = match reverse.zip(listener.take_input_producer()) {
+            Some((rdeps, fast)) => {
+                let (tx, rx) = mpsc::unbounded_channel();
+                let profile = shared.config().layout.profiles.first().cloned();
+                let cfg = shared.config().clone();
+                (
+                    Some(ReverseHandle::spawn(
+                        &cfg,
+                        local.clone(),
+                        profile,
+                        rdeps,
+                        fast,
+                        tx,
+                    )),
+                    Some(rx),
+                )
+            }
+            None => (None, None),
+        };
         let injector = RoutedInjector::new(deps.injector, deps.pipe);
         let mut rx = Receiver::new(&shared.config(), local, injector, BoxCursor(deps.cursor));
         if let Some(ex) = deps.executor {
@@ -98,6 +132,8 @@ impl Pump {
             paused: false,
             pairing_until: None,
             last_latency: None,
+            rev,
+            rev_out,
         }
     }
 
@@ -126,8 +162,16 @@ impl Pump {
                     self.on_stats(*stats_rx.borrow_and_update());
                 }
                 _ = clock.tick() => self.on_tick(),
+                m = recv_rev(&mut self.rev_out) => match m {
+                    Some(m) => self.send_all(vec![m]).await,
+                    None => self.rev_out = None,
+                },
             }
             let active = self.rx.is_active();
+            if let Some(rev) = &self.rev {
+                // D24: com o Mac controlando o PC, o PC não assume.
+                rev.set_blocked(active);
+            }
             if active != fast_clock {
                 fast_clock = active;
                 clock = ticker(if active { TICK_ACTIVE } else { TICK_IDLE });
@@ -136,6 +180,9 @@ impl Pump {
         }
         self.rx.focus_lost();
         self.guard = None;
+        if let Some(rev) = self.rev.as_mut() {
+            rev.shutdown();
+        }
         let Pump { listener, .. } = self;
         listener.shutdown().await;
     }
@@ -211,6 +258,9 @@ impl Pump {
         if !self.connected() {
             self.rx.focus_lost();
             self.guard = None;
+            if let Some(rev) = &self.rev {
+                rev.set_link(false);
+            }
         }
         self.publish();
     }
@@ -238,6 +288,10 @@ impl Pump {
         }
         let local = self.displays.list().unwrap_or_default();
         self.rx.set_local_displays(local.clone());
+        if let Some(rev) = &self.rev {
+            rev.set_local_displays(local.clone());
+            rev.set_link(true);
+        }
         let mut out = vec![Message::Displays(local)];
         if let Some(exe) = &self.foreground {
             out.push(Message::ForegroundApp { exe: exe.clone() });
@@ -295,8 +349,22 @@ impl Pump {
             }
             _ => {}
         }
-        let ignored =
-            self.paused && matches!(msg, Message::Input { .. } | Message::FocusEnter { .. });
+        // Com o PC controlando o Mac, o `FocusReturn` é do Controller (pedido de retorno do Mac ou
+        // recusa de um `FocusEnter`); fora disso é o Mac largando o PC.
+        let mut to_controller = false;
+        if let Some(rev) = &self.rev {
+            match &msg {
+                Message::Displays(_) => rev.send(msg.clone()),
+                Message::LayoutSync(p) => rev.set_profile(p.clone()),
+                Message::FocusReturn { .. } if rev.is_remote() => {
+                    rev.send(msg.clone());
+                    to_controller = true;
+                }
+                _ => {}
+            }
+        }
+        let ignored = to_controller
+            || (self.paused && matches!(msg, Message::Input { .. } | Message::FocusEnter { .. }));
         if !ignored {
             out.extend(self.rx.on_message(msg, now));
         }
@@ -351,6 +419,9 @@ impl Pump {
             }
             Cmd::SetPaused(paused) => {
                 self.paused = paused;
+                if let Some(rev) = &self.rev {
+                    rev.set_paused(paused);
+                }
                 if paused {
                     self.rx.focus_lost();
                 }
@@ -359,6 +430,9 @@ impl Pump {
             Cmd::DisplaysChanged => {
                 let local = self.displays.list().unwrap_or_default();
                 self.rx.set_local_displays(local.clone());
+                if let Some(rev) = &self.rev {
+                    rev.set_local_displays(local.clone());
+                }
                 if self.connected() {
                     self.send_all(vec![Message::Displays(local)]).await;
                 }
@@ -378,6 +452,9 @@ impl Pump {
             Cmd::ConfigChanged => {
                 let clipboard = self.shared.config().clipboard.clone();
                 self.rx.set_clipboard_config(clipboard);
+                if let Some(rev) = &self.rev {
+                    rev.apply_config(&self.shared.config());
+                }
                 self.publish();
             }
             Cmd::Shutdown => {}
