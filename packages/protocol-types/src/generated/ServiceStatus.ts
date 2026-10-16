@@ -3,4 +3,8 @@
 /**
  * Retorno de `agent_get_service_status`.
  */
-export type ServiceStatus = { installed: boolean, running: boolean, helper_active: boolean, };
+export type ServiceStatus = { installed: boolean, running: boolean, helper_active: boolean, 
+/**
+ * VB-CABLE ("CABLE Input") instalado, detectado pelos endpoints de áudio.
+ */
+vbcable_detected: boolean, };

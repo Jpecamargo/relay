@@ -7,7 +7,7 @@
 //! e `plain = codec u8, channels u8, frames u16 LE, PCM s16le` (o resto do `AudioPacket`).
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -151,6 +151,7 @@ fn start_pc(
     cfg: &AudioConfig,
     ports: &Ports,
     link: &AudioLink,
+    next_seq: Arc<AtomicU64>,
 ) -> Result<PcStream, String> {
     fn begin(c: &mut dyn AudioCapture) -> Result<rtrb::Consumer<AudioFrame>, String> {
         let (tx, rx) = rtrb::RingBuffer::<AudioFrame>::new(64);
@@ -210,10 +211,11 @@ fn start_pc(
                 Vec::with_capacity(PLAIN_LEN + TAG_LEN),
                 Vec::with_capacity(DATAGRAM_LEN),
             );
-            let mut seq = 0u64;
             while !flag.load(Ordering::Acquire) {
                 match rx.pop() {
                     Ok(frame) => {
+                        // Contador por sessão e canal: nunca repete seq com a mesma chave (nonce).
+                        let seq = next_seq.fetch_add(1, Ordering::Relaxed);
                         if encode_datagram(
                             &aead,
                             STREAM_PC,
@@ -225,7 +227,6 @@ fn start_pc(
                         ) {
                             let _ = socket.send_to(&wire, dest);
                         }
-                        seq += 1;
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(1)),
                 }
@@ -357,6 +358,8 @@ pub struct AudioEngine {
     host: Arc<dyn AudioHost>,
     pc: Option<PcStream>,
     mic: Option<MicStream>,
+    /// Próximo seq do som do PC; só volta a 0 quando a sessão (e a chave) muda.
+    pc_seq: Arc<AtomicU64>,
 }
 
 impl AudioEngine {
@@ -365,6 +368,7 @@ impl AudioEngine {
             host,
             pc: None,
             mic: None,
+            pc_seq: Arc::default(),
         }
     }
 
@@ -393,6 +397,8 @@ impl AudioEngine {
         let mut error = None;
         let Some(link) = link else {
             self.stop_all();
+            // Sessão encerrada: a próxima terá chaves novas.
+            self.pc_seq = Arc::default();
             return AudioOutcome {
                 state: self.state(),
                 error: (want_pc || want_mic).then(|| "not_connected".to_string()),
@@ -401,7 +407,7 @@ impl AudioEngine {
         if !want_pc {
             self.pc = None;
         } else if self.pc.is_none() {
-            match start_pc(&*self.host, cfg, ports, link) {
+            match start_pc(&*self.host, cfg, ports, link, self.pc_seq.clone()) {
                 Ok(s) => self.pc = Some(s),
                 Err(e) => error = Some(e),
             }

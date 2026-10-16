@@ -830,3 +830,62 @@ fn local_file_list_is_served_to_the_mac() {
 fn peer_of_agent(m: &MacFiles) -> PairedPeer {
     m.agent_peer.clone()
 }
+
+#[test]
+fn screen_capture_is_offered_even_with_clipboard_sync_off() {
+    let pending = Arc::new(Mutex::new(vec![vec![0x89, b'P', b'N', b'G', 9]]));
+    let p = pending.clone();
+    let mut cfg = Config::default();
+    cfg.clipboard.enabled = false;
+    let mut r = rig(
+        MockHost::new(vec![], vec![]),
+        cfg,
+        Box::new(move || std::mem::take(&mut *p.lock().unwrap())),
+    );
+    assert!(matches!(
+        r.next_msg("oferta Png"),
+        Message::ClipboardOffer { .. }
+    ));
+}
+
+#[test]
+fn pc_audio_seq_never_restarts_within_a_session() {
+    let (o, i) = speakers_and_cables();
+    let host = MockHost::new(o, i);
+    let mut cfg = audio_cfg(PcAudioMode::Process, None);
+    let mac = UdpSocket::bind("127.0.0.1:0").unwrap();
+    mac.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    cfg.network.ports.audio_pc_to_mac = mac.local_addr().unwrap().port();
+    let mut r = rig(host, cfg, no_captures());
+    r.media.link_changed(Some(agent_link()));
+    let on = |r: &mut Rig, v: bool| {
+        r.feed(Message::AudioControl {
+            pc_to_mac: v,
+            mac_to_pc: false,
+        });
+        wait("estado", || {
+            (r.media.audio_state().pc_to_mac == v).then_some(())
+        });
+    };
+    let mut wire = [0u8; 2048];
+    let mut max_seq = |mac: &UdpSocket| {
+        let mut hi = 0;
+        for _ in 0..10 {
+            let n = mac.recv(&mut wire).unwrap();
+            hi = hi.max(u64::from_le_bytes(wire[1..9].try_into().unwrap()));
+            assert_eq!(n, DATAGRAM_LEN);
+        }
+        hi
+    };
+    on(&mut r, true);
+    let first = max_seq(&mac);
+    on(&mut r, false);
+    std::thread::sleep(Duration::from_millis(50));
+    while mac.set_nonblocking(true).is_ok() && mac.recv(&mut wire).is_ok() {}
+    mac.set_nonblocking(false).unwrap();
+    on(&mut r, true);
+    let n = mac.recv(&mut wire).unwrap();
+    assert_eq!(n, DATAGRAM_LEN);
+    let again = u64::from_le_bytes(wire[1..9].try_into().unwrap());
+    assert!(again > first, "seq recomeçou: {again} <= {first}");
+}

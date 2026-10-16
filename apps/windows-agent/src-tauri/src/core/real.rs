@@ -15,7 +15,7 @@ use relay_platform_windows::mouse_accel::PointerPrecisionGuard;
 use relay_platform_windows::pipe::InjectPipeClient;
 use relay_platform_windows::service::SERVICE_NAME;
 
-use super::media::platform::{WindowsAudioHost, windows_drop_target};
+use super::media::platform::{WindowsAudioHost, detect_vbcable, windows_drop_target};
 use super::media::{CaptureSource, Media, MediaDeps};
 use super::routed::{PipeInjector, SharedPipe};
 use super::{AgentDeps, ForegroundSource};
@@ -48,6 +48,7 @@ pub fn query_service(helper_active: bool) -> ServiceStatus {
                 installed: o.status.success(),
                 running: o.status.success() && text.contains("RUNNING"),
                 helper_active,
+                vbcable_detected: detect_vbcable(),
             };
         }
     }
@@ -56,6 +57,7 @@ pub fn query_service(helper_active: bool) -> ServiceStatus {
         installed: helper_active,
         running: helper_active,
         helper_active,
+        vbcable_detected: detect_vbcable(),
     }
 }
 

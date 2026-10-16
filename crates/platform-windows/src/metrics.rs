@@ -152,6 +152,8 @@ mod imp {
             gpu_mem_mb,
             gpu_temp_c,
             cpu_temp_c: None,
+            volume: None,
+            muted: None,
         }
     }
 }

@@ -151,7 +151,12 @@ impl SystemOps for WindowsOps {
         screen_capture::capture_monitor_png(display_id)
     }
     fn metrics(&mut self) -> SystemMetrics {
-        metrics::collect_metrics()
+        // Volume e mudo atuais para o painel do Mac (ausentes se o Core Audio falhar).
+        SystemMetrics {
+            volume: audio_endpoints::get_volume(EndpointKind::Render).ok(),
+            muted: audio_endpoints::get_mute(EndpointKind::Render).ok(),
+            ..metrics::collect_metrics()
+        }
     }
 }
 

@@ -13,8 +13,8 @@ import {
   type SystemMetrics,
   type TransferProgress,
 } from "@relay/protocol-types";
-import { Button, ConfirmDialog, ProgressBar, Section, Select, Slider, Toggle } from "@relay/ui";
-import { useEffect, useState, type FormEvent } from "react";
+import { Button, ConfirmDialog, ProgressBar, Section, Select, Slider, Toggle, useRelayEvent } from "@relay/ui";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import styles from "./panel.module.css";
 
 /** Executa uma ação e mostra o resultado (sucesso ou erro) como toast. */
@@ -46,6 +46,15 @@ export function AudioSection({
 }) {
   const [volume, setVolume] = useState(0.5);
   const [muted, setMuted] = useState(false);
+  // Volume e mudo reais do PC chegam nas métricas: inicializam o controle uma vez.
+  const metrics = useRelayEvent("relay:metrics");
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !metrics) return;
+    if (metrics.volume != null) setVolume(metrics.volume);
+    if (metrics.muted != null) setMuted(metrics.muted);
+    if (metrics.volume != null || metrics.muted != null) seeded.current = true;
+  }, [metrics]);
   const [pcOutputs, setPcOutputs] = useState<AudioDevice[]>([]);
   const [pcOutput, setPcOutput] = useState(DEFAULT);
   const [macOut, setMacOut] = useState(DEFAULT);

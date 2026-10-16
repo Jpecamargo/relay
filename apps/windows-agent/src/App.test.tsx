@@ -25,7 +25,7 @@ function setup(snapshot: Record<string, unknown> = { status: "Connected", peer_n
       case "agent_get_status":
         return snapshot;
       case "agent_get_service_status":
-        return { installed: true, running: true, helper_active: true };
+        return { installed: true, running: true, helper_active: true, vbcable_detected: false };
       case "agent_get_config":
         return config;
       case "agent_new_pairing_code":

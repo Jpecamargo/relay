@@ -165,6 +165,8 @@ fn all_messages() -> Vec<Message> {
             gpu_mem_mb: None,
             gpu_temp_c: Some(61.0),
             cpu_temp_c: None,
+            volume: Some(0.5),
+            muted: Some(false),
         }),
         Message::TakeControl,
         Message::Unpair,

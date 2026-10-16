@@ -106,6 +106,7 @@ fn start_reverse_agent() -> RevAgent {
             installed: true,
             running: true,
             helper_active,
+            vbcable_detected: false,
         }),
         device_name: "dell-pc".into(),
         mac_address: [9, 8, 7, 6, 5, 4],

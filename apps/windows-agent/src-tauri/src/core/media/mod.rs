@@ -26,8 +26,8 @@ use relay_core::engine::{EngineEvent, EventHandler};
 use relay_core::net::AudioLink;
 use relay_core::platform::{ClipboardBackend, KeyStore};
 use relay_core::types::{
-    AudioState, ClipboardContent, CommandResult, Config, FileEntry, HotkeyAction, Message,
-    PairedPeer,
+    AudioState, ClipboardContent, ClipboardFormat, CommandResult, Config, FileEntry, HotkeyAction,
+    Message, PairedPeer,
 };
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
@@ -302,7 +302,15 @@ impl Worker {
         self.sync.expire(Instant::now());
         // PNGs de CaptureScreen viram oferta de clipboard (D7); nunca vão no fio como resultado.
         for png in (self.captures)() {
+            // Ação explícita do usuário: vale mesmo com a sincronização de clipboard desligada.
+            let mut forced = self.config.clipboard.clone();
+            forced.enabled = true;
+            if !forced.formats.contains(&ClipboardFormat::Png) {
+                forced.formats.push(ClipboardFormat::Png);
+            }
+            self.sync.set_config(forced);
             let msgs = self.sync.send_now(Some(ClipboardContent::Png(png)));
+            self.sync.set_config(self.config.clipboard.clone());
             self.send_all(msgs);
         }
     }
