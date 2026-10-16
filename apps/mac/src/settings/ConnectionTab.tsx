@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { CodeInput } from "./CodeInput";
 import { isValidPairCode } from "./model";
 import styles from "./settings.module.css";
+import { errorMessage } from "../shared/errors";
 
-const msg = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 
 export interface TabProps {
   config: Config;
@@ -27,7 +27,7 @@ export function ConnectionTab({ config, update }: TabProps) {
   const [confirming, setConfirming] = useState(false);
 
   const refresh = useCallback(() => {
-    invokeCommand("list_discovered").then(setPeers, (e) => setError(msg(e)));
+    invokeCommand("list_discovered").then(setPeers, (e) => setError(errorMessage(e)));
     invokeCommand("get_status").then((s) => setPeerName(s.peer_name), () => undefined);
   }, []);
   useEffect(refresh, [refresh]);
@@ -51,7 +51,7 @@ export function ConnectionTab({ config, update }: TabProps) {
       setCode("");
       refresh();
     } catch (e) {
-      setError(msg(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -64,7 +64,7 @@ export function ConnectionTab({ config, update }: TabProps) {
       await invokeCommand("set_manual_address", address ? { address } : {});
       update((c) => ({ ...c, network: { ...c.network, manual_address: address ?? null } }));
     } catch (e) {
-      setError(msg(e));
+      setError(errorMessage(e));
     }
   };
 
@@ -76,7 +76,7 @@ export function ConnectionTab({ config, update }: TabProps) {
       setPeerName(null);
       refresh();
     } catch (e) {
-      setError(msg(e));
+      setError(errorMessage(e));
     }
   };
 

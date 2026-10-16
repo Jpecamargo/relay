@@ -16,4 +16,4 @@ export { StatusDot, type StatusDotProps, type StatusTone } from "./StatusDot";
 export { Tabs, type TabItem, type TabsProps } from "./Tabs";
 export { Toast, type ToastProps } from "./Toast";
 export { Toggle, type ToggleProps } from "./Toggle";
-export { useRelayCommand, useRelayEvent, type RelayCommand } from "./hooks";
+export { useRelayEvent } from "./hooks";

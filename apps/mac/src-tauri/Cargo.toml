@@ -24,6 +24,7 @@ tauri = { workspace = true, features = ["macos-private-api"] }
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 thiserror.workspace = true
 relay-platform-macos.workspace = true
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }

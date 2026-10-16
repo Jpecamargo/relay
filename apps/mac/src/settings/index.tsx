@@ -4,6 +4,7 @@ import type { Config } from "@relay/protocol-types";
 import { invokeCommand } from "@relay/protocol-types";
 import { Banner, Button } from "@relay/ui";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { errorMessage } from "../shared/errors";
 import { AudioTab, ClipboardTab, TransitionTab } from "./BehaviorTabs";
 import { ConnectionTab } from "./ConnectionTab";
 import { GeneralTab } from "./GeneralTab";
@@ -53,7 +54,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
-    invokeCommand("get_config").then(setConfig, (e) => setSaveError(String(e)));
+    invokeCommand("get_config").then(setConfig, (e) => setSaveError(errorMessage(e)));
   }, []);
 
   const errors = useMemo(() => (config ? validateConfig(config) : {}), [config]);
@@ -74,7 +75,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setDirty(false);
       setSaved(true);
     } catch (e) {
-      setSaveError(typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
+      setSaveError(errorMessage(e));
     } finally {
       setSaving(false);
     }

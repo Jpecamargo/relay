@@ -1,6 +1,7 @@
 import { invokeCommand, type DisplayInfo, type LayoutProfile, type LayoutWarning, type PlacedDisplay } from "@relay/protocol-types";
 import { Banner, Button, KeyCombo, Section, Select, Slider, Toggle, useRelayEvent } from "@relay/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../shared/errors";
 import { Canvas } from "./Canvas";
 import styles from "./editor.module.css";
 import { alignDisplays, clampSensitivity, jumpIds, profileId, reconcile, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
@@ -10,8 +11,6 @@ interface Loaded {
   profiles: LayoutProfile[];
   connected: DisplayInfo[];
 }
-
-const message = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 
 export function Editor() {
   const [loaded, setLoaded] = useState<Loaded>();
@@ -45,7 +44,7 @@ export function Editor() {
       setLoaded({ profile, profiles: config.layout.profiles, connected });
       apply(profile, connected);
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }, [apply]);
 
@@ -86,7 +85,7 @@ export function Editor() {
       setDirty(false);
       setLoaded((l) => l && { ...l, profile });
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setSaving(false);
     }

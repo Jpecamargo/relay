@@ -30,8 +30,8 @@ import type {
   UpdateAvailable,
 } from "./generated";
 
-/** Labels das janelas Tauri: `panel`, `settings` e `editor` no Mac; `main` no agente. */
-export type WindowLabel = "panel" | "settings" | "editor" | "main";
+/** Labels das janelas Tauri do Mac: painel do menu bar e janela principal. */
+export type WindowLabel = "panel" | "main";
 
 /** Comandos do app Mac: argumentos e retorno. */
 export interface MacCommandMap {
@@ -78,6 +78,9 @@ export interface AgentCommandMap {
   agent_get_config: { args: void; result: Config };
   agent_save_config: { args: { config: Config }; result: void };
   agent_set_autostart: { args: { enabled: boolean }; result: void };
+  /** Versão disponível, ou `null` se já está atualizado. */
+  agent_check_updates: { args: void; result: UpdateAvailable | null };
+  agent_install_update: { args: void; result: void };
 }
 
 export type CommandMap = MacCommandMap & AgentCommandMap;
@@ -123,6 +126,8 @@ export const COMMANDS = {
   agent_get_config: "agent_get_config",
   agent_save_config: "agent_save_config",
   agent_set_autostart: "agent_set_autostart",
+  agent_check_updates: "agent_check_updates",
+  agent_install_update: "agent_install_update",
 } as const satisfies { [K in CommandName]: K };
 
 /** Payload de cada evento core→UI. */
@@ -143,20 +148,6 @@ export interface EventMap {
 }
 
 export type EventName = keyof EventMap;
-
-export const EVENTS = {
-  status: "relay:status",
-  latency: "relay:latency",
-  displays: "relay:displays",
-  commandResult: "relay:command-result",
-  transferProgress: "relay:transfer-progress",
-  secureInput: "relay:secure-input",
-  permissions: "relay:permissions",
-  metrics: "relay:metrics",
-  audioStats: "relay:audio-stats",
-  pairing: "relay:pairing",
-  updateAvailable: "relay:update-available",
-} as const satisfies Record<string, EventName>;
 
 type ArgsTuple<K extends CommandName> = CommandArgs<K> extends void ? [] : [args: CommandArgs<K>];
 

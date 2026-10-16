@@ -6,6 +6,7 @@ pub mod backend;
 pub mod commands;
 pub mod core;
 pub mod events;
+pub mod logging;
 pub mod sink;
 pub mod state;
 pub mod tray;
@@ -23,6 +24,7 @@ use sink::TauriSink;
 use state::AppState;
 
 pub fn run() {
+    let _ = logging::init();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = system::open_main(app, None);

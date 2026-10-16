@@ -5,8 +5,8 @@ import { Banner, Button, Section, StatusDot, Toggle, useRelayEvent } from "@rela
 import { useEffect, useState } from "react";
 import type { TabProps } from "./ConnectionTab";
 import styles from "./settings.module.css";
+import { errorMessage } from "../shared/errors";
 
-const msg = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 const STATE_LABEL: Record<PermissionState, string> = { Granted: "Concedida", Denied: "Negada", Unknown: "Desconhecida" };
 const PERMS: ReadonlyArray<{ kind: PermissionKind; key: "accessibility" | "input_monitoring"; label: string }> = [
   { kind: "Accessibility", key: "accessibility", label: "Acessibilidade" },
@@ -30,7 +30,7 @@ export function GeneralTab({ config, update }: TabProps) {
       await invokeCommand("set_launch_at_login", { enabled });
       update((c) => ({ ...c, general: { ...c.general, launch_at_login: enabled } }));
     } catch (e) {
-      setError(msg(e));
+      setError(errorMessage(e));
     }
   };
 
@@ -43,11 +43,11 @@ export function GeneralTab({ config, update }: TabProps) {
       setUpdateMsg(v ? `Versão ${v} disponível.` : "Você já está na versão mais recente.");
     } catch (e) {
       setUpdateMsg("");
-      setError(msg(e));
+      setError(errorMessage(e));
     }
   };
 
-  const install = () => invokeCommand("install_update").catch((e) => setError(msg(e)));
+  const install = () => invokeCommand("install_update").catch((e) => setError(errorMessage(e)));
 
   return (
     <>
@@ -77,13 +77,13 @@ export function GeneralTab({ config, update }: TabProps) {
                 <StatusDot tone={state === "Granted" ? "ok" : state === "Denied" ? "danger" : "warn"} label={STATE_LABEL[state]} /> {p.label}:{" "}
                 {STATE_LABEL[state]}
               </span>
-              <Button onClick={() => invokeCommand("open_permission_settings", { kind: p.kind }).catch((e) => setError(msg(e)))}>
+              <Button onClick={() => invokeCommand("open_permission_settings", { kind: p.kind }).catch((e) => setError(errorMessage(e)))}>
                 Abrir Ajustes
               </Button>
             </div>
           );
         })}
-        <Button variant="ghost" onClick={() => invokeCommand("check_permissions").then((p) => setPerms({ ...p }), (e) => setError(msg(e)))}>
+        <Button variant="ghost" onClick={() => invokeCommand("check_permissions").then((p) => setPerms({ ...p }), (e) => setError(errorMessage(e)))}>
           Verificar de novo
         </Button>
       </Section>

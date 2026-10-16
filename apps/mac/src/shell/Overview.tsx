@@ -2,7 +2,6 @@ import {
   invokeCommand,
   type DisplayInfo,
   type LatencyStats,
-  type RemoteCommand,
   type StatusSnapshot,
   type SystemMetrics,
   type TransferProgress,
@@ -10,10 +9,9 @@ import {
 import { Button, LatencySparkline, ProgressBar, Section, Select, StatusDot } from "@relay/ui";
 import { useEffect, useState, type FormEvent } from "react";
 import { decimal, STATUS_LABELS, statusKey, statusTone } from "../shared/status";
+import { send } from "../shared/send";
 import type { Act } from "../shared/useActions";
 import styles from "./main.module.css";
-
-const send = (command: RemoteCommand) => invokeCommand("send_command", { command });
 
 export interface OverviewProps {
   act: Act;

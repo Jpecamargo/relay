@@ -28,6 +28,8 @@ function setup(snapshot: Record<string, unknown> = { status: "Connected", peer_n
         return { installed: true, running: true, helper_active: true, vbcable_detected: false };
       case "agent_get_config":
         return config;
+      case "agent_check_updates":
+        return { version: "9.9.9" };
       case "agent_new_pairing_code":
         return { code: "123456", expires_at: Date.now() + 120_000 };
       default:
@@ -95,4 +97,18 @@ test("relay:pairing paired fecha o fluxo e esconde o código", async () => {
   });
   expect(screen.queryByLabelText("Código de pareamento")).toBeNull();
   expect(screen.getByText("Pareado com sucesso.")).toBeTruthy();
+});
+
+test("verificar atualizações oferece instalar a versão nova", async () => {
+  setup();
+  render(<App />);
+  await act(async () => {});
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Verificar atualizações" }));
+  });
+  expect(bridge.invoke).toHaveBeenCalledWith("agent_check_updates");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Instalar 9.9.9" }));
+  });
+  expect(bridge.invoke).toHaveBeenCalledWith("agent_install_update");
 });

@@ -6,7 +6,7 @@ import {
   type ServiceStatus,
   type StatusSnapshot,
 } from "@relay/protocol-types";
-import { Banner, Section, Select, StatusDot, Toggle, useRelayEvent, type StatusTone } from "@relay/ui";
+import { Banner, Button, Section, Select, StatusDot, Toggle, useRelayEvent, type StatusTone } from "@relay/ui";
 import { useEffect, useState } from "react";
 import "./app.css";
 import { Pairing } from "./Pairing";
@@ -37,6 +37,7 @@ export function App() {
   const [service, setService] = useState<ServiceStatus>();
   const [config, setConfig] = useState<Config>();
   const [error, setError] = useState<string>();
+  const [update, setUpdate] = useState<{ checking: boolean; version?: string | null; installing: boolean }>({ checking: false, installing: false });
 
   useEffect(() => {
     const fail = (e: unknown) => setError(String(e));
@@ -65,6 +66,27 @@ export function App() {
       await invokeCommand("agent_set_autostart", { enabled });
       await save({ ...config, general: { ...config.general, launch_at_login: enabled } });
     } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const checkUpdates = async () => {
+    setUpdate({ checking: true, installing: false });
+    try {
+      const found = await invokeCommand("agent_check_updates");
+      setUpdate({ checking: false, installing: false, version: found?.version ?? null });
+    } catch (e) {
+      setUpdate({ checking: false, installing: false });
+      setError(String(e));
+    }
+  };
+
+  const installUpdate = async () => {
+    setUpdate((u) => ({ ...u, installing: true }));
+    try {
+      await invokeCommand("agent_install_update");
+    } catch (e) {
+      setUpdate((u) => ({ ...u, installing: false }));
       setError(String(e));
     }
   };
@@ -141,6 +163,18 @@ export function App() {
               onChange={(enabled) => void save({ ...config, clipboard: { ...config.clipboard, enabled } })}
             />
             <Toggle label="Iniciar com o Windows" checked={config.general.launch_at_login} onChange={(v) => void setAutostart(v)} />
+            <div className="row">
+              <Button onClick={() => void checkUpdates()} disabled={update.checking || update.installing}>
+                {update.checking ? "Verificando…" : "Verificar atualizações"}
+              </Button>
+              {update.version ? (
+                <Button variant="primary" onClick={() => void installUpdate()} disabled={update.installing}>
+                  {update.installing ? "Instalando…" : `Instalar ${update.version}`}
+                </Button>
+              ) : update.version === null ? (
+                <span className="muted">Já está atualizado.</span>
+              ) : null}
+            </div>
           </>
         )}
       </Section>

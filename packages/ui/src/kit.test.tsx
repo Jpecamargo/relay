@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { ConfirmDialog, KeyCombo, MenuRow, Slider, Toggle, useRelayCommand, useRelayEvent } from "./index";
+import { ConfirmDialog, KeyCombo, MenuRow, Slider, Toggle, useRelayEvent } from "./index";
 
 const bridge = vi.hoisted(() => ({
   listeners: new Map<string, (p: unknown) => void>(),
@@ -70,24 +70,6 @@ test("useRelayEvent atualiza com evento mockado", async () => {
   await act(async () => {});
   act(() => bridge.listeners.get("relay:latency")?.({ rtt_ms: 7, jitter_ms: 1, loss_pct: 0 }));
   expect(screen.getByText("7 ms")).toBeTruthy();
-});
-
-test("useRelayCommand expõe resultado e erro", async () => {
-  bridge.invoke.mockResolvedValueOnce(null).mockRejectedValueOnce("falhou");
-  function Probe() {
-    const cmd = useRelayCommand("check_updates");
-    return (
-      <>
-        <button onClick={() => cmd.run().catch(() => undefined)}>go</button>
-        <span>{cmd.error ?? (cmd.pending ? "..." : "ok")}</span>
-      </>
-    );
-  }
-  render(<Probe />);
-  await act(async () => fireEvent.click(screen.getByText("go")));
-  expect(bridge.invoke).toHaveBeenCalledWith("check_updates");
-  await act(async () => fireEvent.click(screen.getByText("go")));
-  expect(screen.getByText("falhou")).toBeTruthy();
 });
 
 test("KeyCombo mostra modificadores em ordem e a tecla", () => {

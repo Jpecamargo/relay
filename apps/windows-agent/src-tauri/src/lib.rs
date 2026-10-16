@@ -6,6 +6,7 @@ pub mod backend;
 pub mod commands;
 pub mod core;
 pub mod events;
+pub mod logging;
 pub mod state;
 pub mod tray;
 
@@ -19,6 +20,7 @@ use crate::events::TauriEvents;
 use crate::state::AgentState;
 
 pub fn run() {
+    let _ = logging::init();
     // Antes de qualquer janela: per-monitor v2 para que as coordenadas sejam pixels físicos.
     relay_platform_windows::dpi::set_dpi_awareness();
     tauri::Builder::default()
