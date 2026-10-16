@@ -7,6 +7,7 @@
 //! UI, mudança de telas, app em primeiro plano e o relógio do `Receiver` (≤ 10 ms enquanto o Mac
 //! controla este lado). A UI (`AgentBackend`) só enfileira comandos e lê o snapshot.
 
+pub mod media;
 mod pump;
 pub mod real;
 mod routed;
@@ -81,6 +82,8 @@ pub struct AgentDeps {
     pub advertise: bool,
     pub message_hook: Option<MessageHook>,
     pub engine_events: Option<EventHandler>,
+    /// Mídia (WI3): áudio, clipboard e arquivos. `None` = sem mídia.
+    pub media: Option<Box<dyn media::MediaPort>>,
 }
 
 pub(crate) enum Cmd {

@@ -284,6 +284,7 @@ fn start_agent_with(store: Arc<MemoryKeyStore>) -> Agent {
         advertise: false,
         message_hook: None,
         engine_events: None,
+        media: None,
     };
     let core = AgentCore::start(deps, config, rec.clone()).unwrap();
     Agent {
