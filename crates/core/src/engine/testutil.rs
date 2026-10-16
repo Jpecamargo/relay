@@ -173,6 +173,7 @@ pub fn profile(sens: f32) -> LayoutProfile {
         machine,
         rect_mm: RectMm { x, y, w, h },
         sensitivity,
+        rotation: None,
     };
     LayoutProfile {
         key: ProfileKey::default(),

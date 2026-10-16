@@ -3,13 +3,21 @@ import { Banner, Button, KeyCombo, Section, Select, Slider, Toggle, useRelayEven
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas } from "./Canvas";
 import styles from "./editor.module.css";
-import { alignDisplays, clampSensitivity, jumpIds, profileId, reconcile, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
+import { alignDisplays, clampSensitivity, jumpIds, profileId, reconcile, rotateDisplay, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
 
 interface Loaded {
   profile: LayoutProfile;
   profiles: LayoutProfile[];
   connected: DisplayInfo[];
 }
+
+const ORIENTATIONS = [
+  { value: "auto", label: "Automática" },
+  { value: "0", label: "Paisagem (0°)" },
+  { value: "90", label: "Retrato (90°)" },
+  { value: "180", label: "Paisagem invertida (180°)" },
+  { value: "270", label: "Retrato invertido (270°)" },
+];
 
 const message = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 
@@ -121,6 +129,7 @@ export function Editor() {
         <Canvas displays={displays} info={info} jump={jump} detached={detached} selected={selected} onSelect={setSelected} onChange={edit} />
         <aside className={styles.side}>
           <Section title="Telas">
+            <span className={styles.dim}>Arraste para encaixar nas bordas; segure Option para desligar o ímã.</span>
             {displays.map((d) => (
               <div key={d.display_id} className={styles.item} data-selected={selected === d.display_id}>
                 <button type="button" className={styles.itemHead} onClick={() => setSelected(d.display_id)}>
@@ -131,6 +140,14 @@ export function Editor() {
                   <span className={styles.dim}>Pular para esta tela</span>
                   <KeyCombo combo={{ modifiers: ["Ctrl", "Option"], key: `Digit${jump.get(d.display_id)}` }} />
                 </div>
+                {d.machine === "Windows" ? (
+                  <Select
+                    label="Orientação"
+                    value={d.rotation == null ? "auto" : String(d.rotation)}
+                    options={ORIENTATIONS}
+                    onChange={(v) => edit(rotateDisplay(displays, info, d.display_id, v === "auto" ? null : Number(v)))}
+                  />
+                ) : null}
                 <Slider
                   label="Sensibilidade"
                   min={SENSITIVITY_MIN}

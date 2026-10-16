@@ -369,6 +369,7 @@ mod tests {
             machine,
             rect_mm: RectMm { x, y, w, h },
             sensitivity: 1.0,
+            rotation: None,
         };
         let profile = LayoutProfile {
             key: ProfileKey::default(),
@@ -420,6 +421,44 @@ mod tests {
                 assert!((entry_px.1 - 830).abs() <= 2, "{entry_px:?}");
             }
             o => panic!("{o:?}"),
+        }
+    }
+
+    /// Dell girado no Windows: px vêm em retrato, o EDID segue paisagem. A entrada continua
+    /// proporcional (o mm/px não depende da orientação).
+    #[test]
+    fn entrada_proporcional_em_tela_retrato() {
+        let displays = vec![
+            display(MAC, Machine::Mac, (1440, 900), (300.0, 190.0), true),
+            display(DELL, Machine::Windows, (1440, 2560), (597.0, 336.0), false),
+        ];
+        let placed = |id: &str, machine, x, y, w, h| PlacedDisplay {
+            display_id: id.into(),
+            machine,
+            rect_mm: RectMm { x, y, w, h },
+            sensitivity: 1.0,
+            rotation: None,
+        };
+        let profile = LayoutProfile {
+            key: ProfileKey::default(),
+            name: "t".into(),
+            displays: vec![
+                placed(MAC, Machine::Mac, 0.0, 0.0, 300.0, 190.0),
+                placed(DELL, Machine::Windows, 300.0, -200.0, 336.0, 597.0),
+            ],
+            windows_detached: false,
+        };
+        let mut e = TransitionEngine::new(cfg(0), profile, displays);
+        // Mac y = 450 px = 93,75 mm; no Dell (topo em -200 mm) = 293,75 mm = ~1260 px.
+        match push_right(&mut e, 450, &[], Instant::now()) {
+            LocalDecision::Enter {
+                display_id,
+                entry_px,
+            } => {
+                assert_eq!(display_id, DELL);
+                assert!((entry_px.1 - 1260).abs() <= 2, "{entry_px:?}");
+            }
+            other => panic!("esperava Enter, veio {other:?}"),
         }
     }
 

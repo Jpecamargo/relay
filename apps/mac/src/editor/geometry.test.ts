@@ -1,12 +1,14 @@
 import type { PlacedDisplay } from "@relay/protocol-types";
 import { expect, test } from "vitest";
-import { alignDisplays, defaultLayout, dragDisplays, jumpIds, reconcile, sharedSegments, snapRect } from "./geometry";
+import type { DisplayInfo } from "@relay/protocol-types";
+import { alignDisplays, defaultLayout, dragDisplays, dragWithGuides, jumpIds, orientationOf, reconcile, rotateDisplay, sharedSegments, sizeMm, snapDelta, snapRect } from "./geometry";
 
 const placed = (id: string, machine: PlacedDisplay["machine"], x: number, y: number, w: number, h: number): PlacedDisplay => ({
   display_id: id,
   machine,
   rect_mm: { x, y, w, h },
   sensitivity: 1,
+  rotation: null,
 });
 const mac = placed("mac", "Mac", 0, 0, 302, 196);
 const d1 = (x: number, y: number) => placed("d1", "Windows", x, y, 597, 336);
@@ -75,4 +77,66 @@ test("combinação nova de telas gera o perfil padrão: Windows à direita do Ma
   ]);
   expect(reconcile([mac, d1(302, 0)], connected)).toHaveLength(2);
   expect(defaultLayout(connected)[1]!.sensitivity).toBe(1);
+});
+
+test("ímã alinha topo, centro e base e cola borda com borda de qualquer tela", () => {
+  const t = { x: 300, y: 100, w: 200, h: 100 };
+  // topo a 8 mm do topo do alvo, lado direito colado ao esquerdo do alvo a 6 mm
+  const a = snapDelta({ x: 94, y: 108, w: 200, h: 100 }, [t], 12);
+  expect([a.dx, a.dy]).toEqual([6, -8]);
+  // centro vertical: alvo cy=150, movendo cy=157
+  const c = snapDelta({ x: 0, y: 127, w: 100, h: 60 }, [t], 12);
+  expect(c.dy).toBe(-7);
+  // base alinhada: alvo bottom=200, movendo bottom=205 (y=125,h=80) ganha do topo (25 mm)
+  expect(snapDelta({ x: 0, y: 125, w: 100, h: 80 }, [t], 12).dy).toBe(-5);
+  // fora do alcance não gruda
+  expect(snapDelta({ x: 0, y: 80, w: 100, h: 20 }, [t], 5).dy).toBe(0);
+});
+
+test("ímã devolve a guia do alinhamento e threshold 0 (Alt) desliga", () => {
+  const layout = [mac, d1(302, 0), d2(1000, 4)];
+  const on = dragWithGuides(layout, new Set(["d2"]), -100, -2, 12);
+  // d2 gruda no d1 (x = 899) e alinha o topo com ele (y = 0)
+  expect(on.displays[2]!.rect_mm).toMatchObject({ x: 899, y: 0 });
+  expect(on.guides.some((g) => g.axis === "x" && g.at === 899)).toBe(true);
+  expect(on.guides.some((g) => g.axis === "y" && g.at === 0)).toBe(true);
+  const off = dragWithGuides(layout, new Set(["d2"]), -100, -2, 0);
+  expect(off.displays[2]!.rect_mm).toMatchObject({ x: 900, y: 2 });
+  expect(off.guides).toEqual([]);
+});
+
+const dell = (px: [number, number]): DisplayInfo => ({
+  id: "d1", name: "Dell", machine: "Windows", origin_px: [0, 0], size_px: px, scale: 1,
+  size_mm: [597, 336], is_primary: false, is_builtin: false,
+});
+
+test("tamanho em mm segue o aspecto dos px (EDID sempre paisagem) e o override manda", () => {
+  expect(sizeMm(dell([2560, 1440]))).toEqual([597, 336]);
+  expect(sizeMm(dell([1440, 2560]))).toEqual([336, 597]);
+  expect(sizeMm(dell([2560, 1440]), 90)).toEqual([336, 597]);
+  expect(sizeMm(dell([1440, 2560]), 0)).toEqual([597, 336]);
+});
+
+test("girar a tela troca w/h, empurra o vizinho que ficaria sobreposto e grava o override", () => {
+  const info = new Map([["d1", dell([2560, 1440])]]);
+  const portrait = [mac, placed("d1", "Windows", 302, 0, 336, 597), d2(638, 0)];
+  const wide = rotateDisplay(portrait, info, "d1", 0);
+  expect(wide[1]!.rect_mm).toMatchObject({ x: 302, w: 597, h: 336 });
+  expect(wide[1]!.rotation).toBe(0);
+  expect(wide[2]!.rect_mm.x).toBe(899); // vizinho segue a largura nova (+261)
+  const tall = rotateDisplay([mac, d1(302, 0), d2(899, 0)], info, "d1", 90);
+  expect(tall[1]!.rect_mm).toMatchObject({ w: 336, h: 597 });
+  expect(orientationOf(tall[1]!)).toBe(90);
+  expect(rotateDisplay([mac], info, "mac", 90)).toEqual([mac]); // Mac não gira
+});
+
+test("perfil salvo acompanha a tela girada no Windows, mas não mexe no override", () => {
+  const connected = [
+    { ...dell([1440, 2560]) },
+    { id: "mac", name: "mac", machine: "Mac" as const, origin_px: [0, 0] as [number, number], size_px: [1440, 900] as [number, number], scale: 2, size_mm: [302, 196] as [number, number], is_primary: true, is_builtin: true },
+  ];
+  const out = reconcile([mac, d1(302, 0)].map((d) => (d.display_id === "d1" ? { ...d, display_id: "d1" } : d)), connected);
+  expect(out[1]!.rect_mm).toMatchObject({ w: 336, h: 597 });
+  const manual = reconcile([mac, { ...d1(302, 0), rotation: 0 }], connected);
+  expect(manual[1]!.rect_mm).toMatchObject({ w: 597, h: 336 });
 });

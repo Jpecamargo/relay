@@ -1,7 +1,7 @@
 import type { DisplayInfo, PlacedDisplay } from "@relay/protocol-types";
 import { useMemo, useRef, useState, type PointerEvent } from "react";
 import styles from "./editor.module.css";
-import { bottom, bounds, dragDisplays, right, sharedSegments } from "./geometry";
+import { bottom, bounds, dragWithGuides, MAGNET_PX, right, sharedSegments, type Guide } from "./geometry";
 
 const MARGIN_MM = 100;
 
@@ -27,6 +27,7 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag>();
   const [preview, setPreview] = useState<PlacedDisplay[]>();
+  const [guides, setGuides] = useState<Guide[]>([]);
   const shown = preview ?? displays;
 
   // O enquadramento só muda com o layout confirmado: durante o arraste a escala não se mexe.
@@ -54,14 +55,22 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
   };
   const onMove = (e: PointerEvent<SVGGElement>) => {
     if (!drag) return;
-    setPreview(
-      dragDisplays(displays, drag.ids, (e.clientX - drag.startX) * drag.mmPerPx, (e.clientY - drag.startY) * drag.mmPerPx),
+    // Ímã de ~14 px de tela, qualquer que seja o zoom; Option/Alt segurado desliga.
+    const out = dragWithGuides(
+      displays,
+      drag.ids,
+      (e.clientX - drag.startX) * drag.mmPerPx,
+      (e.clientY - drag.startY) * drag.mmPerPx,
+      e.altKey ? 0 : MAGNET_PX * drag.mmPerPx,
     );
+    setPreview(out.displays);
+    setGuides(out.guides);
   };
   const onUp = () => {
     if (preview) onChange(preview);
     setDrag(undefined);
     setPreview(undefined);
+    setGuides([]);
   };
 
   return (
@@ -101,6 +110,16 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
           </g>
         );
       })}
+      {guides.map((g, i) => (
+        <line
+          key={`guide-${i}`}
+          data-testid="snap-guide"
+          className={styles.guide}
+          strokeWidth={1.5 * unit}
+          strokeDasharray={`${4 * unit} ${3 * unit}`}
+          {...(g.axis === "x" ? { x1: g.at, x2: g.at, y1: g.from, y2: g.to } : { x1: g.from, x2: g.to, y1: g.at, y2: g.at })}
+        />
+      ))}
       {links.map((l) => {
         const m = macs.get(l.from_display)?.rect_mm;
         if (!m) return null;

@@ -30,10 +30,31 @@ pub fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
         .ok_or_else(|| format!("janela desconhecida: {label}"))?;
     if label == "main" {
         let _ = app.set_activation_policy(ActivationPolicy::Regular);
+        set_dock_icon(app);
         let _ = window.unminimize();
     }
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
+}
+
+/// Ícone do app (o laranja, `icons/icon.png`) no Dock. Num bundle o macOS já usa o `.icns`, mas em
+/// dev (executável solto) o Dock mostraria o ícone genérico; fixar em runtime vale nos dois casos.
+/// Nada aqui toca no ícone da bandeja (template do menu bar, em `tray.rs`).
+fn set_dock_icon(app: &AppHandle) {
+    let _ = app.run_on_main_thread(|| {
+        use objc2::{AnyThread, MainThreadMarker};
+        use objc2_app_kit::{NSApplication, NSImage};
+        use objc2_foundation::NSData;
+
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let data = NSData::with_bytes(include_bytes!("../../icons/icon.png"));
+        if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+            // SAFETY: executa na thread principal (MainThreadMarker) com uma NSImage válida.
+            unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
+        }
+    });
 }
 
 /// Abre a janela principal; `section` (id de seção da UI) é enviado em `relay:navigate`.

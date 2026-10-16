@@ -20,10 +20,32 @@ const EDGE_TOLERANCE_MM: f32 = 0.5;
 /// Folga numérica para sobreposição (encostar é permitido).
 const OVERLAP_EPS_MM: f32 = 1e-3;
 
-/// mm por pixel: `size_mm / size_px` (eixo x) ou, sem `size_mm`, 25,4 / (96 * scale).
+/// Tamanho físico em mm na orientação em que a tela é usada. O `size_mm` do EDID é sempre
+/// paisagem, mas `size_px` vem girado quando o usuário gira a tela no Windows: se o aspecto dos
+/// pixels contraria o dos mm, troca os mm. `rotation` (override do perfil) manda quando presente:
+/// 90/270 = retrato, 0/180 = paisagem.
+pub fn oriented_size_mm(display: &DisplayInfo, rotation: Option<u16>) -> (f32, f32) {
+    let (px_w, px_h) = (display.size_px.0 as f32, display.size_px.1 as f32);
+    let (w, h) = match display.size_mm {
+        Some((w, h)) if w > 0.0 && h > 0.0 => (w, h),
+        _ => {
+            let k = 25.4 / (96.0 * display.scale);
+            (px_w * k, px_h * k)
+        }
+    };
+    let portrait = match rotation {
+        Some(deg) => deg % 180 == 90,
+        None => px_h > px_w,
+    };
+    if portrait == (h > w) { (w, h) } else { (h, w) }
+}
+
+/// mm por pixel, independente da orientação: lado maior em mm / lado maior em px (ou, sem
+/// `size_mm`, 25,4 / (96 * scale)).
 fn mm_per_px(display: &DisplayInfo) -> f32 {
+    let px_max = display.size_px.0.max(display.size_px.1) as f32;
     match display.size_mm {
-        Some((w_mm, _)) if display.size_px.0 > 0 && w_mm > 0.0 => w_mm / display.size_px.0 as f32,
+        Some((w_mm, h_mm)) if px_max > 0.0 && w_mm > 0.0 && h_mm > 0.0 => w_mm.max(h_mm) / px_max,
         _ => 25.4 / (96.0 * display.scale),
     }
 }
@@ -110,9 +132,28 @@ pub fn select_profile(
     }
     let key = profile_key(displays);
     if let Some(p) = profiles.iter().find(|p| p.key == key) {
-        return Some(p.clone());
+        return Some(reorient(p.clone(), displays));
     }
     Some(default_profile(key, displays))
+}
+
+/// Perfil salvo com a tela girada depois (no Windows): onde não há override (`rotation: None`) e a
+/// orientação do retângulo contraria a dos pixels atuais, troca largura e altura em mm.
+fn reorient(mut profile: LayoutProfile, displays: &[DisplayInfo]) -> LayoutProfile {
+    for p in &mut profile.displays {
+        let Some(d) = displays.iter().find(|d| d.id == p.display_id) else {
+            continue;
+        };
+        if p.rotation.is_some() {
+            continue;
+        }
+        let (w, h) = oriented_size_mm(d, None);
+        if (h > w) != (p.rect_mm.h > p.rect_mm.w) {
+            p.rect_mm.w = w;
+            p.rect_mm.h = h;
+        }
+    }
+    profile
 }
 
 /// Retângulo em mm de `d` relativo a `origin_px`. O deslocamento usa `origin_k` (mm/px da tela
@@ -134,6 +175,7 @@ fn placed(d: &DisplayInfo, rect_mm: RectMm) -> PlacedDisplay {
         machine: d.machine,
         rect_mm,
         sensitivity: 1.0,
+        rotation: None,
     }
 }
 
@@ -317,6 +359,7 @@ mod tests {
             machine: m,
             rect_mm: RectMm { x, y, w, h },
             sensitivity: 1.0,
+            rotation: None,
         }
     }
 
@@ -354,6 +397,116 @@ mod tests {
         let f2 = disp("c", Machine::Mac, (0, 0), (100, 100), 2.0, None, true);
         assert!((px_to_mm(&f2, 192.0) - 25.4).abs() < 1e-3);
         assert!((mm_to_px(&f2, 25.4) - 192.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn tamanho_orientado_detecta_retrato_e_aceita_override() {
+        let paisagem = disp(
+            "d",
+            Machine::Windows,
+            (0, 0),
+            (2560, 1440),
+            1.0,
+            Some((597.0, 336.0)),
+            false,
+        );
+        assert_eq!(oriented_size_mm(&paisagem, None), (597.0, 336.0));
+        // Girado no Windows: px em retrato, EDID em paisagem -> troca os mm sozinho.
+        let girada = disp(
+            "d",
+            Machine::Windows,
+            (0, 0),
+            (1440, 2560),
+            1.0,
+            Some((597.0, 336.0)),
+            false,
+        );
+        assert_eq!(oriented_size_mm(&girada, None), (336.0, 597.0));
+        // O mm/px não depende da orientação.
+        assert!((px_to_mm(&girada, 2560.0) - 597.0).abs() < 0.01);
+        // Override manda: 90 força retrato, 180 mantém paisagem.
+        assert_eq!(oriented_size_mm(&paisagem, Some(90)), (336.0, 597.0));
+        assert_eq!(oriented_size_mm(&girada, Some(180)), (597.0, 336.0));
+        // Sem EDID: usa os px com o DPI.
+        let sem_mm = disp("d", Machine::Windows, (0, 0), (960, 1920), 1.0, None, false);
+        let (w, h) = oriented_size_mm(&sem_mm, None);
+        assert!(w < h);
+    }
+
+    #[test]
+    fn perfil_padrao_com_dell_em_retrato() {
+        let ds = vec![
+            disp(
+                "mac",
+                Machine::Mac,
+                (0, 0),
+                (1440, 900),
+                2.0,
+                Some((302.0, 196.0)),
+                true,
+            ),
+            disp(
+                "dell",
+                Machine::Windows,
+                (0, 0),
+                (1440, 2560),
+                1.0,
+                Some((597.0, 336.0)),
+                true,
+            ),
+        ];
+        let p = select_profile(&[], &ds).unwrap();
+        let r = p
+            .displays
+            .iter()
+            .find(|d| d.display_id == "dell")
+            .unwrap()
+            .rect_mm;
+        assert!(
+            (r.w - 336.0).abs() < 0.5 && (r.h - 597.0).abs() < 0.5,
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn perfil_salvo_acompanha_a_tela_girada_no_windows() {
+        let ds = vec![
+            disp(
+                "mac",
+                Machine::Mac,
+                (0, 0),
+                (1440, 900),
+                2.0,
+                Some((302.0, 196.0)),
+                true,
+            ),
+            disp(
+                "dell",
+                Machine::Windows,
+                (0, 0),
+                (1440, 2560),
+                1.0,
+                Some((597.0, 336.0)),
+                true,
+            ),
+        ];
+        let saved = LayoutProfile {
+            key: profile_key(&ds),
+            name: "salvo".into(),
+            displays: vec![
+                pd("mac", Machine::Mac, 0.0, 0.0, 302.0, 196.0),
+                pd("dell", Machine::Windows, 302.0, 0.0, 597.0, 336.0),
+            ],
+            windows_detached: false,
+        };
+        let p = select_profile(std::slice::from_ref(&saved), &ds).unwrap();
+        let r = p.displays[1].rect_mm;
+        assert_eq!((r.w, r.h), (336.0, 597.0));
+        // Override manual não é tocado.
+        let mut manual = saved;
+        manual.displays[1].rotation = Some(0);
+        let p = select_profile(&[manual], &ds).unwrap();
+        assert_eq!(p.displays[1].rect_mm.w, 597.0);
     }
 
     #[test]

@@ -3,6 +3,8 @@
 import type { DisplayInfo, EdgeLink, PlacedDisplay, ProfileKey, RectMm, Side } from "@relay/protocol-types";
 
 export const SNAP_MM = 5;
+/** Alcance do ímã em pixels de tela (independe do zoom do canvas). */
+export const MAGNET_PX = 14;
 /** Tolerância para considerar duas bordas coladas. */
 export const TOUCH_EPS_MM = 0.5;
 export const SENSITIVITY_MIN = 0.25;
@@ -24,28 +26,75 @@ export function translate(r: RectMm, dx: number, dy: number): RectMm {
   return { ...r, x: r.x + dx, y: r.y + dy };
 }
 
-/** Menor deslocamento (em módulo) entre os candidatos que cabe no limite, ou 0. */
-function smallest(deltas: number[], limit: number): number | null {
-  let best: number | null = null;
-  for (const d of deltas) {
-    if (Math.abs(d) <= limit && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+/** Linha de guia de alinhamento (mm): vertical em `at` = x (de `from` a `to` em y) ou horizontal. */
+export interface Guide {
+  axis: "x" | "y";
+  at: number;
+  from: number;
+  to: number;
+}
+
+interface Candidate {
+  delta: number;
+  /** Coordenada (no eixo do deslocamento) da linha onde as bordas se encontram. */
+  line: number;
+  target: RectMm;
+}
+
+/** Candidatos de um eixo: colar de encontro, alinhar início, fim e centro. */
+function axisCandidates(m0: number, m1: number, t0: number, t1: number, target: RectMm): Candidate[] {
+  const mc = (m0 + m1) / 2;
+  const tc = (t0 + t1) / 2;
+  return [
+    { delta: t1 - m0, line: t1, target },
+    { delta: t0 - m1, line: t0, target },
+    { delta: t0 - m0, line: t0, target },
+    { delta: t1 - m1, line: t1, target },
+    { delta: tc - mc, line: tc, target },
+  ];
+}
+
+/** Melhor candidato dentro do limite (menor deslocamento em módulo) e os que empatam com ele. */
+function pick(cands: Candidate[], limit: number): { delta: number; ties: Candidate[] } | null {
+  let best: Candidate | null = null;
+  for (const c of cands) {
+    if (Math.abs(c.delta) <= limit && (best === null || Math.abs(c.delta) < Math.abs(best.delta))) best = c;
   }
-  return best;
+  if (!best) return null;
+  const delta = best.delta;
+  return { delta, ties: cands.filter((c) => Math.abs(c.delta - delta) < 0.01 && Math.abs(c.delta) <= limit) };
 }
 
 /**
- * Deslocamento extra que cola `moving` nas bordas das telas `targets` (da outra máquina)
- * quando alguma borda está a até `threshold` mm. Cada eixo é resolvido sozinho.
- * Cola de encontro (direita com esquerda) e alinha bordas do mesmo lado.
+ * Ímã: deslocamento extra que cola `moving` nas telas `targets` quando alguma borda ou centro está
+ * a até `threshold` mm. Cada eixo é resolvido sozinho: encosta borda com borda (direita com esquerda,
+ * embaixo com em cima) e alinha topo/centro/base e bordas laterais. Devolve também as guias do
+ * alinhamento atingido, já na posição colada.
  */
-export function snapDelta(moving: RectMm, targets: RectMm[], threshold = SNAP_MM): { dx: number; dy: number } {
-  const xs: number[] = [];
-  const ys: number[] = [];
+export function snapDelta(
+  moving: RectMm,
+  targets: RectMm[],
+  threshold = SNAP_MM,
+): { dx: number; dy: number; guides: Guide[] } {
+  const xs: Candidate[] = [];
+  const ys: Candidate[] = [];
   for (const t of targets) {
-    xs.push(right(t) - moving.x, t.x - right(moving), t.x - moving.x, right(t) - right(moving));
-    ys.push(bottom(t) - moving.y, t.y - bottom(moving), t.y - moving.y, bottom(t) - bottom(moving));
+    xs.push(...axisCandidates(moving.x, right(moving), t.x, right(t), t));
+    ys.push(...axisCandidates(moving.y, bottom(moving), t.y, bottom(t), t));
   }
-  return { dx: smallest(xs, threshold) ?? 0, dy: smallest(ys, threshold) ?? 0 };
+  const px = pick(xs, threshold);
+  const py = pick(ys, threshold);
+  const dx = px?.delta ?? 0;
+  const dy = py?.delta ?? 0;
+  const snapped = translate(moving, dx, dy);
+  const guides: Guide[] = [];
+  for (const c of px?.ties ?? []) {
+    guides.push({ axis: "x", at: c.line, from: Math.min(c.target.y, snapped.y), to: Math.max(bottom(c.target), bottom(snapped)) });
+  }
+  for (const c of py?.ties ?? []) {
+    guides.push({ axis: "y", at: c.line, from: Math.min(c.target.x, snapped.x), to: Math.max(right(c.target), right(snapped)) });
+  }
+  return { dx, dy, guides };
 }
 
 export function snapRect(moving: RectMm, targets: RectMm[], threshold = SNAP_MM): RectMm {
@@ -55,9 +104,28 @@ export function snapRect(moving: RectMm, targets: RectMm[], threshold = SNAP_MM)
 
 /**
  * Arrasta `ids` por (dx, dy). O conjunto inteiro se move junto, então as posições relativas
- * se preservam; o snap é calculado sobre o retângulo envolvente do conjunto contra as telas
- * da outra máquina (as que não estão em `ids` e têm máquina diferente da do conjunto).
+ * se preservam; o ímã é calculado sobre o retângulo envolvente do conjunto contra todas as outras
+ * telas (qualquer máquina). `threshold` em mm; 0 desliga o ímã (Option/Alt).
  */
+export function dragWithGuides(
+  displays: PlacedDisplay[],
+  ids: ReadonlySet<string>,
+  dx: number,
+  dy: number,
+  threshold = SNAP_MM,
+): { displays: PlacedDisplay[]; guides: Guide[] } {
+  const moved = displays.filter((d) => ids.has(d.display_id));
+  if (moved.length === 0) return { displays, guides: [] };
+  const targets = displays.filter((d) => !ids.has(d.display_id)).map((d) => d.rect_mm);
+  const box = translate(bounds(moved.map((d) => d.rect_mm)), dx, dy);
+  const snap = threshold > 0 ? snapDelta(box, targets, threshold) : { dx: 0, dy: 0, guides: [] };
+  const [tx, ty] = [dx + snap.dx, dy + snap.dy];
+  return {
+    displays: displays.map((d) => (ids.has(d.display_id) ? { ...d, rect_mm: translate(d.rect_mm, tx, ty) } : d)),
+    guides: snap.guides,
+  };
+}
+
 export function dragDisplays(
   displays: PlacedDisplay[],
   ids: ReadonlySet<string>,
@@ -65,14 +133,7 @@ export function dragDisplays(
   dy: number,
   threshold = SNAP_MM,
 ): PlacedDisplay[] {
-  const moved = displays.filter((d) => ids.has(d.display_id));
-  if (moved.length === 0) return displays;
-  const machine = moved[0]?.machine;
-  const targets = displays.filter((d) => d.machine !== machine).map((d) => d.rect_mm);
-  const box = translate(bounds(moved.map((d) => d.rect_mm)), dx, dy);
-  const snap = snapDelta(box, targets, threshold);
-  const [tx, ty] = [dx + snap.dx, dy + snap.dy];
-  return displays.map((d) => (ids.has(d.display_id) ? { ...d, rect_mm: translate(d.rect_mm, tx, ty) } : d));
+  return dragWithGuides(displays, ids, dx, dy, threshold).displays;
 }
 
 const overlap = (a0: number, a1: number, b0: number, b1: number): [number, number] | null => {
@@ -129,11 +190,50 @@ export function jumpIds(displays: PlacedDisplay[]): Map<string, number> {
 
 export const clampSensitivity = (v: number) => Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, v));
 
-/** Tamanho em mm: o físico se conhecido, senão por DPI (Windows: 96*scale; Mac, em pontos: ~127 pt/pol). */
-export function sizeMm(d: DisplayInfo): [number, number] {
-  if (d.size_mm) return d.size_mm;
+/**
+ * Tamanho em mm na orientação em uso. O EDID (`size_mm`) é sempre paisagem, mas `size_px` vem
+ * girado quando o usuário gira a tela no Windows: se o aspecto dos px contraria o dos mm, troca os mm.
+ * `rotation` (override salvo no perfil) manda quando presente: 90/270 = retrato. Espelha
+ * `layout::oriented_size_mm` do core. Sem `size_mm`, estima por DPI (Windows: 96*scale; Mac: ~127 pt/pol).
+ */
+export function sizeMm(d: DisplayInfo, rotation: number | null = null): [number, number] {
+  const [pw, ph] = d.size_px;
   const ppi = d.machine === "Windows" ? 96 * d.scale : 127;
-  return [(d.size_px[0] / ppi) * 25.4, (d.size_px[1] / ppi) * 25.4];
+  const [w, h] = d.size_mm && d.size_mm[0] > 0 && d.size_mm[1] > 0 ? d.size_mm : [(pw / ppi) * 25.4, (ph / ppi) * 25.4];
+  const portrait = rotation === null ? ph > pw : rotation % 180 === 90;
+  return portrait === h > w ? [w, h] : [h, w];
+}
+
+/** Orientação em graus de uma tela posta: o override, ou 90 se está em retrato, senão 0. */
+export const orientationOf = (d: PlacedDisplay): number => d.rotation ?? (d.rect_mm.h > d.rect_mm.w ? 90 : 0);
+
+/**
+ * Gira a tela `id` (Windows) para `rotation` graus (`null` = automático, pelo aspecto dos px). A largura e a altura em mm trocam quando a
+ * orientação muda, preservando o centro-superior esquerdo; vizinhos à direita na mesma faixa são
+ * empurrados e, se ainda houver sobreposição, a tela vai para a direita do que ela cobre.
+ */
+export function rotateDisplay(displays: PlacedDisplay[], info: ReadonlyMap<string, DisplayInfo>, id: string, rotation: number | null): PlacedDisplay[] {
+  const cur = displays.find((d) => d.display_id === id);
+  const meta = info.get(id);
+  if (!cur || !meta || cur.machine !== "Windows") return displays;
+  const [w, h] = sizeMm(meta, rotation);
+  const old = cur.rect_mm;
+  const dw = w - old.w;
+  let out = displays.map((d) => {
+    if (d.display_id === id) return { ...d, rotation, rect_mm: { ...old, w, h } };
+    const overlapsBand = d.rect_mm.y < bottom(old) - TOUCH_EPS_MM && bottom(d.rect_mm) > old.y + TOUCH_EPS_MM;
+    return dw > 0 && d.machine === "Windows" && overlapsBand && d.rect_mm.x >= right(old) - TOUCH_EPS_MM
+      ? { ...d, rect_mm: translate(d.rect_mm, dw, 0) }
+      : d;
+  });
+  // Ainda sobrepõe alguém (ex.: Mac)? Vai para a direita da tela coberta.
+  for (let i = 0; i < out.length; i++) {
+    const me = out.find((d) => d.display_id === id)!.rect_mm;
+    const hit = out.find((d) => d.display_id !== id && overlap(me.x, right(me), d.rect_mm.x, right(d.rect_mm)) && overlap(me.y, bottom(me), d.rect_mm.y, bottom(d.rect_mm)));
+    if (!hit) break;
+    out = out.map((d) => (d.display_id === id ? { ...d, rect_mm: { ...d.rect_mm, x: right(hit.rect_mm) } } : d));
+  }
+  return out;
 }
 
 export const profileId = (key: ProfileKey) => key.join("|");
@@ -144,7 +244,7 @@ const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].so
 export function defaultLayout(displays: DisplayInfo[]): PlacedDisplay[] {
   const place = (d: DisplayInfo, x: number, y: number): PlacedDisplay => {
     const [w, h] = sizeMm(d);
-    return { display_id: d.id, machine: d.machine, rect_mm: { x, y, w, h }, sensitivity: 1 };
+    return { display_id: d.id, machine: d.machine, rect_mm: { x, y, w, h }, sensitivity: 1, rotation: null };
   };
   const macs = displays.filter((d) => d.machine === "Mac");
   const wins = displays.filter((d) => d.machine === "Windows");
@@ -163,13 +263,22 @@ export function defaultLayout(displays: DisplayInfo[]): PlacedDisplay[] {
   return out;
 }
 
+/** Perfil salvo com a tela girada depois (sem override): ajusta largura/altura à orientação atual dos px. */
+function reorient(displays: PlacedDisplay[], connected: DisplayInfo[]): PlacedDisplay[] {
+  return displays.map((p) => {
+    const info = connected.find((d) => d.id === p.display_id);
+    if (!info || p.rotation !== null && p.rotation !== undefined) return p;
+    const [w, h] = sizeMm(info);
+    return h > w === p.rect_mm.h > p.rect_mm.w ? p : { ...p, rect_mm: { ...p.rect_mm, w, h } };
+  });
+}
+
 /** Garante que as telas do perfil são exatamente as conectadas; senão cai no padrão. */
 export function reconcile(displays: PlacedDisplay[], connected: DisplayInfo[]): PlacedDisplay[] {
   return sameSet(
     displays.map((d) => d.display_id),
     connected.map((d) => d.id),
   )
-    ? displays
+    ? reorient(displays, connected)
     : defaultLayout(connected);
 }
-

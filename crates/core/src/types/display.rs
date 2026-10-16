@@ -50,6 +50,11 @@ pub struct PlacedDisplay {
     pub rect_mm: RectMm,
     /// Multiplicador do movimento do mouse sobre esta tela (1.0 = neutro).
     pub sensitivity: f32,
+    /// Orientação manual da tela (0, 90, 180 ou 270 graus), gravada no perfil. `None` = automática:
+    /// o layout segue o aspecto dos pixels que a máquina reporta. 90/270 deixam a tela em retrato
+    /// (largura e altura em mm trocadas em relação à paisagem natural).
+    #[serde(default)]
+    pub rotation: Option<u16>,
 }
 
 /// Perfil escolhido pelo conjunto ordenado dos ids das telas conectadas (D28).

@@ -17,6 +17,7 @@
 .badge { fill: var(--relay-text-2); }
 .badgeText { fill: var(--relay-surface); font-family: var(--relay-font); font-weight: 700; pointer-events: none; }
 .edge { stroke: var(--relay-accent); stroke-linecap: round; opacity: 0.55; pointer-events: none; }
+.guide { stroke: var(--relay-accent); stroke-linecap: round; pointer-events: none; }
 .edgeLive { stroke: var(--relay-accent); stroke-linecap: round; pointer-events: none; }
 
 .item { display: flex; flex-direction: column; gap: var(--relay-space-1); padding: var(--relay-space-2) var(--relay-space-3); border-radius: var(--relay-radius-lg); background: var(--relay-fill); margin-bottom: var(--relay-space-2); }

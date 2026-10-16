@@ -192,6 +192,7 @@ fn profile() -> LayoutProfile {
         machine,
         rect_mm: RectMm { x, y, w, h },
         sensitivity: 1.0,
+        rotation: None,
     };
     LayoutProfile {
         key: ProfileKey(vec!["dell".into(), "mac".into()]),
