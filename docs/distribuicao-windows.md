@@ -57,9 +57,8 @@ limpa de imediato.
 
 `plugins.updater` aponta para
 `https://github.com/Jpecamargo/relay/releases/latest/download/latest.json` (TLS nativo).
-`pubkey` está como placeholder (`PLACEHOLDER_PUBKEY_GERADA_PELO_ITEM_REL`) e
-`createUpdaterArtifacts=false`: o item REL gera a chave (`tauri signer generate`), troca a
-`pubkey` e liga `createUpdaterArtifacts`. Comandos: `agent_check_updates` (emite
+`pubkey` real e `createUpdaterArtifacts=true`; a chave privada está em `~/.tauri/relay.key` (fora do repo) e
+nos secrets do CI (ver `docs/release.md`, inclusive como buildar local sem a chave). Comandos: `agent_check_updates` (emite
 `relay:update-available`) e `agent_install_update`.
 
 ## Verificação pós-instalação

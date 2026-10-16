@@ -55,3 +55,15 @@ Detalhes de assinatura em `docs/distribuicao-mac.md` e `docs/distribuicao-window
 Mac: o Gatekeeper bloqueia na primeira abertura (botão direito > Abrir, ou
 `xattr -dr com.apple.quarantine /Applications/Relay.app`). Windows: o SmartScreen avisa; "Mais informações >
 Executar assim mesmo".
+
+## Build local
+
+Com `createUpdaterArtifacts=true`, `tauri build` local sem a chave falha no fim (o bundle sai, mas termina com
+"A public key has been found, but no private key"). Duas saídas:
+
+    # assinar os artefatos do updater
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/relay.key)"
+    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat ~/.tauri/relay.key.password)"
+
+    # ou desligar os artefatos do updater só nesse build
+    pnpm --filter @relay/mac tauri build --debug --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'
