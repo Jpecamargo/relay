@@ -21,6 +21,7 @@ Tauri v2 nas duas pontas, Rust + React/TS (Vite). Spec em `docs/spec.pdf`; ambie
 - `pnpm dev:mock`: o mesmo, com backend simulado (3 telas, conectado), sem pedir permissões.
 - `scripts/check.sh`: validação completa (fmt, clippy `-D warnings`, testes, check cruzado Windows, typecheck/build/test do pnpm). Deve terminar com exit 0.
 - `scripts/check-windows.sh`: só o check cruzado do Windows (ver `docs/dev.md`).
+- `scripts/target-hygiene.sh`: higiene do `target/` (incrementais sempre; >15 GB apaga release/ e o target do Windows; >25 GB `cargo clean`; pula se houver build rodando). `scripts/install-target-hygiene.sh` agenda no launchd (diário 12h + login; log em `~/Library/Logs/Relay/target-hygiene.log`; `--uninstall` remove).
 - `scripts/clean.sh`: `cargo clean`, remove `incremental` e `target`/`node_modules` de worktrees órfãos em `.team-work/worktrees`.
 - `pnpm install && pnpm -r typecheck && pnpm -r build && pnpm -r test`: lado TypeScript.
 - `pnpm --filter @relay/mac tauri build --debug --bundles app`: gera `Relay.app`.
