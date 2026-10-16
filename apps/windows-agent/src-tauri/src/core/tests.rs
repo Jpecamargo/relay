@@ -278,6 +278,7 @@ fn start_agent_with(store: Arc<MemoryKeyStore>) -> Agent {
             installed: true,
             running: true,
             helper_active,
+            vbcable_detected: false,
         }),
         device_name: "dell-pc".into(),
         mac_address: [9, 8, 7, 6, 5, 4],

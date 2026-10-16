@@ -73,6 +73,8 @@ pub struct ServiceStatus {
     pub installed: bool,
     pub running: bool,
     pub helper_active: bool,
+    /// VB-CABLE ("CABLE Input") instalado, detectado pelos endpoints de áudio.
+    pub vbcable_detected: bool,
 }
 
 /// Payload de `relay:update-available`.

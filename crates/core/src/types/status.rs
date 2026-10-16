@@ -69,6 +69,9 @@ pub struct SystemMetrics {
     pub gpu_mem_mb: Option<u32>,
     pub gpu_temp_c: Option<f32>,
     pub cpu_temp_c: Option<f32>,
+    /// Volume atual da saída do PC, 0..1 (o painel inicializa o slider com ele).
+    pub volume: Option<f32>,
+    pub muted: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

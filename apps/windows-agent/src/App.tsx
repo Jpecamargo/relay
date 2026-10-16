@@ -71,7 +71,7 @@ export function App() {
 
   const { tone, label } = statusInfo(snapshot?.status);
   const connected = snapshot?.status === "Connected";
-  const vbcable = config?.audio.virtual_output_name ?? null;
+  const vbcable = service?.vbcable_detected ?? false;
 
   return (
     <main className="app">
@@ -132,7 +132,7 @@ export function App() {
             />
             <div className="row">
               <StatusDot tone={vbcable ? "ok" : "warn"} label={vbcable ? "Detectado" : "Não detectado"} />
-              <span>{vbcable ? `VB-CABLE detectado (${vbcable})` : "VB-CABLE não detectado"}</span>
+              <span>{vbcable ? "VB-CABLE detectado" : "VB-CABLE não detectado"}</span>
             </div>
             {!vbcable ? <p className="muted">Instale o VB-CABLE para enviar o áudio do Mac a este PC.</p> : null}
             <Toggle
