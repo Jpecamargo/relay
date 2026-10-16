@@ -3767,7 +3767,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "relay-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrayvec",
  "bincode",
@@ -3795,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "relay-latency-bench"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hdrhistogram",
  "relay-core",
@@ -3805,7 +3805,7 @@ dependencies = [
 
 [[package]]
 name = "relay-mac"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "objc2",
  "objc2-app-kit",
@@ -3829,7 +3829,7 @@ dependencies = [
 
 [[package]]
 name = "relay-platform-macos"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "core-foundation",
  "core-graphics",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "relay-platform-windows"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nvml-wrapper",
  "png 0.18.1",
@@ -3860,7 +3860,7 @@ dependencies = [
 
 [[package]]
 name = "relay-windows-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "relay-core",
  "relay-platform-windows",
@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "relay-windows-service"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "relay-platform-windows",
  "tracing",
