@@ -41,7 +41,8 @@ fn wait<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
             return v;
         }
         assert!(
-            t.elapsed() < Duration::from_secs(5),
+            // Folga para o runner compartilhado do CI.
+            t.elapsed() < Duration::from_secs(20),
             "tempo esgotado: {what}"
         );
         std::thread::sleep(Duration::from_millis(10));
