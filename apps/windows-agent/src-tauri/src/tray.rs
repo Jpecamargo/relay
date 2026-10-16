@@ -1,0 +1,131 @@
+//! dono: WA1
+//! Ícone da bandeja e menu: Estado (label), Mostrar código de pareamento, Abrir janela, Pausar, Sair.
+
+use relay_core::types::{ConnectionStatus, StatusSnapshot};
+use tauri::{
+    AppHandle, Manager, Runtime,
+    image::Image,
+    include_image,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::TrayIconBuilder,
+};
+
+use crate::state::AgentState;
+
+const ID_STATUS: &str = "status";
+const ID_PAIRING: &str = "pairing";
+const ID_OPEN: &str = "open";
+const ID_PAUSE: &str = "pause";
+const ID_QUIT: &str = "quit";
+
+/// Itens que mudam com o estado; guardados para atualizar o texto.
+struct TrayItems<R: Runtime> {
+    status: MenuItem<R>,
+    pause: MenuItem<R>,
+}
+
+pub fn status_label(s: &StatusSnapshot) -> String {
+    let text = match s.status {
+        ConnectionStatus::Disconnected => "desconectado".to_string(),
+        ConnectionStatus::Discovering => "procurando".to_string(),
+        ConnectionStatus::Connecting => "conectando".to_string(),
+        ConnectionStatus::Pairing => "pareando".to_string(),
+        ConnectionStatus::Connected => match &s.peer_name {
+            Some(n) => format!("conectado a {n}"),
+            None => "conectado".to_string(),
+        },
+        ConnectionStatus::Reconnecting => "reconectando".to_string(),
+        ConnectionStatus::IncompatibleVersion { .. } => "versão incompatível".to_string(),
+    };
+    if s.paused {
+        format!("Estado: {text} (pausado)")
+    } else {
+        format!("Estado: {text}")
+    }
+}
+
+pub fn pause_label(paused: bool) -> &'static str {
+    if paused { "Retomar" } else { "Pausar" }
+}
+
+pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Reflete o estado atual do backend no menu.
+pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
+    let (Some(state), Some(items)) = (
+        app.try_state::<AgentState>(),
+        app.try_state::<TrayItems<R>>(),
+    ) else {
+        return;
+    };
+    let snap = state.backend.status();
+    let _ = items.status.set_text(status_label(&snap));
+    let _ = items.pause.set_text(pause_label(snap.paused));
+}
+
+pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    let snap = app.state::<AgentState>().backend.status();
+    let status = MenuItem::with_id(app, ID_STATUS, status_label(&snap), false, None::<&str>)?;
+    let pairing = MenuItem::with_id(
+        app,
+        ID_PAIRING,
+        "Mostrar código de pareamento",
+        true,
+        None::<&str>,
+    )?;
+    let open = MenuItem::with_id(app, ID_OPEN, "Abrir janela", true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, ID_PAUSE, pause_label(snap.paused), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, ID_QUIT, "Sair", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&status, &sep, &pairing, &open, &pause, &sep2, &quit])?;
+    app.manage(TrayItems { status, pause });
+
+    let icon: Image<'static> = include_image!("icons/icon.ico");
+    TrayIconBuilder::with_id("tray")
+        .icon(icon)
+        .tooltip("Relay Agent")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            // A janela gera o código (agent_new_pairing_code); o menu só a traz à frente.
+            ID_PAIRING | ID_OPEN => show_main_window(app),
+            ID_PAUSE => {
+                let backend = &app.state::<AgentState>().backend;
+                let paused = backend.status().paused;
+                if let Err(e) = backend.set_paused(!paused) {
+                    tracing::warn!("falha ao alternar pausa: {e}");
+                }
+                refresh(app);
+            }
+            ID_QUIT => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::{AgentBackend, MockBackend};
+
+    #[test]
+    fn label_reflete_conexao_e_pausa() {
+        let b = MockBackend::default();
+        assert_eq!(status_label(&b.status()), "Estado: desconectado");
+        let mut s = b.status();
+        s.status = ConnectionStatus::Connected;
+        s.peer_name = Some("MacBook".into());
+        s.paused = true;
+        assert_eq!(status_label(&s), "Estado: conectado a MacBook (pausado)");
+        assert_eq!(pause_label(true), "Retomar");
+        assert_eq!(pause_label(false), "Pausar");
+    }
+}

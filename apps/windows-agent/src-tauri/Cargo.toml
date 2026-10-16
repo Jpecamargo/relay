@@ -20,9 +20,13 @@ tauri-build.workspace = true
 
 [dependencies]
 relay-core.workspace = true
-tauri.workspace = true
+tauri = { workspace = true, features = ["image-ico"] }
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 relay-platform-windows.workspace = true
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
