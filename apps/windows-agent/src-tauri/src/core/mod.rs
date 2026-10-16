@@ -11,6 +11,7 @@ pub mod executor;
 pub mod media;
 mod pump;
 pub mod real;
+mod reverse;
 mod routed;
 #[cfg(test)]
 mod tests;
@@ -36,6 +37,7 @@ use relay_core::types::{
 use tokio::sync::mpsc;
 
 use crate::backend::{AgentBackend, AgentError, AgentResult};
+pub use reverse::{ReverseDeps, ReverseHandle};
 pub use routed::{BoxCursor, PipeInjector, RoutedInjector, SharedPipe};
 
 /// Conta do KeyStore com o `device_id` do Mac pareado (o trait não lista contas).
@@ -162,6 +164,17 @@ impl AgentCore {
     /// runtime tokio de thread única (o `Receiver` e a sessão não são `Sync`). Devolve depois que
     /// as portas estão abertas, ou com o erro de quem falhou.
     pub fn start(deps: AgentDeps, config: Config, events: Arc<dyn UiEvents>) -> AgentResult<Self> {
+        Self::start_with_reverse(deps, config, events, None)
+    }
+
+    /// Como `start`, com o sentido inverso (R1): com `reverse`, o mouse e o teclado do PC podem
+    /// controlar o Mac pela borda ligada a ele, desde que o Mac não esteja controlando o PC (D24).
+    pub fn start_with_reverse(
+        deps: AgentDeps,
+        config: Config,
+        events: Arc<dyn UiEvents>,
+        reverse: Option<ReverseDeps>,
+    ) -> AgentResult<Self> {
         let (tx, cmds) = mpsc::unbounded_channel();
         let mut deps = deps;
         // O probe do serviço (consulta o SCM) fica do lado da UI, não no pump.
@@ -194,7 +207,7 @@ impl AgentCore {
                     }
                 };
                 rt.block_on(async move {
-                    match setup(deps, thread_shared, events).await {
+                    match setup(deps, thread_shared, events, reverse).await {
                         Ok((pump, addrs, device_id)) => {
                             let _ = init_tx.send(Ok((addrs, device_id)));
                             pump.run(cmds).await;
@@ -301,6 +314,7 @@ async fn setup(
     mut deps: AgentDeps,
     shared: Arc<Shared>,
     events: Arc<dyn UiEvents>,
+    reverse: Option<ReverseDeps>,
 ) -> AgentResult<Setup> {
     let identity =
         load_or_create_identity(&*deps.keystore).map_err(|e| start_err("identidade", e))?;
@@ -356,6 +370,6 @@ async fn setup(
         }));
     }
 
-    let pump = pump::Pump::new(deps, shared, listener, advertiser, events, peers);
+    let pump = pump::Pump::new(deps, shared, listener, advertiser, events, peers, reverse);
     Ok((pump, addrs, device_id))
 }

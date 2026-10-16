@@ -62,6 +62,8 @@ pub struct TransitionEngine {
     locked: bool,
     local_push: Push,
     remote_push: Push,
+    /// Máquina que captura e controla (Mac; Windows no sentido inverso, D24).
+    local: Machine,
 }
 
 fn horizontal(side: Side) -> bool {
@@ -128,7 +130,15 @@ impl TransitionEngine {
             locked: false,
             local_push: None,
             remote_push: None,
+            local: Machine::Mac,
         }
+    }
+
+    /// Sentido inverso (D24): a máquina que captura é o Windows e o receptor é o Mac.
+    pub fn set_local_machine(&mut self, machine: Machine) {
+        self.local = machine;
+        self.local_push = None;
+        self.remote_push = None;
     }
 
     /// Posição ao longo da borda `side` de `d` (px) → mm absolutos no plano do layout.
@@ -185,7 +195,7 @@ impl TransitionEngine {
             self.local_push = None;
             return LocalDecision::Stay;
         };
-        if self.locked || self.disps[from].machine != Machine::Mac {
+        if self.locked || self.disps[from].machine != self.local {
             self.local_push = None;
             return LocalDecision::Stay;
         }
@@ -242,7 +252,7 @@ impl TransitionEngine {
         let mut hit = None;
         for (i, l) in self.links.iter().enumerate() {
             let d = &self.disps[l.from];
-            if d.machine != Machine::Windows {
+            if d.machine == self.local {
                 continue;
             }
             let (x0, y0) = d.origin;

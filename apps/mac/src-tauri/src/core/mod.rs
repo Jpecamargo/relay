@@ -16,6 +16,7 @@ mod mac;
 pub mod media;
 mod net;
 mod platform;
+mod reverse;
 #[cfg(test)]
 mod tests;
 

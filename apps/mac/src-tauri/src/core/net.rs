@@ -12,7 +12,7 @@ use relay_core::crypto::{
     LocalDevice, StaticKeypair, device_id_of, load_or_create_identity, load_peer, save_peer,
 };
 use relay_core::discovery::parse_manual_address;
-use relay_core::net::{DialerConfig, SessionDialer, SessionEvent};
+use relay_core::net::{DialerConfig, FastEvent, SessionDialer, SessionEvent};
 use relay_core::platform::KeyStore;
 use relay_core::types::{
     ConnectionStatus, DiscoveredPeer, Message, PairedPeer, PairingEvent, PairingState, Ports,
@@ -343,7 +343,10 @@ impl<P: Platform> Manager<P> {
             local_ports.clone(),
         );
         dial.bind_ip = self.inner.opts.bind_ip;
-        let mut dialer = match SessionDialer::start(dial, Box::new(|_| {})).await {
+        // Canal rápido do PC (movimento/rolagem do sentido inverso) vai para a thread do core.
+        let fast_inner = self.inner.clone();
+        let fast_sink = Box::new(move |ev: FastEvent| fast_inner.core(CoreCmd::Fast(ev.event)));
+        let mut dialer = match SessionDialer::start(dial, fast_sink).await {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!("sessão não iniciou: {e}");

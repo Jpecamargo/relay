@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
-use crate::core::{AgentCore, real};
+use crate::core::{AgentCore, ReverseDeps, real};
 use crate::events::TauriEvents;
 use crate::state::AgentState;
 
@@ -46,7 +46,12 @@ pub fn run() {
             let config = relay_core::config::load_or_default(&relay_core::config::config_path())
                 .unwrap_or_default();
             let events = Arc::new(TauriEvents(app.handle().clone()));
-            let core = AgentCore::start(real::real_deps(), config, events)?;
+            let core = AgentCore::start_with_reverse(
+                real::real_deps(),
+                config,
+                events,
+                Some(ReverseDeps::real()),
+            )?;
             app.manage(AgentState::new(Arc::new(core)));
             tray::setup(app.handle())?;
             Ok(())

@@ -10,6 +10,7 @@
 mod commands;
 mod controller;
 mod receiver;
+pub mod reverse;
 #[cfg(test)]
 mod testutil;
 
