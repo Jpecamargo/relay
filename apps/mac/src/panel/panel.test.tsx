@@ -111,3 +111,10 @@ test("slider de volume do Windows envia SetVolume depois de 50 ms", async () => 
     vi.useRealTimers();
   }
 });
+
+test("banner de reconexão tem 'Tentar de novo' que chama reconnect", async () => {
+  await ready();
+  emit("relay:status", { ...STATUS, status: "Reconnecting" });
+  fireEvent.click(await screen.findByRole("button", { name: "Tentar de novo" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
+});

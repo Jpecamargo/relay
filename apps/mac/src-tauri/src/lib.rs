@@ -44,6 +44,7 @@ pub fn run() {
             controls::set_cursor_lock,
             controls::set_sharing_paused,
             controls::wake_pc,
+            controls::reconnect,
             clipboard::clipboard_send_now,
             clipboard::set_clipboard_sync,
             clipboard::receive_remote_files,
@@ -91,6 +92,7 @@ pub fn run() {
             app.manage(AppState::new(backend.clone()));
             app.manage(updater::PendingUpdate::default());
             tray::setup(app.handle())?;
+            controls::spawn_metrics_poller(app.handle().clone());
 
             if mock {
                 let handle = app.handle().clone();
