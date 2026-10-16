@@ -6,6 +6,8 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "gen:types": "bash scripts/gen-types.sh"
+    "gen:types": "bash scripts/gen-types.sh",
+    "dev": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @relay/mac tauri dev",
+    "dev:mock": "pnpm -r --filter \"./packages/*\" build && RELAY_MOCK_BACKEND=1 pnpm --filter @relay/mac tauri dev"
   }
 }

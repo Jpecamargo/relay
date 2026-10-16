@@ -17,6 +17,8 @@ Tauri v2 nas duas pontas, Rust + React/TS (Vite). Spec em `docs/spec.pdf`; ambie
 | `packages/protocol-types` | `@relay/protocol-types` | Tipos TS gerados do core (`pnpm gen:types`) |
 
 ## Comandos
+- `pnpm i && pnpm dev`: roda o app do Mac em modo dev (compila os pacotes compartilhados e abre o `tauri dev`).
+- `pnpm dev:mock`: o mesmo, com backend simulado (3 telas, conectado), sem pedir permissões.
 - `scripts/check.sh`: validação completa (fmt, clippy `-D warnings`, testes, check cruzado Windows, typecheck/build/test do pnpm). Deve terminar com exit 0.
 - `scripts/check-windows.sh`: só o check cruzado do Windows (ver `docs/dev.md`).
 - `scripts/clean.sh`: `cargo clean`, remove `incremental` e `target`/`node_modules` de worktrees órfãos em `.team-work/worktrees`.
