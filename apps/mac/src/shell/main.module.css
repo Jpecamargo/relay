@@ -1,0 +1,56 @@
+/* Janela com material "sidebar": a coluna da esquerda fica transparente (vibrancy), o conteúdo é opaco. */
+.shell { display: grid; grid-template-columns: 224px 1fr; height: 100vh; color: var(--relay-text); font: var(--relay-text-md) var(--relay-font); -webkit-user-select: none; user-select: none; }
+.sidebar { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 56px 10px 10px; overflow-y: auto; }
+.drag { position: absolute; top: 0; left: 0; right: 0; height: 52px; }
+.item {
+  display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; border: 0; border-radius: var(--relay-radius-md);
+  background: transparent; color: var(--relay-text); font: var(--relay-text-md) var(--relay-font); text-align: left; cursor: default;
+}
+.item svg { color: var(--relay-text-2); flex: none; }
+.item:hover { background: var(--relay-fill); }
+.item[aria-current="page"] { background: var(--relay-fill-active); font-weight: 500; }
+.item[aria-current="page"] svg { color: var(--relay-accent); }
+.item:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: -2px; }
+.sideStatus { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 8px 10px 0; font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); }
+.sideStatus span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.content { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--relay-bg); border-left: 1px solid var(--relay-hairline); }
+.titlebar { flex: none; display: flex; align-items: center; height: 52px; padding: 0 28px; }
+.pageTitle { margin: 0; font: 600 var(--relay-text-lg) var(--relay-font); pointer-events: none; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 28px 24px; }
+.screens { height: 100%; min-height: 460px; margin: 0 -28px -24px; }
+
+.hero { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--relay-space-5); padding: var(--relay-space-2) var(--relay-space-1) var(--relay-space-3); }
+.heroTitle { display: flex; align-items: center; gap: 10px; font: 600 var(--relay-text-xl) var(--relay-font); }
+.heroSub { margin: 4px 0 0; font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); }
+.latency { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.latencyValue { font: 600 28px/1 var(--relay-font); font-variant-numeric: tabular-nums; }
+.latencyValue small { font: var(--relay-text-md) var(--relay-font); color: var(--relay-text-2); }
+
+.meter { display: flex; flex-direction: column; gap: 6px; }
+.meterHead { display: flex; justify-content: space-between; gap: var(--relay-space-3); font: var(--relay-text-md) var(--relay-font); }
+.meterHead b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.transfer { display: flex; flex-direction: column; gap: 6px; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.err { color: var(--relay-danger); font-size: var(--relay-text-sm); }
+.empty { margin: 0 var(--relay-space-1); font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-3); }
+.infoRow { display: flex; justify-content: space-between; font: var(--relay-text-md) var(--relay-font); color: var(--relay-text-2); }
+.infoRow b { font-weight: 500; color: var(--relay-text); font-variant-numeric: tabular-nums; }
+.toolRow { display: flex; align-items: center; justify-content: space-between; gap: var(--relay-space-2); }
+.toolRow > :first-child { flex: 1; }
+.input {
+  min-width: 0; height: var(--relay-control-h); box-sizing: border-box; padding: 0 var(--relay-space-2);
+  border: 0; border-radius: var(--relay-radius-md); background: var(--relay-fill-hover); color: var(--relay-text);
+  font: var(--relay-text-md) var(--relay-font); -webkit-user-select: text; user-select: text;
+}
+.input:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
+.shot { max-width: 100%; border-radius: var(--relay-radius-md); }
+
+.inlineAction { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: var(--relay-space-2); }
+.linkAction {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 var(--relay-space-2); border: 0; border-radius: var(--relay-radius-sm);
+  background: transparent; color: var(--relay-text); font: var(--relay-text-md) var(--relay-font); cursor: default;
+}
+.linkAction:hover { background: var(--relay-fill); }
+.linkAction svg { color: var(--relay-text-2); }
+.linkAction:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: -2px; }

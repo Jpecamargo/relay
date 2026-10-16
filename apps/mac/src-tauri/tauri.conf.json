@@ -15,32 +15,49 @@
         "label": "panel",
         "title": "Relay",
         "width": 360,
-        "height": 520,
+        "height": 420,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,
         "resizable": false,
-        "shadow": true
+        "shadow": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "menu"
+          ],
+          "state": "active",
+          "radius": 12
+        }
       },
       {
-        "label": "settings",
-        "title": "Configurações",
-        "width": 720,
-        "height": 560,
-        "visible": false
-      },
-      {
-        "label": "editor",
-        "title": "Editor de telas",
-        "width": 960,
-        "height": 640,
-        "visible": false
+        "label": "main",
+        "title": "Relay",
+        "width": 1000,
+        "height": 680,
+        "minWidth": 780,
+        "minHeight": 520,
+        "visible": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 24
+        },
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState"
+        }
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

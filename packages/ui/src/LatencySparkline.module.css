@@ -1,3 +1,3 @@
 .wrap { display: inline-flex; align-items: center; gap: var(--relay-space-2); }
 .svg { color: var(--relay-accent); overflow: visible; }
-.value { min-width: 4.5em; font: var(--relay-text-sm) var(--relay-font-mono); font-variant-numeric: tabular-nums; color: var(--relay-text-2); text-align: right; }
+.value { min-width: 4.5em; font: var(--relay-text-sm) var(--relay-font); font-variant-numeric: tabular-nums; color: var(--relay-text-2); text-align: right; }

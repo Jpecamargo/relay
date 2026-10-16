@@ -5,12 +5,12 @@ use relay_core::types::{
     CommandResult, ConnectionStatus, PowerAction, RemoteCommand, StatusSnapshot,
 };
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::backend::AppBackend;
-use crate::commands::system::show_window;
+use crate::commands::system::open_main;
 use crate::events::{emit_command_result, emit_status};
 use crate::state::AppState;
 
@@ -19,6 +19,12 @@ pub struct TrayHandles {
     status: MenuItem<Wry>,
     lock: CheckMenuItem<Wry>,
     pause: CheckMenuItem<Wry>,
+    tray: TrayIcon<Wry>,
+}
+
+/// Ícone cheio só com o PC conectado; qualquer outro estado usa a variante tracejada.
+pub fn tray_connected(s: &StatusSnapshot) -> bool {
+    matches!(s.status, ConnectionStatus::Connected)
 }
 
 pub fn status_label(s: &StatusSnapshot) -> String {
@@ -42,6 +48,13 @@ impl TrayHandles {
         let _ = self.status.set_text(status_label(s));
         let _ = self.lock.set_checked(s.locked);
         let _ = self.pause.set_checked(s.paused);
+        let icon = if tray_connected(s) {
+            tauri::include_image!("icons/tray-template@2x.png")
+        } else {
+            tauri::include_image!("icons/tray-template-off@2x.png")
+        };
+        let _ = self.tray.set_icon(Some(icon));
+        let _ = self.tray.set_icon_as_template(true);
     }
 }
 
@@ -102,10 +115,10 @@ const BACKEND_ACTIONS: [&str; 7] = [
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "editor" => {
-            let _ = show_window(app, "editor");
+            let _ = open_main(app, Some("screens"));
         }
         "settings" => {
-            let _ = show_window(app, "settings");
+            let _ = open_main(app, Some("general"));
         }
         "quit" => app.exit(0),
         id if BACKEND_ACTIONS.contains(&id) => {
@@ -157,20 +170,18 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             &item("pc_wake", "Ligar PC")?,
             &item("reconnect", "Reconectar")?,
             &PredefinedMenuItem::separator(app)?,
-            &item("editor", "Editor de telas…")?,
-            &item("settings", "Configurações…")?,
+            &item("editor", "Telas…")?,
+            &item("settings", "Ajustes…")?,
             &PredefinedMenuItem::separator(app)?,
             &item("quit", "Sair")?,
         ],
     )?;
-    app.manage(TrayHandles {
-        status,
-        lock,
-        pause,
-    });
-
-    TrayIconBuilder::with_id("tray")
-        .icon(tauri::include_image!("icons/tray-template@2x.png"))
+    let tray = TrayIconBuilder::with_id("tray")
+        .icon(if tray_connected(&snapshot) {
+            tauri::include_image!("icons/tray-template@2x.png")
+        } else {
+            tauri::include_image!("icons/tray-template-off@2x.png")
+        })
         .icon_as_template(true)
         .tooltip("Relay")
         .menu(&menu)
@@ -188,6 +199,12 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    app.manage(TrayHandles {
+        status,
+        lock,
+        pause,
+        tray,
+    });
     Ok(())
 }
 
@@ -203,6 +220,16 @@ mod tests {
         let mut s = s;
         s.status = ConnectionStatus::Reconnecting;
         assert_eq!(status_label(&s), "Estado: Reconectando");
+    }
+
+    #[test]
+    fn tray_icon_is_solid_only_when_connected() {
+        let mut s = MockBackend::default().get_status();
+        assert!(tray_connected(&s));
+        s.status = ConnectionStatus::Reconnecting;
+        assert!(!tray_connected(&s));
+        s.status = ConnectionStatus::Disconnected;
+        assert!(!tray_connected(&s));
     }
 
     #[test]

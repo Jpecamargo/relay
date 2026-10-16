@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import styles from "./Slider.module.css";
 
 export interface SliderProps {
@@ -14,6 +14,10 @@ export interface SliderProps {
   /** Formata o número mostrado ao lado (padrão: o próprio valor). */
   format?: (value: number) => string;
   disabled?: boolean;
+  /** Linha enxuta: rótulo só para leitor de tela (o `label` continua nomeando o controle). */
+  compact?: boolean;
+  /** Esconde o número ao lado. */
+  hideValue?: boolean;
 }
 
 export function Slider({
@@ -26,6 +30,8 @@ export function Slider({
   debounceMs = 150,
   format,
   disabled,
+  compact,
+  hideValue,
 }: SliderProps) {
   const id = useId();
   const [local, setLocal] = useState(value);
@@ -42,7 +48,7 @@ export function Slider({
   };
 
   return (
-    <div className={styles.row}>
+    <div className={`${styles.row} ${compact ? styles.compact : ""}`}>
       <label htmlFor={id} className={styles.label}>
         {label}
       </label>
@@ -54,12 +60,15 @@ export function Slider({
         max={max}
         step={step}
         value={local}
+        style={{ "--pct": `${max > min ? ((local - min) / (max - min)) * 100 : 0}%` } as CSSProperties}
         disabled={disabled}
         onChange={(e) => handle(Number(e.target.value))}
       />
-      <output htmlFor={id} className={styles.value}>
-        {format ? format(local) : local}
-      </output>
+      {hideValue ? null : (
+        <output htmlFor={id} className={styles.value}>
+          {format ? format(local) : local}
+        </output>
+      )}
     </div>
   );
 }

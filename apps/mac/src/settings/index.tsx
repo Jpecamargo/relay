@@ -1,8 +1,9 @@
-// dono: U3. Janela de preferências do Mac: abas + rodapé "Salvar" que envia o Config completo.
+// dono: U3 (redesenho: ui-redesign). Preferências como seções da janela principal: o estado do
+// Config é um só (provider) e o "Salvar" envia o Config completo, qualquer que seja a seção.
 import type { Config } from "@relay/protocol-types";
 import { invokeCommand } from "@relay/protocol-types";
-import { Banner, Button, Tabs } from "@relay/ui";
-import { useEffect, useMemo, useState } from "react";
+import { Banner, Button } from "@relay/ui";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AudioTab, ClipboardTab, TransitionTab } from "./BehaviorTabs";
 import { ConnectionTab } from "./ConnectionTab";
 import { GeneralTab } from "./GeneralTab";
@@ -11,16 +12,7 @@ import { KeyboardTab } from "./KeyboardTab";
 import { validateConfig } from "./model";
 import styles from "./settings.module.css";
 
-const TABS = [
-  { id: "connection", label: "Conexão" },
-  { id: "keyboard", label: "Teclado" },
-  { id: "hotkeys", label: "Atalhos" },
-  { id: "transition", label: "Transição" },
-  { id: "clipboard", label: "Clipboard" },
-  { id: "audio", label: "Áudio" },
-  { id: "general", label: "Geral" },
-] as const;
-type TabId = (typeof TABS)[number]["id"];
+export type SettingsView = "connection" | "keyboard" | "hotkeys" | "transition" | "clipboard" | "audio" | "general";
 
 const VIEWS = {
   connection: ConnectionTab,
@@ -32,8 +24,27 @@ const VIEWS = {
   general: GeneralTab,
 } as const;
 
-export function Settings() {
-  const [tab, setTab] = useState<TabId>("connection");
+interface SettingsState {
+  config: Config | null;
+  errors: Record<string, string>;
+  update: (fn: (c: Config) => Config) => void;
+  dirty: boolean;
+  saving: boolean;
+  saved: boolean;
+  saveError: string;
+  showErrors: boolean;
+  save: () => Promise<void>;
+}
+
+const Ctx = createContext<SettingsState | null>(null);
+
+function useSettings(): SettingsState {
+  const s = useContext(Ctx);
+  if (!s) throw new Error("SettingsProvider ausente");
+  return s;
+}
+
+export function SettingsProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<Config | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -69,25 +80,42 @@ export function Settings() {
     }
   };
 
-  if (!config) {
-    return <main className={styles.window}>{saveError ? <Banner tone="danger">{saveError}</Banner> : <p className={styles.muted}>Carregando…</p>}</main>;
-  }
-
-  const View = VIEWS[tab];
-  const count = Object.keys(errors).length;
   return (
-    <main className={styles.window}>
-      <Tabs tabs={TABS} active={tab} onChange={setTab}>
-        <View config={config} update={update} errors={showErrors || tab === "hotkeys" ? errors : {}} />
-      </Tabs>
-      <footer className={styles.footer}>
-        <span role="status" className={styles.footerMsg}>
-          {saveError ? <span className={styles.error}>{saveError}</span> : showErrors && count > 0 ? <span className={styles.error}>Corrija {count} campo(s) antes de salvar.</span> : saved ? "Configurações salvas." : ""}
-        </span>
-        <Button variant="primary" disabled={!dirty || saving} onClick={save}>
-          Salvar
-        </Button>
-      </footer>
-    </main>
+    <Ctx.Provider value={{ config, errors, update, dirty, saving, saved, saveError, showErrors, save }}>
+      {children}
+    </Ctx.Provider>
+  );
+}
+
+/** Mostra as visões pedidas, empilhadas, sobre o Config compartilhado. */
+export function SettingsPane({ views }: { views: ReadonlyArray<SettingsView> }) {
+  const { config, errors, update, saveError, showErrors } = useSettings();
+  if (!config) {
+    return saveError ? <Banner tone="danger">{saveError}</Banner> : <p className={styles.muted}>Carregando…</p>;
+  }
+  return (
+    <>
+      {views.map((v) => {
+        const View = VIEWS[v];
+        return <View key={v} config={config} update={update} errors={showErrors || v === "hotkeys" ? errors : {}} />;
+      })}
+    </>
+  );
+}
+
+/** Barra de salvar: só aparece quando há o que salvar, avisar ou corrigir. */
+export function SaveBar() {
+  const { errors, dirty, saving, saved, saveError, showErrors, save } = useSettings();
+  const count = Object.keys(errors).length;
+  if (!dirty && !saveError && !saved) return null;
+  return (
+    <footer className={styles.saveBar}>
+      <span role="status" className={styles.saveMsg}>
+        {saveError ? <span className={styles.error}>{saveError}</span> : showErrors && count > 0 ? <span className={styles.error}>Corrija {count} campo(s) antes de salvar.</span> : saved && !dirty ? "Configurações salvas." : "Alterações não salvas."}
+      </span>
+      <Button variant="primary" disabled={!dirty || saving} onClick={save}>
+        Salvar
+      </Button>
+    </footer>
   );
 }

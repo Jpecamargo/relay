@@ -1,15 +1,13 @@
-// dono: MAC1. Um único build Vite serve as três janelas; o label da janela escolhe a página.
+// dono: MAC1. Um único build Vite serve o painel e a janela principal; o label da janela escolhe a página.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Editor } from "./editor";
+import { Main } from "./shell";
 import { Panel } from "./panel";
-import { Settings } from "./settings";
 
 const PAGES: Record<string, () => React.JSX.Element> = {
   panel: Panel,
-  settings: Settings,
-  editor: Editor,
+  main: Main,
 };
 
 const Page = PAGES[getCurrentWindow().label] ?? Panel;

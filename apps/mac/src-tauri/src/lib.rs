@@ -1,6 +1,6 @@
 //! dono: MAC1
-//! Casco do app Mac: só menu bar (D30), janelas `panel`/`settings`/`editor` de um único build
-//! Vite, comandos do glossário contra `AppBackend`.
+//! Casco do app Mac: menu bar (D30) com o painel `panel` e a janela principal `main` (sidebar:
+//! visão geral, telas, ajustes), de um único build Vite; comandos do glossário contra `AppBackend`.
 
 pub mod backend;
 pub mod commands;
@@ -25,7 +25,7 @@ use state::AppState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = system::show_window(app, "settings");
+            let _ = system::open_main(app, None);
         }))
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -58,15 +58,16 @@ pub fn run() {
             updater::check_updates,
             updater::install_update,
             system::open_window,
+            system::quit_app,
         ])
         .on_window_event(|window, event| match (window.label(), event) {
             ("panel", WindowEvent::Focused(false)) => {
                 let _ = window.hide();
             }
-            // Fechar settings/editor só esconde: a janela existe de novo ao reabrir.
-            ("settings" | "editor", WindowEvent::CloseRequested { api, .. }) => {
+            // Fechar a janela principal só esconde (ela existe de novo ao reabrir) e tira o app do Dock.
+            ("main", WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
-                let _ = window.hide();
+                system::hide_main(window.app_handle());
             }
             _ => {}
         })
@@ -112,9 +113,9 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    /// O tauri.conf.json declara as três janelas do glossário e nenhuma `main`.
+    /// O tauri.conf.json declara o painel (translúcido, sem decoração) e a janela principal.
     #[test]
-    fn conf_declares_panel_settings_editor() {
+    fn conf_declares_panel_and_main() {
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let windows = conf["app"]["windows"].as_array().unwrap();
@@ -122,12 +123,15 @@ mod tests {
             .iter()
             .map(|w| w["label"].as_str().unwrap())
             .collect();
-        assert_eq!(labels, ["panel", "settings", "editor"]);
+        assert_eq!(labels, ["panel", "main"]);
         let panel = &windows[0];
         assert_eq!(
             (panel["width"].as_u64(), panel["height"].as_u64()),
-            (Some(360), Some(520))
+            (Some(360), Some(420))
         );
+        assert_eq!(panel["transparent"], true);
+        assert_eq!(conf["app"]["macOSPrivateApi"], true);
+        assert_eq!(windows[1]["titleBarStyle"], "Overlay");
         assert_eq!(panel["decorations"], false);
         assert_eq!(panel["alwaysOnTop"], true);
         assert_eq!(panel["skipTaskbar"], true);

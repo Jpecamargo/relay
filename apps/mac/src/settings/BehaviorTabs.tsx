@@ -10,7 +10,7 @@ export function TransitionTab({ config, update, errors }: TabProps) {
   const t = config.transition;
   const set = (patch: Partial<typeof t>) => update((c) => ({ ...c, transition: { ...c.transition, ...patch } }));
   return (
-    <Section title="Troca de máquina">
+    <Section title="Troca de máquina" grouped>
       <NumberField label="Tempo de espera na borda" unit="ms" min={0} max={1000} step={10} value={t.dwell_ms} onChange={(v) => set({ dwell_ms: v })} />
       <Err text={errors.dwell_ms} />
       <Select<Modifier | "none">
@@ -44,7 +44,7 @@ export function ClipboardTab({ config, update, errors }: TabProps) {
   const set = (patch: Partial<typeof cb>) => update((c) => ({ ...c, clipboard: { ...c.clipboard, ...patch } }));
   const MB = 1024 * 1024;
   return (
-    <Section title="Clipboard compartilhado">
+    <Section title="Clipboard compartilhado" grouped>
       <Toggle label="Sincronizar clipboard" checked={cb.enabled} onChange={(enabled) => set({ enabled })} />
       <Select<ClipboardMode>
         label="Quando sincronizar"
@@ -77,7 +77,7 @@ export function AudioTab({ config, update, errors }: TabProps) {
   const a = config.audio;
   const set = (patch: Partial<typeof a>) => update((c) => ({ ...c, audio: { ...c.audio, ...patch } }));
   return (
-    <Section title="Áudio do PC">
+    <Section title="Áudio do PC" grouped>
       <Select<PcAudioMode>
         label="Captura no PC"
         value={a.pc_mode}

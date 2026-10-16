@@ -1,5 +1,11 @@
-.section { padding: var(--relay-space-3) 0; border-top: 1px solid var(--relay-border); }
-.section:first-child { border-top: 0; }
-.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--relay-space-2); }
-.title { margin: 0; font: 600 var(--relay-text-xs) var(--relay-font); letter-spacing: 0.04em; text-transform: uppercase; color: var(--relay-text-3); }
+.section { padding: var(--relay-space-3) 0; }
+.header { display: flex; align-items: center; justify-content: space-between; margin: 0 var(--relay-space-1) var(--relay-space-2); }
+.title { margin: 0; font: 600 var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); }
 .body { display: flex; flex-direction: column; gap: var(--relay-space-1); }
+/* Grupo estilo Ajustes do Sistema: preenchimento translúcido, sem borda, linhas separadas por fio. */
+.grouped .body {
+  gap: 0; padding: 2px var(--relay-space-3); border-radius: var(--relay-radius-lg); background: var(--relay-fill);
+}
+.grouped .body > * { padding-top: 6px; padding-bottom: 6px; }
+.grouped .body > * + * { border-top: 1px solid var(--relay-hairline); }
+.grouped .body > [role="alert"] { border-top: 0; padding-top: 0; }

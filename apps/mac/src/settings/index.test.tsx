@@ -2,7 +2,7 @@
 import type { Config } from "@relay/protocol-types";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { Settings } from "./index";
+import { SaveBar, SettingsPane, SettingsProvider, type SettingsView } from "./index";
 
 const bridge = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@relay/protocol-types", () => ({
@@ -32,14 +32,18 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const open = async (tab?: string) => {
-  render(<Settings />);
-  await screen.findByRole("tab", { name: "Conexão" });
-  if (tab) fireEvent.click(screen.getByRole("tab", { name: tab }));
+const open = async (...views: SettingsView[]) => {
+  render(
+    <SettingsProvider>
+      <SettingsPane views={views} />
+      <SaveBar />
+    </SettingsProvider>,
+  );
+  await screen.findByRole("heading", { name: views[0] === "connection" ? "PC pareado" : views[0] === "hotkeys" ? "Atalhos globais" : "Troca de máquina" });
 };
 
 test("código de 5 dígitos desabilita Parear, 6 habilita e envia", async () => {
-  await open();
+  await open("connection");
   const input = screen.getByLabelText("Código de 6 dígitos");
   const btn = screen.getByRole("button", { name: "Parear" });
   fireEvent.change(input, { target: { value: "12a45" } });
@@ -54,7 +58,7 @@ test("código de 5 dígitos desabilita Parear, 6 habilita e envia", async () => 
 
 test("revogar pede confirmação antes de unpair", async () => {
   bridge.invoke.mockImplementation(async (name: string) => (name === "get_config" ? structuredClone(CONFIG) : name === "get_status" ? { peer_name: "DESKTOP-PC" } : name === "list_discovered" ? [] : undefined));
-  await open();
+  await open("connection");
   fireEvent.click(await screen.findByRole("button", { name: "Revogar pareamento" }));
   expect(bridge.invoke).not.toHaveBeenCalledWith("unpair");
   fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revogar" }));
@@ -62,7 +66,7 @@ test("revogar pede confirmação antes de unpair", async () => {
 });
 
 test("o gravador captura Ctrl+Option+L e o conflito bloqueia o salvamento", async () => {
-  await open("Atalhos");
+  await open("hotkeys");
   const lock = screen.getByRole("button", { name: "Gravar atalho: Travar cursor" });
   fireEvent.click(lock);
   fireEvent.keyDown(lock, { code: "KeyL", key: "¬", ctrlKey: true, altKey: true });
@@ -78,7 +82,7 @@ test("o gravador captura Ctrl+Option+L e o conflito bloqueia o salvamento", asyn
 });
 
 test("salvar envia o Config completo com dwell_ms alterado", async () => {
-  await open("Transição");
+  await open("transition");
   const field = screen.getByLabelText("Tempo de espera na borda");
   fireEvent.change(field, { target: { value: "400" } });
   fireEvent.blur(field);
@@ -94,7 +98,7 @@ test("erro de validação do backend aparece inline", async () => {
     if (name === "get_status") return { peer_name: null };
     return undefined;
   });
-  await open("Transição");
+  await open("transition");
   const field = screen.getByLabelText("Tempo de espera na borda");
   fireEvent.change(field, { target: { value: "200" } });
   fireEvent.blur(field);
