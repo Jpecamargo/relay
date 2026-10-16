@@ -1,0 +1,5 @@
+.row { display: grid; grid-template-columns: auto 1fr 3.5em; align-items: center; gap: var(--relay-space-3); min-height: 28px; }
+.label { font: var(--relay-text-md) var(--relay-font); color: var(--relay-text); }
+.value { font: var(--relay-text-sm) var(--relay-font); font-variant-numeric: tabular-nums; color: var(--relay-text-2); text-align: right; }
+.range { width: 100%; margin: 0; accent-color: var(--relay-accent); }
+.range:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 2px; }

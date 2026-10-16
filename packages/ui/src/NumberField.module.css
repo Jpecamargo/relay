@@ -1,0 +1,12 @@
+.row { display: flex; align-items: center; justify-content: space-between; gap: var(--relay-space-3); min-height: 28px; }
+.label { font: var(--relay-text-md) var(--relay-font); color: var(--relay-text); }
+.field { display: inline-flex; align-items: center; gap: var(--relay-space-1); }
+.input {
+  width: 72px; height: var(--relay-control-h); padding: 0 var(--relay-space-2); box-sizing: border-box;
+  font: var(--relay-text-md) var(--relay-font-mono); font-variant-numeric: tabular-nums; text-align: right;
+  color: var(--relay-text); background: var(--relay-surface);
+  border: 1px solid var(--relay-border-strong); border-radius: var(--relay-radius-md);
+}
+.input:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
+.input:disabled { opacity: 0.45; }
+.unit { font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); }

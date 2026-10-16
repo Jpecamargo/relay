@@ -11,10 +11,16 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@relay/protocol-types": "workspace:*",
     "react": "^19"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10",
+    "@testing-library/react": "^16",
     "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^26",
+    "react-dom": "^19",
     "typescript": "^5",
     "vitest": "^3"
   }
