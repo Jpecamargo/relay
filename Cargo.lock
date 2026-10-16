@@ -3801,6 +3801,7 @@ version = "0.1.0"
 dependencies = [
  "hdrhistogram",
  "relay-core",
+ "rtrb",
  "tokio",
  "tracing",
 ]
