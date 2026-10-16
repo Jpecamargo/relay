@@ -1,6 +1,7 @@
 // dono: U2
 import {
   invokeCommand,
+  type CommandResult,
   type AudioDevices,
   type ConnectionStatus,
   type LatencyStats,
@@ -18,6 +19,12 @@ import {
 } from "./sections";
 
 const HISTORY = 30;
+
+/** Erros de áudio do PC e o toggle que eles desfazem. */
+const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
+  vbcable_missing: "mac_to_pc",
+  virtual_output_missing: "pc_to_mac",
+};
 
 const EMPTY: StatusSnapshot = {
   status: "Disconnected", peer_name: null, focus: "Mac", locked: false, paused: false,
@@ -87,9 +94,39 @@ export function Panel() {
 
   const show = (message: string, t: "ok" | "danger") => setToast({ message, tone: t, n: ++toastN.current });
 
+  // Resultados já mostrados (invoke e relay:command-result chegam em qualquer ordem). Id 0 não
+  // identifica comando: nesse caso a chave é o erro, com validade curta.
+  const seen = useRef(new Map<string, number>());
+  const firstTime = (r: CommandResult) => {
+    const k = r.id !== 0 ? `id:${r.id}` : `0:${r.error ?? ""}`;
+    const now = Date.now();
+    const at = seen.current.get(k);
+    seen.current.set(k, now);
+    for (const [key, t] of seen.current) if (now - t > 5000) seen.current.delete(key);
+    return at === undefined || (r.id === 0 && now - at > 1500);
+  };
+  const statusRef = useRef(status);
+  statusRef.current = status;
+
+  useRelayEvent("relay:command-result", (r) => {
+    if (!firstTime(r)) return;
+    const audio = r.error ? AUDIO_ERRORS[r.error] : undefined;
+    if (audio) {
+      // O stream não subiu: desliga o toggle correspondente e relê o status.
+      const a = statusRef.current.audio;
+      void invokeCommand("set_audio_streams", {
+        pc_to_mac: audio === "pc_to_mac" ? false : a.pc_to_mac,
+        mac_to_pc: audio === "mac_to_pc" ? false : a.mac_to_pc,
+      }).then(refresh, () => undefined);
+    }
+    if (!r.ok) show(errorText(r.error ?? "falhou"), "danger");
+    else if (r.id !== 0) show("Comando executado", "ok");
+  });
+
   const act: Act = useCallback(async (label, fn) => {
     try {
       const r = await fn();
+      if (isCommandResult(r) && !firstTime(r)) return r;
       if (isCommandResult(r) && !r.ok) {
         show(`${label}: ${errorText(r.error ?? "falhou")}`, "danger");
         return r;

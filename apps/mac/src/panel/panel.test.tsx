@@ -118,3 +118,28 @@ test("banner de reconexão tem 'Tentar de novo' que chama reconnect", async () =
   fireEvent.click(await screen.findByRole("button", { name: "Tentar de novo" }));
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
 });
+
+test("relay:command-result de áudio mostra toast e desliga o toggle", async () => {
+  await ready();
+  await emit("relay:command-result", { id: 0, ok: false, output: null, error: "vbcable_missing" });
+  expect((await screen.findByRole("alert")).textContent).toContain("VB-Cable");
+  await waitFor(() =>
+    expect(bridge.invoke).toHaveBeenCalledWith("set_audio_streams", { pc_to_mac: false, mac_to_pc: false }),
+  );
+});
+
+test("resultado igual por invoke e por evento gera um toast só", async () => {
+  await ready();
+  sendResult = { id: 7, ok: false, output: null, error: "timeout" };
+  fireEvent.click(screen.getByRole("button", { name: "Suspender" }));
+  await screen.findByRole("alert");
+  await emit("relay:command-result", sendResult);
+  expect(screen.getAllByRole("alert")).toHaveLength(1);
+  expect(screen.getByRole("alert").textContent).toContain("Suspender");
+});
+
+test("resultado de hotkey (só evento) aparece como toast", async () => {
+  await ready();
+  await emit("relay:command-result", { id: 9, ok: false, output: null, error: "unsupported" });
+  expect((await screen.findByRole("alert")).textContent).toContain("Não suportado");
+});

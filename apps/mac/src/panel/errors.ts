@@ -4,8 +4,8 @@ import type { CommandResult } from "@relay/protocol-types";
 const MENSAGENS: Record<string, string> = {
   timeout: "O PC não respondeu a tempo.",
   confirmation_required: "Ação precisa de confirmação.",
-  vbcable_missing: "VB-Cable não está instalado no PC.",
-  virtual_output_missing: "Saída de áudio virtual ausente no PC.",
+  vbcable_missing: "Áudio do Mac no PC indisponível: instale o VB-Cable no Windows.",
+  virtual_output_missing: "Áudio do PC no Mac indisponível: falta a saída de áudio virtual no Windows.",
   unsupported: "Não suportado neste sistema.",
 };
 
