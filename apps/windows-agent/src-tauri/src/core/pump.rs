@@ -61,6 +61,11 @@ pub(super) struct Pump {
     last_latency: Option<Instant>,
     /// Sentido inverso (R1): Controller do PC sobre o Mac, em thread própria.
     rev: Option<ReverseHandle>,
+    /// Telas do Mac (último `Displays` recebido): destino do `FocusReturn` ao pausar.
+    mac_displays: Vec<relay_core::types::DisplayInfo>,
+    /// Fila do executor de comandos, que roda fora do pump (CaptureScreen/GetMetrics demoram).
+    cmd_worker: Option<std::sync::mpsc::Sender<(u32, relay_core::types::RemoteCommand)>>,
+    cmd_out: Option<mpsc::UnboundedReceiver<Message>>,
     rev_out: Option<mpsc::UnboundedReceiver<Message>>,
 }
 
@@ -72,7 +77,50 @@ async fn recv_rev(rx: &mut Option<mpsc::UnboundedReceiver<Message>>) -> Option<M
     }
 }
 
+/// Executa os comandos remotos numa thread própria, em ordem, e devolve cada `CommandResult` ao
+/// pump por um canal: um `CaptureScreen` lento não congela a injeção de input.
+fn spawn_command_worker(
+    mut ex: Box<dyn relay_core::platform::CommandExecutor>,
+) -> (
+    std::sync::mpsc::Sender<(u32, relay_core::types::RemoteCommand)>,
+    mpsc::UnboundedReceiver<Message>,
+) {
+    let (tx, rx) = std::sync::mpsc::channel::<(u32, relay_core::types::RemoteCommand)>();
+    let (out_tx, out_rx) = mpsc::unbounded_channel();
+    let spawned = std::thread::Builder::new()
+        .name("relay-commands".into())
+        .spawn(move || {
+            while let Ok((id, cmd)) = rx.recv() {
+                let mut result = ex.execute(id, &cmd);
+                result.id = id;
+                if out_tx.send(Message::CommandResult { id, result }).is_err() {
+                    break;
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::error!(error = %e, "thread de comandos não iniciou");
+    }
+    (tx, out_rx)
+}
+
 impl Pump {
+    /// `FocusReturn` para o centro da tela do Mac, para devolver o foco ao pausar.
+    fn focus_return(&self) -> Option<Message> {
+        let d = self
+            .mac_displays
+            .iter()
+            .find(|d| d.is_primary)
+            .or_else(|| self.mac_displays.first())?;
+        Some(Message::FocusReturn {
+            display_id: d.id.clone(),
+            point_px: (
+                d.origin_px.0 + (d.size_px.0 / 2) as i32,
+                d.origin_px.1 + (d.size_px.1 / 2) as i32,
+            ),
+        })
+    }
+
     pub(super) fn new(
         deps: AgentDeps,
         shared: Arc<Shared>,
@@ -105,9 +153,13 @@ impl Pump {
         };
         let injector = RoutedInjector::new(deps.injector, deps.pipe);
         let mut rx = Receiver::new(&shared.config(), local, injector, BoxCursor(deps.cursor));
-        if let Some(ex) = deps.executor {
-            rx.set_executor(ex);
-        }
+        let (cmd_worker, cmd_out) = match deps.executor {
+            Some(ex) => {
+                let (w, out) = spawn_command_worker(ex);
+                (Some(w), Some(out))
+            }
+            None => (None, None),
+        };
         if let Some(h) = deps.engine_events {
             rx.set_event_handler(h);
         }
@@ -140,6 +192,9 @@ impl Pump {
             pairing_until: None,
             last_latency: None,
             rev,
+            mac_displays: Vec::new(),
+            cmd_worker,
+            cmd_out,
             rev_out,
         }
     }
@@ -174,6 +229,10 @@ impl Pump {
                     None => self.media_out = None,
                 },
                 _ = clock.tick() => self.on_tick(),
+                m = recv_rev(&mut self.cmd_out) => match m {
+                    Some(m) => self.send_all(vec![m]).await,
+                    None => self.cmd_out = None,
+                },
                 m = recv_rev(&mut self.rev_out) => match m {
                     Some(m) => self.send_all(vec![m]).await,
                     None => self.rev_out = None,
@@ -370,6 +429,7 @@ impl Pump {
             None => Vec::new(),
         };
         match &msg {
+            Message::Displays(d) => self.mac_displays = d.clone(),
             Message::LayoutSync(profile) => self.persist_layout(profile),
             Message::Unpair => {
                 self.forget_peer();
@@ -392,7 +452,19 @@ impl Pump {
                 _ => {}
             }
         }
+        // Pausado, um `FocusEnter` do Mac é devolvido na hora: ele não pode ficar engolindo input.
+        if self.paused && matches!(msg, Message::FocusEnter { .. }) {
+            out.extend(self.focus_return());
+        }
+        // Comandos (exceto TypeText, que usa o injetor) rodam na thread de comandos.
+        let mut to_worker = false;
+        if let (Message::Command { id, cmd }, Some(w)) = (&msg, &self.cmd_worker)
+            && !matches!(cmd, relay_core::types::RemoteCommand::TypeText { .. })
+        {
+            to_worker = w.send((*id, cmd.clone())).is_ok();
+        }
         let ignored = to_controller
+            || to_worker
             || (self.paused && matches!(msg, Message::Input { .. } | Message::FocusEnter { .. }));
         if !ignored {
             out.extend(self.rx.on_message(msg, now));
@@ -452,7 +524,14 @@ impl Pump {
                     rev.set_paused(paused);
                 }
                 if paused {
+                    // Com o Mac controlando o PC, devolve o foco antes de largar tudo.
+                    let ret = if self.rx.is_active() {
+                        self.focus_return()
+                    } else {
+                        None
+                    };
                     self.rx.focus_lost();
+                    self.send_all(ret.into_iter().collect()).await;
                 }
                 self.publish();
             }

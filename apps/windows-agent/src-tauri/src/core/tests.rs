@@ -226,6 +226,13 @@ fn start_agent() -> Agent {
 }
 
 fn start_agent_with(store: Arc<MemoryKeyStore>) -> Agent {
+    start_agent_full(store, None)
+}
+
+fn start_agent_full(
+    store: Arc<MemoryKeyStore>,
+    executor: Option<Box<dyn relay_core::platform::CommandExecutor>>,
+) -> Agent {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
     let injected = Events::default();
@@ -268,7 +275,7 @@ fn start_agent_with(store: Arc<MemoryKeyStore>) -> Agent {
             cb: display_cb.clone(),
         }),
         foreground: Some(Box::new(MockForeground(fg_cb.clone()))),
-        executor: None,
+        executor,
         pointer_guard: Box::new(move || {
             eng.fetch_add(1, Ordering::SeqCst);
             live.fetch_add(1, Ordering::SeqCst);
@@ -841,4 +848,144 @@ async fn estado_do_servico_reflete_o_pipe() {
     assert!(agent.core.service_status().helper_active);
     assert!(agent.pipe_injected.lock().unwrap().is_empty());
     agent.core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pausar_com_o_mac_no_controle_devolve_o_foco() {
+    let agent = start_agent();
+    let mac_id = identity();
+    let peer = pair(&agent, &mac_id).await;
+    let mut mac = connect(&agent, &mac_id, peer).await;
+    mac.pump_until("conectado", |m| {
+        m.got(|x| matches!(x, Message::Displays(_)))
+    })
+    .await;
+    mac.dialer
+        .send(Message::Displays(vec![mac_display()]))
+        .await
+        .unwrap();
+    mac.dialer
+        .send(Message::LayoutSync(profile()))
+        .await
+        .unwrap();
+    sleep(Duration::from_millis(100)).await;
+    mac.mv(5, 0);
+    assert!(mac.ctl.is_remote());
+    mac.pump_until("agente ativo", |_| {
+        agent.core.status().focus == Machine::Windows
+    })
+    .await;
+    agent.core.set_paused(true).unwrap();
+    mac.pump_until("Mac recebeu o foco de volta", |m| !m.ctl.is_remote())
+        .await;
+    assert!(
+        mac.got(|x| matches!(x, Message::FocusReturn { display_id, .. } if display_id == "mac"))
+    );
+    // Pausado, uma nova entrada é devolvida na hora.
+    mac.mv(5, 0);
+    mac.pump_until("entrada recusada", |m| !m.ctl.is_remote())
+        .await;
+    agent.core.shutdown();
+}
+
+struct SlowExec(Arc<AtomicBool>);
+
+impl relay_core::platform::CommandExecutor for SlowExec {
+    fn execute(
+        &mut self,
+        id: u32,
+        _: &relay_core::types::RemoteCommand,
+    ) -> relay_core::types::CommandResult {
+        std::thread::sleep(Duration::from_millis(1500));
+        self.0.store(true, Ordering::SeqCst);
+        relay_core::types::CommandResult::ok(id, None)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn comando_lento_nao_congela_a_injecao() {
+    let finished = Arc::new(AtomicBool::new(false));
+    let agent = start_agent_full(
+        Arc::new(MemoryKeyStore::default()),
+        Some(Box::new(SlowExec(finished.clone()))),
+    );
+    let mac_id = identity();
+    let peer = pair(&agent, &mac_id).await;
+    let mut mac = connect(&agent, &mac_id, peer).await;
+    mac.pump_until("conectado", |m| {
+        m.got(|x| matches!(x, Message::Displays(_)))
+    })
+    .await;
+    mac.dialer
+        .send(Message::LayoutSync(profile()))
+        .await
+        .unwrap();
+    sleep(Duration::from_millis(100)).await;
+    mac.mv(5, 0);
+    mac.dialer
+        .send(Message::Command {
+            id: 42,
+            cmd: relay_core::types::RemoteCommand::GetMetrics,
+        })
+        .await
+        .unwrap();
+    mac.key(KEY_A, true);
+    mac.pump_until("tecla injetada durante o comando", |_| {
+        agent.injected().contains(&InputEvent::Key {
+            scan: KEY_A,
+            down: true,
+        })
+    })
+    .await;
+    assert!(
+        !finished.load(Ordering::SeqCst),
+        "a tecla passou antes do comando acabar"
+    );
+    mac.pump_until("CommandResult assíncrono", |m| {
+        m.got(|x| matches!(x, Message::CommandResult { id: 42, result } if result.ok))
+    })
+    .await;
+    agent.core.shutdown();
+}
+
+#[test]
+fn falha_no_start_nao_derruba_e_o_retry_sobe() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let changes = Arc::new(AtomicUsize::new(0));
+    let (a, c) = (attempts.clone(), changes.clone());
+    let backend = ResilientBackend::new(
+        Box::new(move || {
+            if a.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(AgentError::Backend("porta 47800 ocupada".into()))
+            } else {
+                Ok(start_agent().core)
+            }
+        }),
+        Config::default(),
+        Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }),
+        false,
+    );
+    assert!(backend.error().unwrap().contains("47800"));
+    assert_eq!(backend.status().status, ConnectionStatus::Disconnected);
+    assert!(backend.set_paused(true).is_err());
+    // Pedir um código refaz o início.
+    let code = backend.new_pairing_code().unwrap();
+    assert_eq!(code.code.len(), 6);
+    assert!(backend.error().is_none());
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(changes.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn anuncia_as_portas_reais() {
+    // Porta efêmera (0 no config) vira a porta real no anúncio; só confere que sobe sem erro.
+    let adv = relay_core::discovery::Advertiser::start_with_ports(
+        "relay-test-wi1",
+        "dev-1",
+        50123,
+        50124,
+    );
+    assert!(adv.is_ok());
 }
