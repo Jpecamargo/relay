@@ -6,6 +6,7 @@ pub mod backend;
 pub mod commands;
 pub mod core;
 pub mod events;
+pub mod logging;
 pub mod state;
 pub mod tray;
 
@@ -19,6 +20,7 @@ use crate::events::TauriEvents;
 use crate::state::AgentState;
 
 pub fn run() {
+    let _ = logging::init();
     // Antes de qualquer janela: per-monitor v2 para que as coordenadas sejam pixels físicos.
     relay_platform_windows::dpi::set_dpi_awareness();
     tauri::Builder::default()
@@ -31,6 +33,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             commands::status::agent_get_status,
             commands::status::agent_get_service_status,
@@ -39,8 +42,7 @@ pub fn run() {
             commands::config::agent_get_config,
             commands::config::agent_save_config,
             commands::system::agent_set_autostart,
-            commands::updater::agent_check_updates,
-            commands::updater::agent_install_update,
+            commands::system::agent_set_update_available,
         ])
         .setup(|app| {
             let config = relay_core::config::load_or_default(&relay_core::config::config_path())

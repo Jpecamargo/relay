@@ -18,8 +18,8 @@ vi.mock("@relay/protocol-types", () => ({
   invokeCommand: bridge.invoke,
 }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: async (_: string, cb: (e: { payload: string }) => void) => {
-    bridge.navigate = cb;
+  listen: async (name: string, cb: (e: { payload: string }) => void) => {
+    if (name === "relay:navigate") bridge.navigate = cb;
     return () => undefined;
   },
 }));

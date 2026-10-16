@@ -1,8 +1,8 @@
 // Janela principal "Relay": sidebar de seções (estilo Ajustes do Sistema) + conteúdo.
 import { invokeCommand, type TransferProgress } from "@relay/protocol-types";
-import { Icon, StatusDot, useRelayEvent, type IconName } from "@relay/ui";
+import { Icon, StatusDot, updateOf, UpdaterProvider, useRelayEvent, useUpdate, type IconName } from "@relay/ui";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Editor } from "../editor";
 import { SaveBar, SettingsPane, SettingsProvider } from "../settings";
 import { STATUS_LABELS, statusKey, statusTone } from "../shared/status";
@@ -25,7 +25,22 @@ const SECTIONS: ReadonlyArray<{ id: Section; label: string; icon: IconName }> = 
 
 const isSection = (v: unknown): v is Section => SECTIONS.some((s) => s.id === v);
 
+/**
+ * A janela principal não agenda checagens (o dono do timer é o painel, que existe desde o boot):
+ * checa uma vez ao montar e de novo quando o painel avisa com `relay:update-available`.
+ */
 export function Main() {
+  return (
+    <UpdaterProvider schedule={false}>
+      <MainShell />
+    </UpdaterProvider>
+  );
+}
+
+function MainShell() {
+  const { state, verify, openModal } = useUpdate();
+  const newVersion = updateOf(state)?.version;
+  useRelayEvent("relay:update-available", () => void verify());
   const [section, setSection] = useState<Section>("overview");
   const { status, latency, history, refresh } = useLiveStatus();
   const metrics = useRelayEvent("relay:metrics");
@@ -64,13 +79,21 @@ export function Main() {
         <nav className={styles.sidebar} aria-label="Seções">
           <div className={styles.drag} data-tauri-drag-region />
           {SECTIONS.map((s) => (
-            <button
-              key={s.id} type="button" className={styles.item}
-              aria-current={s.id === section ? "page" : undefined} onClick={() => setSection(s.id)}
-            >
-              <Icon name={s.icon} size={16} />
-              <span>{s.label}</span>
-            </button>
+            <Fragment key={s.id}>
+              {s.id === "general" && newVersion ? (
+                <button type="button" className={`${styles.item} ${styles.update}`} onClick={openModal}>
+                  <Icon name="download" size={16} />
+                  <span>Atualização {newVersion} disponível</span>
+                </button>
+              ) : null}
+              <button
+                type="button" className={styles.item}
+                aria-current={s.id === section ? "page" : undefined} onClick={() => setSection(s.id)}
+              >
+                <Icon name={s.icon} size={16} />
+                <span>{s.label}</span>
+              </button>
+            </Fragment>
           ))}
           <div className={styles.sideStatus}>
             <StatusDot tone={statusTone(key)} label={STATUS_LABELS[key] ?? key} />

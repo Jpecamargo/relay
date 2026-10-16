@@ -1,6 +1,7 @@
 // dono: U2 (redesenho: ui-redesign). Painel do menu bar: só o essencial, no estilo de menu nativo.
 import { invokeCommand, type PermissionsStatus } from "@relay/protocol-types";
-import { Banner, Button, MenuRow, StatusDot, useRelayEvent } from "@relay/ui";
+import { Banner, Button, MenuRow, OPEN_UPDATE_EVENT, StatusDot, updateOf, useRelayEvent, useUpdater } from "@relay/ui";
+import { emit, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../shared/errors";
@@ -21,6 +22,14 @@ const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
   virtual_output_missing: "pc_to_mac",
 };
 
+/** Abre a janela principal já com o modal da atualização e some com o painel. */
+function openUpdateFromPanel() {
+  void openMain()
+    .then(() => emitTo("main", OPEN_UPDATE_EVENT))
+    .then(() => getCurrentWindow().hide())
+    .catch(() => undefined);
+}
+
 /** Abre a janela principal e some com o painel. */
 function openFromPanel(section?: Parameters<typeof openMain>[0]) {
   void openMain(section)
@@ -32,17 +41,21 @@ export function Panel() {
   const { status, latency, refresh } = useLiveStatus();
   const secureEvent = useRelayEvent("relay:secure-input");
   const permEvent = useRelayEvent("relay:permissions");
-  const updateEvent = useRelayEvent("relay:update-available");
 
   const [perms, setPerms] = useState<PermissionsStatus>();
-  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  // O painel existe desde o boot: é o único dono do timer de atualizações (15 s após abrir, depois
+  // a cada 6 h). Ao achar versão nova avisa a janela principal, que só repete a checagem sob demanda.
+  const updater = useUpdater();
+  const update = updateOf(updater.state)?.version;
+  useEffect(() => {
+    if (update) void emit("relay:update-available", { version: update }).catch(() => undefined);
+  }, [update]);
   const { act, show, firstTime, toast } = useActions();
   const root = useRef<HTMLElement>(null);
   useFitWindow(root, WIDTH);
 
   useEffect(() => {
     invokeCommand("check_permissions").then(setPerms).catch(() => undefined);
-    invokeCommand("check_updates").then(setUpdateVersion).catch(() => undefined);
   }, []);
 
   const statusRef = useRef(status);
@@ -88,7 +101,6 @@ export function Panel() {
   const missing = (
     [["Accessibility", "Acessibilidade", permissions?.accessibility], ["InputMonitoring", "Monitoramento de entrada", permissions?.input_monitoring]] as const
   ).filter(([, , s]) => s !== undefined && s !== "Granted");
-  const update = updateEvent?.version ?? updateVersion;
   const incompatible = typeof status.status === "object" ? status.status.IncompatibleVersion : undefined;
 
   const retry = (
@@ -112,7 +124,7 @@ export function Panel() {
         </div>
       </header>
 
-      {secure || missing.length > 0 || incompatible || key === "Reconnecting" || update ? (
+      {secure || missing.length > 0 || incompatible || key === "Reconnecting" ? (
         <div className={styles.banners}>
           {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
           {missing.map(([kind, label]) => (
@@ -125,11 +137,6 @@ export function Panel() {
           ))}
           {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
           {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
-          {update ? (
-            <Banner variant="line" tone="info" action={<Button variant="primary" onClick={() => void act("Atualização", () => invokeCommand("install_update"))}>Instalar</Button>}>
-              Atualização disponível: {update}
-            </Banner>
-          ) : null}
         </div>
       ) : null}
 
@@ -158,6 +165,7 @@ export function Panel() {
       <hr className={styles.sep} />
 
       <div className={styles.group}>
+        {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={openUpdateFromPanel} /> : null}
         <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
         <PcMenu act={act} online={online} canWake={canWake} />
         <MenuRow

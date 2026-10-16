@@ -58,8 +58,9 @@ limpa de imediato.
 `plugins.updater` aponta para
 `https://github.com/Jpecamargo/relay/releases/latest/download/latest.json` (TLS nativo).
 `pubkey` real e `createUpdaterArtifacts=true`; a chave privada está em `~/.tauri/relay.key` (fora do repo) e
-nos secrets do CI (ver `docs/release.md`, inclusive como buildar local sem a chave). Comandos: `agent_check_updates` (emite
-`relay:update-available`) e `agent_install_update`.
+nos secrets do CI (ver `docs/release.md`, inclusive como buildar local sem a chave). Fluxo: o front da janela do agente usa `@tauri-apps/plugin-updater` e `plugin-process` (hook `useUpdater` em `@relay/ui`),
+com o modal "Nova versão do Relay" e o bloco Sobre nos Ajustes. O comando `agent_set_update_available` mostra/tira da bandeja o
+item "Atualização X disponível", que abre a janela com o modal.
 
 ## Verificação pós-instalação
 

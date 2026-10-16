@@ -6,7 +6,7 @@ export function useCountdown(expiresAt: number | null): number | null {
   useEffect(() => {
     if (expiresAt === null) return;
     setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 250);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [expiresAt]);
   return expiresAt === null ? null : Math.max(0, Math.ceil((expiresAt - now) / 1000));

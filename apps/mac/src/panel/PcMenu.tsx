@@ -1,9 +1,8 @@
-import { invokeCommand, type PowerAction, type RemoteCommand } from "@relay/protocol-types";
+import { invokeCommand, type PowerAction } from "@relay/protocol-types";
 import { ConfirmDialog, MenuRow } from "@relay/ui";
 import { useState } from "react";
+import { send } from "../shared/send";
 import type { Act } from "../shared/useActions";
-
-const send = (command: RemoteCommand) => invokeCommand("send_command", { command });
 
 const CONFIRM: Record<"Restart" | "Shutdown", { title: string; message: string; label: string }> = {
   Restart: { title: "Reiniciar o PC?", message: "O PC será reiniciado e a conexão cai até ele voltar.", label: "Reiniciar" },

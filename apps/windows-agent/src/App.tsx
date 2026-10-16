@@ -6,7 +6,7 @@ import {
   type ServiceStatus,
   type StatusSnapshot,
 } from "@relay/protocol-types";
-import { Banner, Section, Select, StatusDot, Toggle, useRelayEvent, type StatusTone } from "@relay/ui";
+import { Banner, Section, Select, StatusDot, Toggle, UpdateAbout, updateOf, useRelayEvent, useUpdate, type StatusTone } from "@relay/ui";
 import { useEffect, useState } from "react";
 import "./app.css";
 import { Pairing } from "./Pairing";
@@ -46,6 +46,13 @@ export function App() {
   }, []);
 
   useRelayEvent("relay:status", setSnapshot);
+
+  // A bandeja mostra "Atualização disponível" enquanto houver versão nova em mãos.
+  const { state: updateState } = useUpdate();
+  const newVersion = updateOf(updateState)?.version ?? null;
+  useEffect(() => {
+    invokeCommand("agent_set_update_available", { version: newVersion }).catch(() => undefined);
+  }, [newVersion]);
   const latency = useRelayEvent("relay:latency");
 
   const save = async (next: Config) => {
@@ -144,6 +151,8 @@ export function App() {
           </>
         )}
       </Section>
+
+      <UpdateAbout />
     </main>
   );
 }

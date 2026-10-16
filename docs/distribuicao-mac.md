@@ -41,5 +41,7 @@ secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. O bu
 
 Build local exige a chave ou desligar os artefatos do updater (ver "Build local" em `docs/release.md`).
 
-Comandos Tauri: `check_updates` devolve a versão nova (ou `null`) e emite `relay:update-available`;
-`install_update` baixa, instala e reinicia (exige `check_updates` antes).
+Fluxo (igual ao do yagni): o front usa `@tauri-apps/plugin-updater` e `plugin-process` (hook `useUpdater` em `@relay/ui`),
+só no app instalado. O painel do menu bar é o dono do timer (15 s após abrir, depois a cada 6 h); ao achar versão nova avisa a janela
+principal (`relay:update-available`), que repete a checagem, mostra "Atualização X disponível" na sidebar e o modal; o download só
+começa em "Atualizar e reiniciar".

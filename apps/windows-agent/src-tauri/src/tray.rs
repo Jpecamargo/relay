@@ -2,11 +2,13 @@
 //! Ícone da bandeja e menu: Estado (label), Mostrar código de pareamento, Abrir janela, Pausar, Sair.
 
 use relay_core::types::{ConnectionStatus, StatusSnapshot};
+use std::sync::Mutex;
+
 use tauri::{
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
     image::Image,
     include_image,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
 
@@ -16,12 +18,20 @@ const ID_STATUS: &str = "status";
 const ID_PAIRING: &str = "pairing";
 const ID_OPEN: &str = "open";
 const ID_PAUSE: &str = "pause";
+const ID_UPDATE: &str = "update";
 const ID_QUIT: &str = "quit";
+
+/// Evento que pede o modal da atualização à janela (mesmo nome de `@relay/ui`).
+const OPEN_UPDATE_EVENT: &str = "relay:open-update";
 
 /// Itens que mudam com o estado; guardados para atualizar o texto.
 struct TrayItems<R: Runtime> {
     status: MenuItem<R>,
     pause: MenuItem<R>,
+    menu: Menu<R>,
+    /// Item "Atualização disponível"; só fica no menu enquanto `update_shown`.
+    update: MenuItem<R>,
+    update_shown: Mutex<bool>,
 }
 
 pub fn status_label(s: &StatusSnapshot) -> String {
@@ -54,6 +64,43 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+/// Mostra (com a versão) ou tira do menu o item "Atualização disponível".
+pub fn set_update_available<R: Runtime>(app: &AppHandle<R>, version: Option<&str>) {
+    let Some(items) = app.try_state::<TrayItems<R>>() else {
+        return;
+    };
+    let Ok(mut shown) = items.update_shown.lock() else {
+        return;
+    };
+    match version {
+        Some(v) => {
+            let _ = items.update.set_text(update_label(v));
+            if !*shown
+                && items
+                    .menu
+                    .insert(&items.update as &dyn IsMenuItem<R>, 2)
+                    .is_ok()
+            {
+                *shown = true;
+            }
+        }
+        None => {
+            if *shown
+                && items
+                    .menu
+                    .remove(&items.update as &dyn IsMenuItem<R>)
+                    .is_ok()
+            {
+                *shown = false;
+            }
+        }
+    }
+}
+
+pub fn update_label(version: &str) -> String {
+    format!("Atualização {version} disponível")
 }
 
 /// Reflete o estado atual do backend no menu.
@@ -89,7 +136,14 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&status, &sep, &pairing, &open, &pause, &sep2, &quit])?;
-    app.manage(TrayItems { status, pause });
+    let update = MenuItem::with_id(app, ID_UPDATE, update_label(""), true, None::<&str>)?;
+    app.manage(TrayItems {
+        status,
+        pause,
+        menu: menu.clone(),
+        update,
+        update_shown: Mutex::new(false),
+    });
 
     let icon: Image<'static> = include_image!("icons/icon.ico");
     TrayIconBuilder::with_id("tray")
@@ -100,6 +154,10 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             // A janela gera o código (agent_new_pairing_code); o menu só a traz à frente.
             ID_PAIRING | ID_OPEN => show_main_window(app),
+            ID_UPDATE => {
+                show_main_window(app);
+                let _ = app.emit_to("main", OPEN_UPDATE_EVENT, ());
+            }
             ID_PAUSE => {
                 let backend = &app.state::<AgentState>().backend;
                 let paused = backend.status().paused;
@@ -131,5 +189,10 @@ mod tests {
         assert_eq!(status_label(&s), "Estado: conectado a MacBook (pausado)");
         assert_eq!(pause_label(true), "Retomar");
         assert_eq!(pause_label(false), "Pausar");
+    }
+
+    #[test]
+    fn item_de_atualizacao_traz_a_versao() {
+        assert_eq!(update_label("0.2.0"), "Atualização 0.2.0 disponível");
     }
 }

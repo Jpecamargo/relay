@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { UpdaterProvider } from "@relay/ui";
 import { App } from "./App";
 
 const bridge = vi.hoisted(() => ({ invoke: vi.fn(), listeners: new Map<string, (p: unknown) => void>() }));
@@ -47,7 +48,7 @@ afterEach(() => {
 
 test("o código é gerado ao abrir e a contagem regressiva o esconde ao expirar", async () => {
   setup();
-  render(<App />);
+  render(<UpdaterProvider><App /></UpdaterProvider>);
   await act(async () => {});
   expect(bridge.invoke).toHaveBeenCalledWith("agent_new_pairing_code");
   expect(screen.getByLabelText("Código de pareamento").textContent).toBe("123456");
@@ -68,7 +69,7 @@ test("o código é gerado ao abrir e a contagem regressiva o esconde ao expirar"
 
 test("revogar exige confirmação", async () => {
   setup();
-  render(<App />);
+  render(<UpdaterProvider><App /></UpdaterProvider>);
   await act(async () => {});
 
   fireEvent.click(screen.getByRole("button", { name: "Revogar" }));
@@ -87,7 +88,7 @@ test("revogar exige confirmação", async () => {
 
 test("relay:pairing paired fecha o fluxo e esconde o código", async () => {
   setup({ status: "Pairing", peer_name: null, focus: "Windows" });
-  render(<App />);
+  render(<UpdaterProvider><App /></UpdaterProvider>);
   await act(async () => {});
   expect(screen.getByLabelText("Código de pareamento")).toBeTruthy();
   await act(async () => {
@@ -95,4 +96,12 @@ test("relay:pairing paired fecha o fluxo e esconde o código", async () => {
   });
   expect(screen.queryByLabelText("Código de pareamento")).toBeNull();
   expect(screen.getByText("Pareado com sucesso.")).toBeTruthy();
+});
+
+test("Ajustes traz o bloco Sobre com a atualização manual desabilitada fora do app instalado", async () => {
+  setup();
+  render(<UpdaterProvider><App /></UpdaterProvider>);
+  await act(async () => {});
+  expect(screen.getByRole("heading", { name: "Sobre" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Procurar atualizações" }).hasAttribute("disabled")).toBe(true);
 });

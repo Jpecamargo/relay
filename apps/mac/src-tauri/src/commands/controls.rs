@@ -13,7 +13,7 @@ use crate::backend::AppBackend;
 use crate::events::{emit_command_result, emit_metrics, emit_status};
 use crate::state::AppState;
 
-/// Intervalo do `GetMetrics` enquanto o painel está visível.
+/// Intervalo do `GetMetrics` enquanto o painel ou a janela principal está visível.
 pub const METRICS_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Envia o comando e espera o resultado; roda numa thread de bloqueio.
@@ -75,13 +75,18 @@ fn metrics_of(r: CommandResult) -> Option<SystemMetrics> {
     }
 }
 
-fn panel_visible(app: &AppHandle) -> bool {
-    app.get_webview_window("panel")
+fn window_visible(app: &AppHandle, label: &str) -> bool {
+    app.get_webview_window(label)
         .and_then(|w| w.is_visible().ok())
         .unwrap_or(false)
 }
 
-/// `GetMetrics` a cada 2 s → `relay:metrics`, só com o painel visível e o PC conectado.
+/// Há alguém olhando as métricas: o painel ou a janela principal (que esconde o painel).
+fn metrics_wanted(panel: bool, main: bool, connected: bool) -> bool {
+    (panel || main) && connected
+}
+
+/// `GetMetrics` a cada 2 s → `relay:metrics`, só com o painel ou a janela principal visível e o PC conectado.
 pub fn spawn_metrics_poller(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut tick = tokio::time::interval(METRICS_INTERVAL);
@@ -89,7 +94,12 @@ pub fn spawn_metrics_poller(app: AppHandle) {
         loop {
             tick.tick().await;
             let backend = app.state::<AppState>().backend.clone();
-            if !panel_visible(&app) || backend.get_status().status != ConnectionStatus::Connected {
+            let connected = backend.get_status().status == ConnectionStatus::Connected;
+            if !metrics_wanted(
+                window_visible(&app, "panel"),
+                window_visible(&app, "main"),
+                connected,
+            ) {
                 continue;
             }
             let sample = tauri::async_runtime::spawn_blocking(move || fetch_metrics(&*backend))
@@ -107,6 +117,14 @@ pub fn spawn_metrics_poller(app: AppHandle) {
 mod tests {
     use super::*;
     use crate::backend::MockBackend;
+
+    #[test]
+    fn metrics_wanted_with_panel_or_main_window_while_connected() {
+        assert!(metrics_wanted(true, false, true));
+        assert!(metrics_wanted(false, true, true));
+        assert!(!metrics_wanted(false, false, true));
+        assert!(!metrics_wanted(true, true, false));
+    }
 
     #[test]
     fn fetch_metrics_reads_the_metrics_output() {

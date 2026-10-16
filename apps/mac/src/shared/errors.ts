@@ -9,8 +9,13 @@ const MENSAGENS: Record<string, string> = {
   unsupported: "Não suportado neste sistema.",
 };
 
+/** Erro de qualquer origem (string do Tauri, Error, outro) → texto. */
+export function errorMessage(e: unknown): string {
+  return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+}
+
 export function errorText(e: unknown): string {
-  const raw = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+  const raw = errorMessage(e);
   return MENSAGENS[raw] ?? raw;
 }
 

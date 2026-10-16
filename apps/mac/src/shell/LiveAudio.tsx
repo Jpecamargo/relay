@@ -8,6 +8,7 @@ import {
 } from "@relay/protocol-types";
 import { Section, Select, Slider, Toggle } from "@relay/ui";
 import { useEffect, useState } from "react";
+import { send } from "../shared/send";
 import { decimal } from "../shared/status";
 import type { Act } from "../shared/useActions";
 import styles from "./main.module.css";
@@ -41,7 +42,7 @@ export function LiveAudio({ act, online, audio, stats, refresh }: {
 
   useEffect(() => {
     if (!online) return;
-    void invokeCommand("send_command", { command: "ListOutputDevices" }).then((r) => {
+    void send("ListOutputDevices").then((r) => {
       const out: CommandOutput | null = r.output;
       if (out && "Devices" in out) {
         setPcOutputs(out.Devices);
@@ -71,7 +72,7 @@ export function LiveAudio({ act, online, audio, stats, refresh }: {
       <Section title="Dispositivos" grouped>
         <Select
           label="Saída do Windows" value={pcOutput} options={deviceOptions(pcOutputs)} disabled={!online || pcOutputs.length === 0}
-          onChange={(id) => { setPcOutput(id); void act("Saída do Windows", () => invokeCommand("send_command", { command: { SetOutputDevice: { id } } }), true); }}
+          onChange={(id) => { setPcOutput(id); void act("Saída do Windows", () => send({ SetOutputDevice: { id } }), true); }}
         />
         <Select
           label="Saída do Mac" value={macOut} options={deviceOptions(macDevices?.outputs ?? [])} disabled={!macDevices?.outputs.length}

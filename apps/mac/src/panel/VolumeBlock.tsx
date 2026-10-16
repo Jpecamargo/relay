@@ -1,10 +1,9 @@
-import { invokeCommand, type MediaAction, type RemoteCommand } from "@relay/protocol-types";
+import type { MediaAction } from "@relay/protocol-types";
 import { Icon, Slider, useRelayEvent, type IconName } from "@relay/ui";
 import { useEffect, useRef, useState } from "react";
+import { send } from "../shared/send";
 import type { Act } from "../shared/useActions";
 import styles from "./panel.module.css";
-
-const send = (command: RemoteCommand) => invokeCommand("send_command", { command });
 
 const MEDIA: ReadonlyArray<{ action: MediaAction; label: string; icon: IconName }> = [
   { action: "Previous", label: "Anterior", icon: "prev" },
