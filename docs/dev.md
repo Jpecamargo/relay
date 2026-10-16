@@ -30,6 +30,6 @@ agente e serviço. O `tauri-build` exige um `llvm-rc` mesmo no check; sem ele no
 `windows-latest` usa o compilador de recursos verdadeiro.
 
 ## Tauri
-`@tauri-apps/cli` vem via pnpm (sem binário global): `pnpm --filter @relay/mac tauri build --debug --bundles app`.
+`@tauri-apps/cli` vem via pnpm (sem binário global): `pnpm --filter @relay/mac tauri build --debug --bundles app`. Sem `TAURI_SIGNING_PRIVATE_KEY` ele falha ao assinar o updater: exporte a env a partir de `~/.tauri/relay.key` ou acrescente `--config '{"bundle":{"createUpdaterArtifacts":false}}'` (ver `docs/release.md`).
 Os pacotes npm `@tauri-apps/api` e `@tauri-apps/cli` ficam em `~2.11` para casar com a crate `tauri` 2.11.
 O `build.rs` de cada app cria `dist/` vazio se faltar, porque `generate_context!` exige `frontendDist`.

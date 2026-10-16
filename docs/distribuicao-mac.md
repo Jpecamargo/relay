@@ -34,18 +34,12 @@ runtime e o `Entitlements.plist`, envia à notarização e grampeia o ticket. Co
 ## Updater
 
 Endpoint (D32): `https://github.com/Jpecamargo/relay/releases/latest/download/latest.json`.
-Hoje `plugins.updater.pubkey` é um **placeholder** e `bundle.createUpdaterArtifacts` é `false`: o app
-compila, mas `check_updates` falha até a chave existir. Para ligar:
+A `pubkey` real está em `plugins.updater.pubkey` e `bundle.createUpdaterArtifacts` é `true`. A chave
+privada fica fora do repo em `~/.tauri/relay.key` (senha em `~/.tauri/relay.key.password`) e, no CI, nos
+secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. O build gera `Relay.app.tar.gz` +
+`.sig` e o `tauri-apps/tauri-action` publica o `latest.json` (ver `docs/release.md`).
 
-1. Gerar o par de chaves (guarde a privada fora do repo):
-
-       pnpm --filter @relay/mac tauri signer generate -w ~/.tauri/relay.key
-
-2. Colar o conteúdo de `relay.key.pub` em `plugins.updater.pubkey` no `tauri.conf.json`.
-3. Trocar `bundle.createUpdaterArtifacts` para `true`.
-4. No CI, definir os secrets `TAURI_SIGNING_PRIVATE_KEY` (e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
-   O build passa a gerar `Relay.app.tar.gz` + `.sig`; a action `tauri-apps/tauri-action` publica o
-   `latest.json` no release.
+Build local exige a chave ou desligar os artefatos do updater (ver "Build local" em `docs/release.md`).
 
 Comandos Tauri: `check_updates` devolve a versão nova (ou `null`) e emite `relay:update-available`;
 `install_update` baixa, instala e reinicia (exige `check_updates` antes).

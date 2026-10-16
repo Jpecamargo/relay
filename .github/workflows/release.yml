@@ -1,0 +1,151 @@
+name: Release
+
+# Publica o Relay (Mac: .dmg aarch64 + x86_64; Windows: instalador NSIS do agente) num único
+# GitHub Release + latest.json do updater. Dispara só em tag vX.Y.Z. Ver docs/release.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: cria o release (publicado, notas geradas)
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "Relay $TAG" --generate-notes --draft=false
+          id=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .id)
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  # Os jobs de build rodam em sequência (max-parallel 1 + needs): cada um regrava o latest.json
+  # com a sua plataforma, e em paralelo um sobrescreveria o outro.
+  mac:
+    needs: create-release
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-mac-${{ matrix.target }}
+      - run: pnpm install --frozen-lockfile
+      # Assinatura/notarização só se os secrets existirem; sem eles o build sai sem assinatura.
+      - name: assinatura Apple (opcional)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+              echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            } >> "$GITHUB_ENV"
+            if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+              {
+                echo "APPLE_ID=$APPLE_ID"
+                echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+                echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+              } >> "$GITHUB_ENV"
+            fi
+          else
+            echo "Sem secrets Apple: build sem assinatura."
+          fi
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Chave do updater (obrigatória: createUpdaterArtifacts=true); só neste step.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/mac
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: ${{ github.ref_name }}
+          releaseName: Relay ${{ github.ref_name }}
+          releaseDraft: false
+          includeUpdaterJson: true
+
+  windows:
+    needs: [create-release, mac]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-windows
+      - run: pnpm install --frozen-lockfile
+      - name: sidecar relay-service (release real)
+        run: bash scripts/prepare-sidecar.sh
+      # Assinatura do instalador só se WINDOWS_CERTIFICATE (.pfx em base64) existir.
+      - name: assinatura Windows (opcional)
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -n "$WINDOWS_CERTIFICATE" ]; then
+            echo "$WINDOWS_CERTIFICATE" | base64 -d > "$RUNNER_TEMP/cert.pfx"
+            pw=$(printf %s "$WINDOWS_CERTIFICATE_PASSWORD" | sed "s/'/''/g")
+            thumb=$(powershell -NoProfile -Command "\$p = ConvertTo-SecureString -String '$pw' -AsPlainText -Force; (Import-PfxCertificate -FilePath \"\$env:RUNNER_TEMP\\cert.pfx\" -CertStoreLocation Cert:\\CurrentUser\\My -Password \$p).Thumbprint" | tr -d '\r')
+            printf '{"bundle":{"windows":{"certificateThumbprint":"%s","digestAlgorithm":"sha256","timestampUrl":"http://timestamp.digicert.com"}}}' "$thumb" > apps/windows-agent/src-tauri/tauri.signing.conf.json
+            echo "TAURI_ARGS=--config src-tauri/tauri.signing.conf.json" >> "$GITHUB_ENV"
+          else
+            echo "Sem WINDOWS_CERTIFICATE: instalador sem assinatura."
+          fi
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Chave do updater (obrigatória: createUpdaterArtifacts=true); só neste step.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/windows-agent
+          tauriScript: pnpm tauri
+          args: ${{ env.TAURI_ARGS }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: ${{ github.ref_name }}
+          releaseName: Relay ${{ github.ref_name }}
+          releaseDraft: false
+          includeUpdaterJson: true
