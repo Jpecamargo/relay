@@ -1,0 +1,6 @@
+packages:
+  - apps/mac
+  - apps/windows-agent
+  - packages/*
+onlyBuiltDependencies:
+  - esbuild

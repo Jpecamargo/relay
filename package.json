@@ -1,0 +1,11 @@
+{
+  "name": "relay",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "gen:types": "bash scripts/gen-types.sh"
+  }
+}

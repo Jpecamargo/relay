@@ -1,0 +1,24 @@
+[package]
+name = "relay-platform-macos"
+description = "Backends macOS: event tap, injeção, telas, áudio, clipboard (cfg(target_os = \"macos\"))"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+relay-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics.workspace = true
+core-foundation.workspace = true
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+objc2-service-management.workspace = true
+cpal.workspace = true
+keyring.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true

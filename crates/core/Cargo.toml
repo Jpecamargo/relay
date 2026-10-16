@@ -1,0 +1,30 @@
+[package]
+name = "relay-core"
+description = "Protocolo, cripto, sessão, layout, transição e keymap (Rust puro)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio.workspace = true
+rtrb.workspace = true
+bincode.workspace = true
+serde.workspace = true
+toml.workspace = true
+ts-rs.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+snow.workspace = true
+spake2.workspace = true
+chacha20poly1305.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+blake2.workspace = true
+x25519-dalek.workspace = true
+rand.workspace = true
+mdns-sd.workspace = true
+hdrhistogram.workspace = true
+rubato.workspace = true
+png.workspace = true

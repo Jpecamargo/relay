@@ -1,0 +1,21 @@
+[package]
+name = "relay-windows-service"
+description = "RelayService (SYSTEM): helper de injeção na sessão ativa"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "relay-service"
+path = "src/main.rs"
+
+[dependencies]
+relay-core.workspace = true
+relay-platform-windows.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service.workspace = true
+windows.workspace = true

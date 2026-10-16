@@ -1,0 +1,121 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/core",
+    "crates/platform-macos",
+    "crates/platform-windows",
+    "crates/latency-bench",
+    "apps/mac/src-tauri",
+    "apps/windows-agent/src-tauri",
+    "apps/windows-service",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "UNLICENSED"
+publish = false
+
+# Versões fixadas aqui; cada crate herda com `dep.workspace = true`.
+[workspace.dependencies]
+# Crates do workspace
+relay-core = { path = "crates/core" }
+relay-platform-macos = { path = "crates/platform-macos" }
+relay-platform-windows = { path = "crates/platform-windows" }
+
+# Async, filas, serialização
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util", "signal", "fs"] }
+rtrb = "0.4.0"
+bincode = { version = "2.0.1", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"
+ts-rs = "12.0.1"
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = "0.3"
+
+# Cripto (Rust puro; sem ring nem aws-lc, que quebram o check cruzado para Windows)
+snow = { version = "0.10.0", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-sha2", "use-curve25519", "use-getrandom"] }
+spake2 = "0.4.0"
+chacha20poly1305 = "0.11.0"
+hkdf = "0.13.0"
+sha2 = "0.11.1"
+blake2 = "0.11.0"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+rand = "0.10.3"
+
+# Rede, métricas, áudio, imagem
+mdns-sd = "0.21.5"
+hdrhistogram = "7.6.0"
+rubato = "5.0.1"
+png = "0.18.1"
+
+# macOS
+keyring = { version = "4.2.0", default-features = false, features = ["v1"] }
+cpal = "0.18.2"
+core-graphics = "0.25.0"
+core-foundation = "0.10.1"
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+objc2-app-kit = "0.3.2"
+objc2-service-management = "0.3.2"
+
+# Windows
+windows = { version = "0.62.2", features = [
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_Accessibility",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_System_Power",
+    "Win32_System_Shutdown",
+    "Win32_System_Threading",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Pipes",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Com",
+    "Win32_System_Performance",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_Devices_Display",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Graphics_Capture",
+    "Graphics_DirectX_Direct3D11",
+    "Foundation",
+] }
+windows-service = "0.8.1"
+wasapi = "0.26.0"
+nvml-wrapper = "0.13.0"
+
+# Tauri v2
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-build = "2"
+
+# Contenção do target/ (o usuário exige que não cresça): ver docs/dev.md e scripts/clean.sh
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
