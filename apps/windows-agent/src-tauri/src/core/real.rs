@@ -60,9 +60,8 @@ pub fn query_service(helper_active: bool) -> ServiceStatus {
 }
 
 /// Fila de PNGs do `CaptureScreen` (WI2) que a mídia oferece ao Mac como clipboard.
-/// TODO(integrador): com o WI2 integrado, trocar por `Box::new(super::executor::take_captures)`.
 fn real_captures() -> CaptureSource {
-    Box::new(Vec::new)
+    Box::new(super::executor::take_captures)
 }
 
 /// Mídia de produção: clipboard do Windows, Core Audio/VB-CABLE e Explorer.
@@ -82,8 +81,7 @@ pub fn real_media(keystore: Arc<dyn KeyStore>) -> Media {
     )
 }
 
-/// Dependências de produção. O executor de comandos (WI2) e a mídia (WI3) se plugam depois pelos
-/// campos `executor` e `message_hook`.
+/// Dependências de produção: executor de comandos (WI2) e mídia (WI3) já ligados.
 pub fn real_deps() -> AgentDeps {
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(InjectPipeClient::default())));
     let keystore: Arc<dyn KeyStore> = Arc::new(SystemKeyStore);
@@ -98,7 +96,7 @@ pub fn real_deps() -> AgentDeps {
         cursor: Box::new(relay_platform_windows::cursor::WindowsCursor::default()),
         displays: Box::new(WindowsDisplays::default()),
         foreground: Some(Box::new(ForegroundWatcher::default())),
-        executor: None,
+        executor: Some(super::executor::windows_executor()),
         pointer_guard: Box::new(|| Box::new(PointerPrecisionGuard::engage())),
         service_probe: Box::new(query_service),
         device_name: relay_core::discovery::local_hostname(),

@@ -7,6 +7,7 @@
 //! UI, mudança de telas, app em primeiro plano e o relógio do `Receiver` (≤ 10 ms enquanto o Mac
 //! controla este lado). A UI (`AgentBackend`) só enfileira comandos e lê o snapshot.
 
+pub mod executor;
 pub mod media;
 mod pump;
 pub mod real;
