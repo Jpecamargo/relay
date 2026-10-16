@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{interval, sleep, timeout};
 
 use super::engine::CoreCmd;
-use super::platform::Platform;
+use super::platform::{AudioKeys, Platform, SessionCtx};
 use super::{ACTIVE_PEER_ACCOUNT, Inner};
 
 const PAIR_TIMEOUT: Duration = Duration::from_secs(15);
@@ -335,7 +335,13 @@ impl<P: Platform> Manager<P> {
             .local_ports
             .clone()
             .unwrap_or_else(|| cfg.network.ports.clone());
-        let mut dial = DialerConfig::new(identity, peer, target.0, remote_ports, local_ports);
+        let mut dial = DialerConfig::new(
+            identity.clone(),
+            peer.clone(),
+            target.0,
+            remote_ports.clone(),
+            local_ports.clone(),
+        );
         dial.bind_ip = self.inner.opts.bind_ip;
         let mut dialer = match SessionDialer::start(dial, Box::new(|_| {})).await {
             Ok(d) => d,
@@ -349,18 +355,27 @@ impl<P: Platform> Manager<P> {
         };
         self.epoch += 1;
         let epoch = self.epoch;
+        let media = MediaLink {
+            identity: identity.clone(),
+            peer: peer.clone(),
+            peer_ip: target.0,
+            remote_ports: remote_ports.clone(),
+            local_ports: local_ports.clone(),
+            bind_ip: self.inner.opts.bind_ip,
+        };
         let (out_tx, out_rx) = unbounded_channel();
         let (ctl_tx, ctl_rx) = unbounded_channel();
         self.inner.mutate(|s| {
             s.session_gen = epoch;
             s.session = Some(ConnectionStatus::Connecting);
         });
+        let to_pump = out_tx.clone();
         self.inner.core(CoreCmd::SessionUp { fast, out: out_tx });
         // A `Session` não é `Sync`: a bomba (que a empresta entre awaits) não pode ir para o
         // pool de tarefas; roda numa thread bloqueante dirigindo o futuro no runtime.
         let (inner, rt) = (self.inner.clone(), tokio::runtime::Handle::current());
         let join = tokio::task::spawn_blocking(move || {
-            rt.block_on(pump(inner, dialer, out_rx, ctl_rx, epoch));
+            rt.block_on(pump(inner, dialer, (out_rx, to_pump), ctl_rx, epoch, media));
         });
         self.active = Some(Active {
             ctl: ctl_tx,
@@ -444,12 +459,23 @@ fn discovery_loop<P: Platform>(
 
 /// Dona da `Session`: leva mensagens entre ela e a thread do core, e publica status e latência
 /// (≤ 1 Hz).
+/// O que a mídia precisa saber da sessão além do que a `Session` expõe.
+struct MediaLink {
+    identity: StaticKeypair,
+    peer: PairedPeer,
+    peer_ip: IpAddr,
+    remote_ports: Ports,
+    local_ports: Ports,
+    bind_ip: IpAddr,
+}
+
 async fn pump<P: Platform>(
     inner: Arc<Inner<P>>,
     mut dialer: SessionDialer,
-    mut out_rx: UnboundedReceiver<Message>,
+    (mut out_rx, out_tx): (UnboundedReceiver<Message>, UnboundedSender<Message>),
     mut ctl_rx: UnboundedReceiver<PumpCmd>,
     epoch: u64,
+    media: MediaLink,
 ) {
     let mut status = dialer.status();
     let stats = dialer.stats();
@@ -472,7 +498,28 @@ async fn pump<P: Platform>(
             inner.core(CoreCmd::Link(up));
         }
     };
-    publish(*status.borrow_and_update(), &mut last_up);
+    let announce = |dialer: &SessionDialer, s: ConnectionStatus, last_up: bool| {
+        if s != ConnectionStatus::Connected || last_up || inner.st().session_gen != epoch {
+            return;
+        }
+        let audio_keys = dialer.audio_link().map(|l| AudioKeys {
+            pc_to_mac: l.pc_to_mac,
+            mac_to_pc: l.mac_to_pc,
+        });
+        inner.core(CoreCmd::MediaUp(Box::new(SessionCtx {
+            send: out_tx.clone(),
+            peer_ip: media.peer_ip,
+            remote_ports: media.remote_ports.clone(),
+            local_ports: media.local_ports.clone(),
+            bind_ip: media.bind_ip,
+            identity: media.identity.clone(),
+            peer: media.peer.clone(),
+            audio_keys,
+        })));
+    };
+    let first = *status.borrow_and_update();
+    announce(&dialer, first, last_up);
+    publish(first, &mut last_up);
     let mut notify = false;
     loop {
         tokio::select! {
@@ -486,7 +533,9 @@ async fn pump<P: Platform>(
             }
             r = status.changed() => {
                 if r.is_err() { break; }
-                publish(*status.borrow_and_update(), &mut last_up);
+                let s = *status.borrow_and_update();
+                announce(&dialer, s, last_up);
+                publish(s, &mut last_up);
             }
             _ = lat.tick() => {
                 if last_up {

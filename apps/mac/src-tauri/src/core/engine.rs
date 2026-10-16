@@ -14,16 +14,16 @@ use relay_core::engine::{CommandDispatcher, Controller, EngineEvent};
 use relay_core::layout;
 use relay_core::platform::{CaptureError, DisplaySource, InputCapture};
 use relay_core::types::{
-    CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, HotkeyAction, InputEvent,
-    LayoutProfile, Machine, Message, PermissionKind, PermissionState, PermissionsStatus,
-    RemoteCommand,
+    AudioState, CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, HotkeyAction,
+    InputEvent, KeyCode, LayoutProfile, Machine, Message, MouseButton, PermissionKind,
+    PermissionState, PermissionsStatus, RemoteCommand,
 };
 use rtrb::{Consumer, Producer, RingBuffer};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Inner;
 use super::net::NetCmd;
-use super::platform::{Platform, Shared};
+use super::platform::{Platform, SessionCtx, Shared};
 
 /// Comandos para a thread do core.
 pub(crate) enum CoreCmd {
@@ -33,6 +33,8 @@ pub(crate) enum CoreCmd {
         out: UnboundedSender<Message>,
     },
     SessionDown,
+    /// A sessão está de pé: a mídia recebe o contexto dela (na ordem da fila, antes de `Link`).
+    MediaUp(Box<SessionCtx>),
     /// A sessão ficou `Connected` (ou deixou de estar).
     Link(bool),
     Peer(Message),
@@ -63,6 +65,10 @@ const CONTROL_RING: usize = 1024;
 const IDLE_LOCAL: Duration = Duration::from_millis(4);
 const IDLE_REMOTE: Duration = Duration::from_micros(500);
 const BUSY: Duration = Duration::from_micros(150);
+/// Keycode virtual do V e bits de CGEventFlags (Cmd; Control e Option não podem estar juntos).
+const KEY_V: u16 = 9;
+const FLAG_CMD: u64 = 0x10_0000;
+const FLAG_CTRL_OPT: u64 = 0x4_0000 | 0x8_0000;
 
 pub(crate) fn spawn<P: Platform>(
     inner: Arc<Inner<P>>,
@@ -97,6 +103,7 @@ pub(crate) fn spawn<P: Platform>(
         waiters: HashMap::new(),
         user_locked: false,
         user_paused: false,
+        left_down: false,
     };
     std::thread::Builder::new()
         .name("relay-core".into())
@@ -126,6 +133,8 @@ struct Core<P: Platform> {
     waiters: HashMap<u32, Sender<CommandResult>>,
     user_locked: bool,
     user_paused: bool,
+    /// Botão esquerdo do Mac pressionado (a captura entrega o evento mesmo com o foco remoto).
+    left_down: bool,
 }
 
 impl<P: Platform> Core<P> {
@@ -143,9 +152,18 @@ impl<P: Platform> Core<P> {
             while n < 512 {
                 let Ok(ev) = self.cap_rx.pop() else { break };
                 n += 1;
+                if let CapturedEvent::Button {
+                    button: MouseButton::Left,
+                    down,
+                } = ev
+                {
+                    self.left_down = down;
+                }
+                let remote_before = self.ctl.as_ref().is_some_and(|c| c.is_remote());
                 if let Some(c) = self.ctl.as_mut() {
                     c.handle(ev);
                 }
+                self.media_hooks_for(&ev, remote_before);
             }
             if n > 0 {
                 active = true;
@@ -194,6 +212,25 @@ impl<P: Platform> Core<P> {
                 (false, true) => IDLE_REMOTE,
                 (false, false) => IDLE_LOCAL,
             });
+        }
+    }
+
+    /// Ganhos da mídia sobre a captura: soltar o botão (arraste) e Cmd+V (colar arquivos).
+    fn media_hooks_for(&mut self, ev: &CapturedEvent, remote_before: bool) {
+        match *ev {
+            CapturedEvent::Button {
+                button: MouseButton::Left,
+                down: false,
+            } => self.inner.media.left_button_up(),
+            CapturedEvent::Key {
+                code: KeyCode::Mac(KEY_V),
+                down: true,
+                flags,
+                ..
+            } if !remote_before && flags & FLAG_CMD != 0 && flags & FLAG_CTRL_OPT == 0 => {
+                self.inner.media.paste_requested();
+            }
+            _ => {}
         }
     }
 
@@ -393,13 +430,16 @@ impl<P: Platform> Core<P> {
     fn drain_events(&mut self, ignore_pause: bool) {
         while let Ok(e) = self.ev_rx.try_recv() {
             match e {
-                EngineEvent::FocusChanged { remote } => self.inner.mutate(|s| {
-                    s.status.focus = if remote {
-                        Machine::Windows
-                    } else {
-                        Machine::Mac
-                    };
-                }),
+                EngineEvent::FocusChanged { remote } => {
+                    self.inner.mutate(|s| {
+                        s.status.focus = if remote {
+                            Machine::Windows
+                        } else {
+                            Machine::Mac
+                        };
+                    });
+                    self.inner.media.focus_changed(remote, self.left_down);
+                }
                 EngineEvent::ClipboardSwitch => self.inner.media.clipboard_switch(),
                 EngineEvent::LockChanged(l) => {
                     self.user_locked = l;
@@ -479,6 +519,7 @@ impl<P: Platform> Core<P> {
                 self.fail_waiters();
                 self.inner.media.link_changed(false);
             }
+            CoreCmd::MediaUp(ctx) => self.inner.media.session_up(*ctx),
             CoreCmd::Link(up) => {
                 if self.link == up {
                     return;
@@ -551,11 +592,34 @@ impl<P: Platform> Core<P> {
                 }
                 self.drain_events(false);
             }
+            // Id 0 nunca é do dispatcher: o agente avisa por ele que o áudio não ligou (WI3).
+            Message::CommandResult { id: 0, result } => {
+                self.inner.events.command_result(&result);
+                self.inner
+                    .media
+                    .on_message(&Message::CommandResult { id: 0, result });
+            }
             Message::CommandResult { id, result } => {
                 let mut result = result;
                 result.id = id;
                 self.dispatcher.on_result(result);
                 self.flush_results(now);
+            }
+            // Estado real do áudio no PC (pode ter recusado um dos sentidos).
+            Message::AudioControl {
+                pc_to_mac,
+                mac_to_pc,
+            } => {
+                self.inner.mutate(|s| {
+                    s.status.audio = AudioState {
+                        pc_to_mac,
+                        mac_to_pc,
+                    }
+                });
+                self.inner.media.on_message(&Message::AudioControl {
+                    pc_to_mac,
+                    mac_to_pc,
+                });
             }
             Message::Unpair => {
                 self.inner.forget_peer();

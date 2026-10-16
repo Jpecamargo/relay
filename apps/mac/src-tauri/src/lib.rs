@@ -17,7 +17,8 @@ use tauri::{Manager, WindowEvent};
 
 use backend::{AppBackend, MockBackend};
 use commands::{audio, clipboard, config, controls, layout, pairing, status, system, updater};
-use core::{AppCore, CoreOptions, MacPlatform, NoMedia};
+use core::media::{MacMedia, RealMedia};
+use core::{AppCore, CoreOptions, MacPlatform};
 use sink::TauriSink;
 use state::AppState;
 
@@ -77,10 +78,12 @@ pub fn run() {
                 Arc::new(MockBackend::default())
             } else {
                 let runtime = tauri::async_runtime::handle().inner().clone();
+                let sink = Arc::new(TauriSink(app.handle().clone()));
+                let media = RealMedia::new(Arc::new(MacMedia), sink.clone(), runtime.clone());
                 Arc::new(AppCore::start(
                     Arc::new(MacPlatform),
-                    Arc::new(TauriSink(app.handle().clone())),
-                    Arc::new(NoMedia),
+                    sink,
+                    media,
                     CoreOptions::default(),
                     runtime,
                 ))

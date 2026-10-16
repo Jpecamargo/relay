@@ -63,7 +63,7 @@ fn dell_display() -> DisplayInfo {
 type SysCb = Arc<Mutex<Option<Box<dyn Fn(SysEvent) + Send + Sync>>>>;
 type Sink = Arc<Mutex<Option<rtrb::Producer<CapturedEvent>>>>;
 
-struct MockCapture {
+pub(super) struct MockCapture {
     sink: Sink,
     swallow: Arc<AtomicBool>,
     deny: Arc<AtomicBool>,
@@ -86,7 +86,7 @@ impl InputCapture for MockCapture {
 }
 
 #[derive(Default)]
-struct MockCursor {
+pub(super) struct MockCursor {
     log: Arc<Mutex<Vec<String>>>,
 }
 impl CursorControl for MockCursor {
@@ -112,7 +112,7 @@ impl CursorControl for MockCursor {
 }
 
 #[derive(Default, Clone)]
-struct MockInjector {
+pub(super) struct MockInjector {
     events: Arc<Mutex<Vec<InputEvent>>>,
 }
 impl InputInjector for MockInjector {
@@ -125,7 +125,7 @@ impl InputInjector for MockInjector {
     }
 }
 
-struct MockDisplays {
+pub(super) struct MockDisplays {
     changed: Arc<Mutex<Option<ChangeCallback>>>,
     list: Arc<Mutex<Vec<DisplayInfo>>>,
 }
@@ -138,7 +138,7 @@ impl DisplaySource for MockDisplays {
     }
 }
 
-struct MockPlatform {
+pub(super) struct MockPlatform {
     _dir: tempfile::TempDir,
     config_path: PathBuf,
     keys: Arc<MemoryKeyStore>,
@@ -154,7 +154,7 @@ struct MockPlatform {
 }
 
 impl MockPlatform {
-    fn new(cfg: &Config) -> Arc<Self> {
+    pub(super) fn new(cfg: &Config) -> Arc<Self> {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         config::save(&config_path, cfg).unwrap();

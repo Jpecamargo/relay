@@ -123,7 +123,7 @@ impl<P: Platform> AppBackend for AppCore<P> {
     }
 
     fn list_audio_devices(&self) -> AudioDevices {
-        AudioDevices::default()
+        self.inner.media.audio_devices()
     }
 
     fn set_audio_streams(&self, pc_to_mac: bool, mac_to_pc: bool) -> BackendResult<()> {

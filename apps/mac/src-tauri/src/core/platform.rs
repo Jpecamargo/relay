@@ -7,15 +7,18 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use relay_core::crypto::{StaticKeypair, UdpKeys};
 use relay_core::platform::{
     CaptureError, CursorControl, DisplaySource, InjectError, InputCapture, InputInjector,
     KeyRepeat, KeyStore, PlatformError,
 };
 use relay_core::types::{
-    CapturedEvent, CommandResult, DiscoveredPeer, DisplaysPayload, DockInfo, HotCorners,
-    InputEvent, LatencyStats, Message, PairingEvent, PermissionKind, PermissionsStatus,
-    StatusSnapshot,
+    AudioDevices, AudioStats, CapturedEvent, CommandResult, Config, DiscoveredPeer,
+    DisplaysPayload, DockInfo, HotCorners, InputEvent, LatencyStats, Message, PairedPeer,
+    PairingEvent, PermissionKind, PermissionsStatus, Ports, StatusSnapshot, TransferProgress,
 };
+use std::net::IpAddr;
+use tokio::sync::mpsc::UnboundedSender;
 
 /// Eventos de sistema que o AppCore trata (espelho de `system_events::SystemEvent`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +73,34 @@ pub trait CoreEvents: Send + Sync + 'static {
     fn secure_input(&self, active: bool);
     fn pairing(&self, event: &PairingEvent);
     fn command_result(&self, result: &CommandResult);
+    /// `relay:audio-stats` (≤ 1 Hz, só com o stream PC→Mac ligado).
+    fn audio_stats(&self, _stats: &AudioStats) {}
+    /// `relay:transfer-progress` (≤ 10 Hz).
+    fn transfer_progress(&self, _progress: &TransferProgress) {}
+}
+
+/// Chaves UDP dos dois canais de áudio da sessão atual (derivadas do handshake Noise).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioKeys {
+    pub pc_to_mac: UdpKeys,
+    pub mac_to_pc: UdpKeys,
+}
+
+/// O que a mídia precisa de uma sessão de pé: fila de saída do canal confiável, endereço do PC,
+/// portas, identidade (transferência de arquivos) e chaves de áudio.
+#[derive(Clone)]
+pub struct SessionCtx {
+    /// Fila da bomba da sessão: tudo o que entra aqui sai por `Session::send`.
+    pub send: UnboundedSender<Message>,
+    pub peer_ip: IpAddr,
+    /// Portas do PC (`audio_mac_to_pc`, `transfer`).
+    pub remote_ports: Ports,
+    /// Portas do Mac (`audio_pc_to_mac`, `transfer`).
+    pub local_ports: Ports,
+    pub bind_ip: IpAddr,
+    pub identity: StaticKeypair,
+    pub peer: PairedPeer,
+    pub audio_keys: Option<AudioKeys>,
 }
 
 /// Ganchos da mídia (áudio, clipboard, arquivos), implementados pelo MI3. O AppCore só chama.
@@ -84,6 +115,19 @@ pub trait MediaHooks: Send + Sync + 'static {
     fn on_message(&self, _msg: &Message) {}
     /// Sessão estabelecida (`true`) ou perdida (`false`).
     fn link_changed(&self, _connected: bool) {}
+    /// Sessão `Connected` (antes de `link_changed(true)`; repete a cada reconexão).
+    fn session_up(&self, _ctx: SessionCtx) {}
+    /// O foco mudou de máquina; `left_down`: botão esquerdo pressionado nesse instante (arraste).
+    fn focus_changed(&self, _remote: bool, _left_down: bool) {}
+    /// O botão esquerdo foi solto (depois de o Controller tratar o evento).
+    fn left_button_up(&self) {}
+    /// Cmd+V com o foco no Mac.
+    fn paste_requested(&self) {}
+    /// Config gravada (inclusive a inicial).
+    fn config_changed(&self, _config: &Config) {}
+    fn audio_devices(&self) -> AudioDevices {
+        AudioDevices::default()
+    }
 }
 
 /// Sem mídia: o padrão até o MI3.

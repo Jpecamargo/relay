@@ -13,6 +13,7 @@ mod backend;
 mod engine;
 #[cfg(target_os = "macos")]
 mod mac;
+pub mod media;
 mod net;
 mod platform;
 #[cfg(test)]
@@ -42,7 +43,9 @@ use net::NetCmd;
 
 #[cfg(target_os = "macos")]
 pub use mac::MacPlatform;
-pub use platform::{Browse, CoreEvents, MediaHooks, NoMedia, Platform, Shared, SysEvent};
+pub use platform::{
+    AudioKeys, Browse, CoreEvents, MediaHooks, NoMedia, Platform, SessionCtx, Shared, SysEvent,
+};
 
 /// Conta do KeyStore com o `device_id` do PC pareado (um só par, usuário único).
 pub(crate) const ACTIVE_PEER_ACCOUNT: &str = "active_peer";
@@ -176,6 +179,7 @@ impl<P: Platform> Inner<P> {
         if let Err(e) = config::save(&self.config_path, cfg) {
             tracing::warn!("não consegui gravar o config: {e}");
         }
+        self.media.config_changed(cfg);
     }
 
     pub fn core(&self, cmd: CoreCmd) {
@@ -286,6 +290,7 @@ impl<P: Platform> AppCore<P> {
             net_tx,
         });
 
+        inner.media.config_changed(&inner.st().config.clone());
         let thread = engine::spawn(inner.clone(), core_rx, displays);
         runtime.spawn(net::manager(inner.clone(), net_rx));
 
