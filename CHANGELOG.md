@@ -6,6 +6,13 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.2
+
+- Menu da barra de menus mais útil: "Saída de som" para trocar o dispositivo de áudio do PC, "Ir para" uma tela específica, "Capturar tela do PC" e os atalhos reais mostrados ao lado de cada ação.
+- O cursor não "agarra" mais na borda: a troca de tela acontece ao empurrar alguns pontos além dela, sem espera, e chega ao PC mais rápido (mediana de 3,4 ms para 0,7 ms). A intensidade fica em Ajustes › Transição › Resistência da borda.
+- Mexer no volume não mostra mais o aviso "Comando executado".
+- Ícone do Mac redesenhado na grade da Apple (cantos e tamanho iguais aos dos outros apps).
+
 ## 0.1.1
 
 - Nova interface no Mac: painel do menu bar mais enxuto e translúcido, ícone próprio na barra de menus e uma janela "Relay" com barra lateral (visão geral, telas, teclado, áudio, clipboard, conexão e geral).
