@@ -409,11 +409,20 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             }
         }
         let is_cmd = scan.and_then(modifier_slot).is_some_and(|s| s / 2 == 3);
-        let main = self.matcher.feed(code, down);
-        let alt = if is_cmd {
-            HotkeyOutcome::Pass
+        // AltGr (ABNT2 etc.) chega como LCtrl+RAlt: no reverso não pode disparar atalhos do Relay.
+        let altgr = self.reverse.is_some()
+            && self.mod_slots & (1 << 3) != 0
+            && scan.and_then(modifier_slot).is_none();
+        let (main, alt) = if altgr {
+            (HotkeyOutcome::Pass, HotkeyOutcome::Pass)
         } else {
-            self.matcher_no_cmd.feed(code, down)
+            let main = self.matcher.feed(code, down);
+            let alt = if is_cmd {
+                HotkeyOutcome::Pass
+            } else {
+                self.matcher_no_cmd.feed(code, down)
+            };
+            (main, alt)
         };
         let outcome = if main == HotkeyOutcome::Pass {
             alt
@@ -687,7 +696,8 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
 
     fn focus_changed(&mut self, remote: bool) {
         self.emit(EngineEvent::FocusChanged { remote });
-        if self.clipboard.enabled && self.clipboard.mode == ClipboardMode::OnSwitch {
+        // Só o lado que PERDE o foco (entrou no remoto) oferece o clipboard.
+        if remote && self.clipboard.enabled && self.clipboard.mode == ClipboardMode::OnSwitch {
             self.emit(EngineEvent::ClipboardSwitch);
         }
     }
@@ -735,9 +745,11 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             point_px: point,
         });
         self.capture.set_swallow(false);
+        // Solta o cursor antes do warp: no Windows o ClipCursor de 1 px ainda prenderia o
+        // SetCursorPos.
+        let _ = self.cursor.associate(true);
         let _ = self.cursor.warp(point.0, point.1);
         let _ = self.cursor.show();
-        let _ = self.cursor.associate(true);
         self.last_pos = point;
         self.local_held.clear();
         self.focus = Focus::Local;
@@ -944,9 +956,9 @@ mod tests {
             calls(&r.log),
             [
                 "swallow(false)",
+                "associate(true)",
                 "warp(1439,450)",
-                "show",
-                "associate(true)"
+                "show"
             ]
         );
         assert!(!r.ctl.is_remote());
@@ -991,8 +1003,8 @@ mod tests {
         assert!(matches!(msgs.last(), Some(Message::FocusReturn { .. })));
         assert!(!r.ctl.is_remote());
         assert_eq!(
-            &calls(&r.log)[..2],
-            ["swallow(false)", "warp(720,450)"],
+            &calls(&r.log)[..3],
+            ["swallow(false)", "associate(true)", "warp(720,450)"],
             "a hotkey 1 volta ao centro da tela do Mac"
         );
         // o dígito da hotkey nunca vaza para o destino
@@ -1028,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn clipboard_on_switch_dispara_nas_duas_direcoes() {
+    fn clipboard_on_switch_so_ao_perder_o_foco() {
         let mut r = rig();
         r.enter_dell();
         r.ctl.on_message(
@@ -1045,7 +1057,6 @@ mod tests {
                 EngineEvent::FocusChanged { remote: true },
                 EngineEvent::ClipboardSwitch,
                 EngineEvent::FocusChanged { remote: false },
-                EngineEvent::ClipboardSwitch,
             ]
         );
     }
@@ -1102,9 +1113,9 @@ mod tests {
             calls(&r.log),
             [
                 "swallow(false)",
+                "associate(true)",
                 "warp(1439,450)",
-                "show",
-                "associate(true)"
+                "show"
             ]
         );
         assert!(matches!(

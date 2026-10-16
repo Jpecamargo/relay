@@ -244,7 +244,12 @@ impl TransitionEngine {
 
     /// Lado receptor: posição do cursor no desktop virtual do Windows. O receptor não vê o
     /// modificador do Mac; vale dwell e zona morta.
-    pub fn on_remote_cursor(&mut self, pos_px: (i32, i32), now: Instant) -> RemoteDecision {
+    pub fn on_remote_cursor(
+        &mut self,
+        pos_px: (i32, i32),
+        delta: (i32, i32),
+        now: Instant,
+    ) -> RemoteDecision {
         if self.locked {
             self.remote_push = None;
             return RemoteDecision::Stay;
@@ -260,11 +265,13 @@ impl TransitionEngine {
             if pos_px.0 < x0 || pos_px.0 >= x1 || pos_px.1 < y0 || pos_px.1 >= y1 {
                 continue;
             }
+            // Posição sobre a borda E empurrão para fora: entrar colado na borda e descer ao
+            // longo dela não devolve o foco.
             let at_edge = match l.side {
-                Side::Right => pos_px.0 >= x1 - 1,
-                Side::Left => pos_px.0 <= x0,
-                Side::Bottom => pos_px.1 >= y1 - 1,
-                Side::Top => pos_px.1 <= y0,
+                Side::Right => pos_px.0 >= x1 - 1 && delta.0 > 0,
+                Side::Left => pos_px.0 <= x0 && delta.0 < 0,
+                Side::Bottom => pos_px.1 >= y1 - 1 && delta.1 > 0,
+                Side::Top => pos_px.1 <= y0 && delta.1 < 0,
             };
             let along = Self::along_mm(d, l.side, pos_px);
             if at_edge && along >= l.seg.0 && along <= l.seg.1 {
@@ -426,6 +433,25 @@ mod tests {
     }
 
     #[test]
+    fn retorno_exige_empurrao_para_fora_da_borda() {
+        let mut e = engine(0);
+        let t = Instant::now();
+        // Colado na borda esquerda do Dell, descendo ou indo para dentro: não devolve.
+        assert_eq!(
+            e.on_remote_cursor((0, 836), (0, 5), t),
+            RemoteDecision::Stay
+        );
+        assert_eq!(
+            e.on_remote_cursor((0, 836), (3, 0), t),
+            RemoteDecision::Stay
+        );
+        assert!(matches!(
+            e.on_remote_cursor((0, 836), (-1, 0), t),
+            RemoteDecision::Return { .. }
+        ));
+    }
+
+    #[test]
     fn dwell_zera_ao_sair_da_borda() {
         let mut e = engine(100);
         let t = Instant::now();
@@ -490,12 +516,15 @@ mod tests {
         let t = Instant::now();
         let ms = Duration::from_millis;
         // Dell y=836 -> 195 mm relativos -> 95 mm absolutos -> Mac y ~456
-        assert_eq!(e.on_remote_cursor((0, 836), t), RemoteDecision::Stay);
         assert_eq!(
-            e.on_remote_cursor((0, 836), t + ms(99)),
+            e.on_remote_cursor((0, 836), (-1, 0), t),
             RemoteDecision::Stay
         );
-        match e.on_remote_cursor((0, 836), t + ms(100)) {
+        assert_eq!(
+            e.on_remote_cursor((0, 836), (-1, 0), t + ms(99)),
+            RemoteDecision::Stay
+        );
+        match e.on_remote_cursor((0, 836), (-1, 0), t + ms(100)) {
             RemoteDecision::Return {
                 mac_display,
                 point_px,
@@ -507,14 +536,23 @@ mod tests {
             o => panic!("{o:?}"),
         }
         // fora da borda ligada ao Mac, e fora do segmento (parede)
-        assert_eq!(e.on_remote_cursor((500, 836), t), RemoteDecision::Stay);
+        assert_eq!(
+            e.on_remote_cursor((500, 836), (-1, 0), t),
+            RemoteDecision::Stay
+        );
         let mut e0 = engine(0);
-        assert_eq!(e0.on_remote_cursor((0, 300), t), RemoteDecision::Stay);
+        assert_eq!(
+            e0.on_remote_cursor((0, 300), (-1, 0), t),
+            RemoteDecision::Stay
+        );
         // Dell alinhado ao topo do Mac: y=10 px = 2,3 mm do canto do Dell (zona morta)
         let mut e1 = engine_with(cfg(0), 0.0, 336.0);
-        assert_eq!(e1.on_remote_cursor((0, 10), t), RemoteDecision::Stay);
+        assert_eq!(
+            e1.on_remote_cursor((0, 10), (-1, 0), t),
+            RemoteDecision::Stay
+        );
         assert!(matches!(
-            e1.on_remote_cursor((0, 100), t),
+            e1.on_remote_cursor((0, 100), (-1, 0), t),
             RemoteDecision::Return { .. }
         ));
     }
@@ -543,7 +581,10 @@ mod tests {
         let t = Instant::now();
         assert_eq!(e.jump_to(2), Some(LocalDecision::Stay));
         assert_eq!(push_right(&mut e, 450, &[], t), LocalDecision::Stay);
-        assert_eq!(e.on_remote_cursor((0, 836), t), RemoteDecision::Stay);
+        assert_eq!(
+            e.on_remote_cursor((0, 836), (-1, 0), t),
+            RemoteDecision::Stay
+        );
         e.set_locked(false);
         assert!(matches!(
             push_right(&mut e, 450, &[], t),

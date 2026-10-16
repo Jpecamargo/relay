@@ -147,7 +147,8 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
 
     fn focus_changed(&mut self, remote: bool) {
         self.emit(EngineEvent::FocusChanged { remote });
-        if self.clipboard.enabled && self.clipboard.mode == ClipboardMode::OnSwitch {
+        // Só o lado que PERDE o foco oferece o clipboard; quem ganha espera a oferta do outro.
+        if !remote && self.clipboard.enabled && self.clipboard.mode == ClipboardMode::OnSwitch {
             self.emit(EngineEvent::ClipboardSwitch);
         }
     }
@@ -288,7 +289,10 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
         {
             return Vec::new();
         }
-        match self.transition.on_remote_cursor(pos, now) {
+        match self
+            .transition
+            .on_remote_cursor(pos, (i32::from(dx), i32::from(dy)), now)
+        {
             RemoteDecision::Stay => Vec::new(),
             RemoteDecision::Return {
                 mac_display,

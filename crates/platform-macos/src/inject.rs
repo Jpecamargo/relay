@@ -11,6 +11,8 @@ use core_graphics::display::CGDisplay;
 use core_graphics::geometry::CGPoint;
 use core_graphics::sys::CGEventRef;
 use relay_core::keymap::tables::scan_to_mac;
+
+use crate::capture::{FIELD_SOURCE_USER_DATA, RELAY_USER_DATA};
 use relay_core::platform::{InjectError, InputInjector};
 use relay_core::types::{InputEvent, MediaKey, MouseButton, ScrollPhase};
 
@@ -308,6 +310,8 @@ impl OwnedEvent {
     }
 
     fn post(&self) {
+        // Marca como do Relay para o tap do Mac não capturar o que ele mesmo injeta.
+        self.set_field(FIELD_SOURCE_USER_DATA, RELAY_USER_DATA);
         // SAFETY: idem; CGEventPost não toma posse do evento.
         unsafe { CGEventPost(KCG_HID_EVENT_TAP, self.0) }
     }
@@ -473,7 +477,14 @@ impl MacInjector {
             .CGEvent()
             .ok_or_else(|| InjectError::Platform("NSEvent sem CGEvent".into()))?;
         // SAFETY: `cg` é um CGEventRef válido enquanto o Retained vive.
-        unsafe { CGEventPost(KCG_HID_EVENT_TAP, &*cg as *const _ as CGEventRef) };
+        unsafe {
+            CGEventSetIntegerValueField(
+                &*cg as *const _ as CGEventRef,
+                FIELD_SOURCE_USER_DATA,
+                RELAY_USER_DATA,
+            );
+            CGEventPost(KCG_HID_EVENT_TAP, &*cg as *const _ as CGEventRef)
+        };
         Ok(())
     }
 }

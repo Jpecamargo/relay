@@ -8,8 +8,10 @@
 
 use std::time::{Duration, Instant};
 
-use relay_core::engine::Receiver;
-use relay_core::types::{Config, DisplayInfo, InputEvent, LayoutProfile, Machine, Message};
+use relay_core::engine::{EngineEvent, Receiver};
+use relay_core::types::{
+    ClipboardConfig, Config, DisplayInfo, InputEvent, LayoutProfile, Machine, Message,
+};
 
 use super::platform::{Platform, Shared};
 
@@ -45,6 +47,20 @@ impl<P: Platform> MacReverse<P> {
     /// `true` enquanto o PC controla o Mac.
     pub fn is_active(&self) -> bool {
         self.rx.is_active()
+    }
+
+    /// Só o `ClipboardSwitch` interessa: ao PERDER o foco para o PC o Mac oferece o clipboard.
+    /// O `FocusChanged` do Receiver não vira `status.focus` (o Mac é a casa do foco).
+    pub fn set_switch_handler(&mut self, handler: impl Fn() + Send + 'static) {
+        self.rx.set_event_handler(Box::new(move |e| {
+            if e == EngineEvent::ClipboardSwitch {
+                handler();
+            }
+        }));
+    }
+
+    pub fn set_clipboard_config(&mut self, clipboard: ClipboardConfig) {
+        self.rx.set_clipboard_config(clipboard);
     }
 
     pub fn set_local_displays(&mut self, displays: Vec<DisplayInfo>) {

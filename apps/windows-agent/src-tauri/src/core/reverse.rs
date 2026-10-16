@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use relay_core::engine::Controller;
+use relay_core::engine::{Controller, EventHandler};
 use relay_core::platform::{
     CaptureError, CursorControl, InjectError, InputCapture, InputInjector, KeyRepeat,
 };
@@ -122,6 +122,7 @@ impl ReverseHandle {
         deps: ReverseDeps,
         fast: Producer<InputEvent>,
         out: UnboundedSender<Message>,
+        events: Option<EventHandler>,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
         let blocked = Arc::new(AtomicBool::new(false));
@@ -133,6 +134,7 @@ impl ReverseHandle {
             deps,
             fast,
             out,
+            events,
             rx,
             blocked: blocked.clone(),
             remote: remote.clone(),
@@ -209,6 +211,7 @@ struct Worker {
     deps: ReverseDeps,
     fast: Producer<InputEvent>,
     out: UnboundedSender<Message>,
+    events: Option<EventHandler>,
     rx: StdReceiver<Cmd>,
     blocked: Arc<AtomicBool>,
     remote: Arc<AtomicBool>,
@@ -223,6 +226,7 @@ impl Worker {
             deps,
             fast,
             out,
+            events,
             rx,
             blocked,
             remote,
@@ -252,6 +256,10 @@ impl Worker {
             control,
         );
         ctl.set_reverse(config.keymap.reverse_modifiers.clone());
+        // Ao entrar no Mac o PC perde o foco: ClipboardSwitch e "enviar agora" vão à mídia.
+        if let Some(h) = events {
+            ctl.set_event_handler(h);
+        }
         // Sem Mac conectado não há destino: começa pausado.
         let (mut link, mut user_paused) = (false, false);
         ctl.set_paused(true, Instant::now());

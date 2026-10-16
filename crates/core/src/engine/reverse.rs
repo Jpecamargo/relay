@@ -353,6 +353,61 @@ mod loopback {
     }
 
     #[test]
+    fn altgr_nao_dispara_atalhos_do_relay() {
+        let mut p = pair(0);
+        p.enter_mac();
+        p.mac_inj.lock().unwrap().clear();
+        // AltGr = LCtrl + RAlt; AltGr+2 não pode devolver o foco (Ctrl+Alt+2 é JumpTo(2)).
+        p.key(CTRL, true);
+        p.key(0xE038, true);
+        p.key(DIGIT_2, true);
+        p.key(DIGIT_2, false);
+        assert!(p.win.is_remote());
+        assert!(p.mac.is_active());
+        assert!(p.mac_events().contains(&key(DIGIT_2, true)));
+        p.key(0xE038, false);
+        p.key(CTRL, false);
+        // Ctrl+LAlt+2 continua sendo o atalho.
+        p.key(CTRL, true);
+        p.key(ALT, true);
+        p.key(DIGIT_2, true);
+        assert!(!p.win.is_remote());
+    }
+
+    #[test]
+    fn receiver_so_oferece_o_clipboard_ao_perder_o_foco() {
+        use crate::engine::EngineEvent;
+        let mut p = pair(0);
+        let ev: Arc<Mutex<Vec<EngineEvent>>> = Arc::default();
+        let sink = ev.clone();
+        p.mac
+            .set_event_handler(Box::new(move |e| sink.lock().unwrap().push(e)));
+        p.enter_mac();
+        assert!(
+            !ev.lock().unwrap().contains(&EngineEvent::ClipboardSwitch),
+            "ganhar o foco não oferece"
+        );
+        p.key(CTRL, true);
+        p.key(ALT, true);
+        p.key(DIGIT_2, true);
+        assert!(ev.lock().unwrap().contains(&EngineEvent::ClipboardSwitch));
+    }
+
+    #[test]
+    fn devolve_solta_o_cursor_antes_do_warp() {
+        let mut p = pair(0);
+        p.enter_mac();
+        p.win_log.lock().unwrap().clear();
+        p.key(CTRL, true);
+        p.key(ALT, true);
+        p.key(DIGIT_2, true);
+        let c = calls(&p.win_log);
+        let a = c.iter().position(|s| s == "associate(true)").unwrap();
+        let w = c.iter().position(|s| s.starts_with("warp(")).unwrap();
+        assert!(a < w, "{c:?}");
+    }
+
+    #[test]
     fn roda_e_movimento_chegam_ao_mac() {
         let mut p = pair(0);
         p.enter_mac();

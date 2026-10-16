@@ -32,6 +32,11 @@ use relay_core::platform::{CaptureError, InputCapture};
 use relay_core::types::{CapturedEvent, KeyCode, MediaKey, MouseButton, ScrollPhase};
 
 // Tipos de evento (CGEventType / NSEventType). Valores crus: ver `CGEventTypes.h`.
+/// `kCGEventSourceUserData`: o injetor (`inject.rs`) marca com `RELAY_USER_DATA` o que posta, e o
+/// tap ignora esses eventos (não os captura de volta no sentido inverso).
+pub const FIELD_SOURCE_USER_DATA: u32 = 42;
+pub const RELAY_USER_DATA: i64 = 0x0052_454C_4159;
+
 const LEFT_MOUSE_DOWN: u32 = 1;
 const LEFT_MOUSE_UP: u32 = 2;
 const RIGHT_MOUSE_DOWN: u32 = 3;
@@ -389,6 +394,9 @@ unsafe extern "C" fn tap_callback(
     if handle_tap_disabled(event_type, &mut reenable, &state.reactivations) {
         return event;
     }
+    if Ev(event).int(FIELD_SOURCE_USER_DATA) == RELAY_USER_DATA {
+        return event;
+    }
     let converted = match event_type {
         SYSTEM_DEFINED | ROTATE | MAGNIFY => convert_ns(event_type, event),
         _ => convert(event_type, event),
@@ -684,6 +692,16 @@ mod tests {
         ));
         let nao_mod = key(0, true);
         assert_eq!(convert_no_alloc(FLAGS_CHANGED, &nao_mod), None);
+    }
+
+    #[test]
+    fn evento_marcado_pelo_relay_e_reconhecido() {
+        let ev = Synth::new(unsafe {
+            CGEventCreateMouseEvent(std::ptr::null_mut(), MOUSE_MOVED, CGPoint::new(1.0, 2.0), 0)
+        });
+        assert_ne!(Ev(ev.0).int(FIELD_SOURCE_USER_DATA), RELAY_USER_DATA);
+        unsafe { CGEventSetIntegerValueField(ev.0, FIELD_SOURCE_USER_DATA, RELAY_USER_DATA) };
+        assert_eq!(Ev(ev.0).int(FIELD_SOURCE_USER_DATA), RELAY_USER_DATA);
     }
 
     #[test]
