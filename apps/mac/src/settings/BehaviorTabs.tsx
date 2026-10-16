@@ -6,13 +6,25 @@ import styles from "./settings.module.css";
 
 const Err = ({ text }: { text?: string }) => (text ? <span role="alert" className={styles.error}>{text}</span> : null);
 
+type Resistance = "none" | "light" | "medium";
+const RESISTANCE_PT: Record<Resistance, number> = { none: 0, light: 8, medium: 20 };
+const resistanceOf = (pt: number): Resistance => (pt <= 0 ? "none" : pt <= 12 ? "light" : "medium");
+
 export function TransitionTab({ config, update, errors }: TabProps) {
   const t = config.transition;
   const set = (patch: Partial<typeof t>) => update((c) => ({ ...c, transition: { ...c.transition, ...patch } }));
   return (
     <Section title="Troca de máquina" grouped>
-      <NumberField label="Tempo de espera na borda" unit="ms" min={0} max={1000} step={10} value={t.dwell_ms} onChange={(v) => set({ dwell_ms: v })} />
-      <Err text={errors.dwell_ms} />
+      <Select<Resistance>
+        label="Resistência da borda"
+        value={resistanceOf(t.edge_resistance_pt)}
+        onChange={(v) => set({ edge_resistance_pt: RESISTANCE_PT[v], dwell_ms: 0 })}
+        options={[
+          { value: "none", label: "Nenhuma" },
+          { value: "light", label: "Leve" },
+          { value: "medium", label: "Média" },
+        ]}
+      />
       <Select<Modifier | "none">
         label="Modificador exigido"
         value={t.require_modifier ?? "none"}

@@ -192,6 +192,7 @@ fn start_agent_full(
         ..Ports::default()
     };
     config.transition.dwell_ms = 0;
+    config.transition.edge_resistance_pt = 0.0;
 
     let (eng, live) = (engaged.clone(), live_guards.clone());
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(MockPipe {
@@ -367,6 +368,7 @@ async fn connect(agent: &Agent, mac: &StaticKeypair, peer: PairedPeer) -> Mac {
     let (ctrl_p, control) = RingBuffer::new(4096);
     let mut cfg = Config::default();
     cfg.transition.dwell_ms = 0;
+    cfg.transition.edge_resistance_pt = 0.0;
     let ctl = Controller::new(
         &cfg,
         profile(),

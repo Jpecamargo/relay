@@ -6,14 +6,14 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use relay_core::engine::{CommandDispatcher, Controller, EngineEvent};
 use relay_core::layout;
 use relay_core::net::FastSender;
-use relay_core::platform::{CaptureError, DisplaySource, InputCapture};
+use relay_core::platform::{CaptureError, DisplaySource, InputCapture, LoopWaker};
 use relay_core::types::{
     AudioState, CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, HotkeyAction,
     InputEvent, KeyCode, LayoutProfile, Machine, Message, MouseButton, PermissionKind,
@@ -164,6 +164,7 @@ struct Core<P: Platform> {
 
 impl<P: Platform> Core<P> {
     fn run(mut self) {
+        self.inner.waker.bind_current();
         self.publish_displays();
         let mut last_tick = Instant::now();
         let mut last_poll = last_tick;
@@ -233,20 +234,12 @@ impl<P: Platform> Core<P> {
             }
 
             let remote = self.ctl.as_ref().is_some_and(|c| c.is_remote());
-            // Espera por comando em vez de dormir: um `Fast`/`Peer` acorda o laço na hora.
-            let wait = match (active, remote) {
+            // Dorme até o relógio do laço vencer ou até a captura/um comando acordar a thread.
+            LoopWaker::park(match (active, remote) {
                 (true, _) => BUSY,
                 (false, true) => IDLE_REMOTE,
                 (false, false) => IDLE_LOCAL,
-            };
-            match self.rx.recv_timeout(wait) {
-                Ok(CoreCmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
-                    self.stop();
-                    return;
-                }
-                Ok(cmd) => self.on_cmd(cmd),
-                Err(RecvTimeoutError::Timeout) => {}
-            }
+            });
         }
     }
 
@@ -281,6 +274,7 @@ impl<P: Platform> Core<P> {
             return;
         }
         let (prod, cons) = RingBuffer::new(CAPTURE_RING);
+        self.capture.set_waker(self.inner.waker.clone());
         match self.capture.start(prod) {
             Ok(()) | Err(CaptureError::AlreadyRunning) => {
                 self.cap_ok = true;

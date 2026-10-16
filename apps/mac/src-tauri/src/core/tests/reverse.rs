@@ -170,6 +170,7 @@ async fn pc_main(
     let (ctrl_p, mut control) = RingBuffer::new(1024);
     let mut config = Config::default();
     config.transition.dwell_ms = 0;
+    config.transition.edge_resistance_pt = 0.0;
     let mut ctl = Controller::new(
         &config,
         relay_core::types::LayoutProfile {

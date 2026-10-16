@@ -29,7 +29,7 @@ vi.mock("../editor", () => ({ Editor: () => <p>editor de telas</p> }));
 const CONFIG = {
   schema_version: 1,
   network: { ports: { control: 1, input: 2, audio_pc_to_mac: 3, audio_mac_to_pc: 4, transfer: 5 }, manual_address: null },
-  transition: { dwell_ms: 150, require_modifier: null, corner_dead_zone_mm: 5 },
+  transition: { dwell_ms: 150, edge_resistance_pt: 8, require_modifier: null, corner_dead_zone_mm: 5 },
   keymap: { cmd_tap_timeout_ms: 300, rules: [], app_exceptions: [], reverse_modifiers: { ctrl_cmd: false } },
   hotkeys: [],
   clipboard: { enabled: true, mode: "on_switch", max_bytes: 10 * 1024 * 1024, formats: ["Text"] },

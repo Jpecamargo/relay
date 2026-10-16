@@ -29,7 +29,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use relay_core::config;
-use relay_core::platform::{DisplaySource, KeyStore};
+use relay_core::platform::{DisplaySource, KeyStore, LoopWaker};
 use relay_core::types::{
     AudioState, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload,
     LatencyStats, LayoutProfile, Machine, PairedPeer, PermissionsStatus, Ports, SaveLayoutResult,
@@ -126,6 +126,8 @@ pub(crate) struct Inner<P: Platform> {
     pub state: Mutex<State>,
     emit_lock: Mutex<()>,
     pub core_tx: mpsc::Sender<CoreCmd>,
+    /// Acorda o laço do core: comandos e eventos da captura.
+    pub waker: LoopWaker,
     pub net_tx: UnboundedSender<NetCmd>,
 }
 
@@ -185,6 +187,7 @@ impl<P: Platform> Inner<P> {
 
     pub fn core(&self, cmd: CoreCmd) {
         let _ = self.core_tx.send(cmd);
+        self.waker.wake();
     }
 
     pub fn net(&self, cmd: NetCmd) {
@@ -249,8 +252,11 @@ impl<P: Platform> AppCore<P> {
         let (core_tx, core_rx) = mpsc::channel();
         let (net_tx, net_rx) = unbounded_channel();
         let tx = core_tx.clone();
+        let waker = LoopWaker::default();
+        let displays_waker = waker.clone();
         displays.set_change_callback(Box::new(move || {
             let _ = tx.send(CoreCmd::DisplaysChanged);
+            displays_waker.wake();
         }));
 
         let status = StatusSnapshot {
@@ -285,6 +291,7 @@ impl<P: Platform> AppCore<P> {
             }),
             emit_lock: Mutex::new(()),
             core_tx,
+            waker,
             net_tx,
         });
 

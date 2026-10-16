@@ -6,6 +6,9 @@
 //! nem bloqueiam. Callbacks podem ser chamados de threads do sistema.
 
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
+use std::thread::Thread;
+use std::time::Duration;
 
 use crate::types::{
     AudioDevice, CapturedEvent, ClipboardContent, CommandResult, DisplayInfo, FileEntry,
@@ -59,12 +62,45 @@ pub enum KeyStoreError {
     Backend(String),
 }
 
+/// Acordador do laço que consome a captura: o callback do sistema chama `wake` e a thread do laço
+/// dorme em `park` em vez de sondar. Sem alocação nem lock (só `Thread::unpark`); o "token" do
+/// `unpark` vale mesmo se a thread ainda não estacionou, então não há acordada perdida.
+#[derive(Clone, Default)]
+pub struct LoopWaker(Arc<OnceLock<Thread>>);
+
+impl LoopWaker {
+    /// Chamado pela thread do laço antes do primeiro `park`: é ela que será acordada.
+    pub fn bind_current(&self) {
+        let _ = self.0.set(std::thread::current());
+    }
+
+    pub fn wake(&self) {
+        if let Some(t) = self.0.get() {
+            t.unpark();
+        }
+    }
+
+    /// Dorme até `timeout` ou até alguém chamar `wake` (acordadas espúrias são possíveis).
+    pub fn park(timeout: Duration) {
+        std::thread::park_timeout(timeout);
+    }
+}
+
+impl std::fmt::Debug for LoopWaker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LoopWaker")
+    }
+}
+
 /// Captura global de input (CGEventTap no Mac, hooks LL no Windows).
 pub trait InputCapture: Send {
     /// Inicia a captura em thread própria. Cada evento vira um `CapturedEvent` empurrado em
     /// `sink` (sem lock nem alocação). Eventos reconhecidos como atalho continuam sendo
     /// entregues ao `sink` mesmo com `swallow` ligado.
     fn start(&mut self, sink: rtrb::Producer<CapturedEvent>) -> Result<(), CaptureError>;
+    /// Registra quem acordar a cada evento empurrado em `sink` (chame antes de `start`). Sem
+    /// isso o laço só vê o evento na próxima volta do seu relógio.
+    fn set_waker(&mut self, _waker: LoopWaker) {}
     fn stop(&mut self);
     /// Liga/desliga o "engolir": com `true`, o evento não chega ao sistema local.
     /// Usa estado atômico interno; pode ser chamado de qualquer thread.
