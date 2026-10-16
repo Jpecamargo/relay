@@ -9,7 +9,7 @@ use super::consts::*;
 use super::display::LayoutProfile;
 use super::hotkey::{HotkeyAction, HotkeyBinding, KeyCombo, Modifier};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]

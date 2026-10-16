@@ -95,6 +95,16 @@ pub fn migrate(table: &mut Table) {
             0 => {
                 table.insert("schema_version".into(), Value::Integer(1));
             }
+            // v1 -> v2: o tempo de espera na borda deixa de ser o critério (agora é a pressão,
+            // `edge_resistance_pt`). 100 ms era o padrão antigo; outro valor foi escolha do usuário.
+            1 => {
+                if let Some(Value::Table(t)) = table.get_mut("transition") {
+                    if t.get("dwell_ms").and_then(Value::as_integer) == Some(100) {
+                        t.insert("dwell_ms".into(), Value::Integer(0));
+                    }
+                }
+                table.insert("schema_version".into(), Value::Integer(2));
+            }
             _ => break,
         }
         version += 1;
@@ -264,15 +274,32 @@ mod tests {
     fn migra_v0_sem_campo_para_v1() {
         let mut t: Table = "[transition]\ndwell_ms = 200\n".parse().unwrap();
         migrate(&mut t);
-        assert_eq!(t["schema_version"].as_integer(), Some(1));
+        assert_eq!(t["schema_version"].as_integer(), Some(2));
 
         let d = dir();
         let p = d.path().join("config.toml");
         fs::write(&p, "[transition]\ndwell_ms = 200\n").unwrap();
         let c = load_or_default(&p).unwrap();
-        assert_eq!(c.schema_version, 1);
+        assert_eq!(c.schema_version, 2);
         assert_eq!(c.transition.dwell_ms, 200);
         assert!(!d.path().join("config.toml.bak").exists());
+    }
+
+    #[test]
+    fn migra_v1_zera_o_dwell_padrao_antigo_e_mantem_o_escolhido() {
+        let load = |toml: &str| {
+            let d = dir();
+            let p = d.path().join("config.toml");
+            fs::write(&p, toml).unwrap();
+            load_or_default(&p).unwrap()
+        };
+        let c = load("schema_version = 1\n[transition]\ndwell_ms = 100\n");
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (2, 0));
+        let c = load("schema_version = 1\n[transition]\ndwell_ms = 250\n");
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (2, 250));
+        // Já na v2: 100 é escolha do usuário e fica.
+        let c = load("schema_version = 2\n[transition]\ndwell_ms = 100\n");
+        assert_eq!(c.transition.dwell_ms, 100);
     }
 
     #[test]
@@ -289,7 +316,7 @@ mod tests {
             ),
             (47800, 47801, 47802, 47803, 47804)
         );
-        assert_eq!(c.schema_version, 1);
+        assert_eq!(c.schema_version, 2);
         assert_eq!(c.transition.dwell_ms, 0);
         assert_eq!(c.transition.edge_resistance_pt, 8.0);
         assert_eq!(c.transition.corner_dead_zone_mm, 10.0);
