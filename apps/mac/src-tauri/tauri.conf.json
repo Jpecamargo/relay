@@ -11,10 +11,36 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Relay", "width": 960, "height": 640 }
+      {
+        "label": "panel",
+        "title": "Relay",
+        "width": 360,
+        "height": 520,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "resizable": false,
+        "shadow": true
+      },
+      {
+        "label": "settings",
+        "title": "Configurações",
+        "width": 720,
+        "height": 560,
+        "visible": false
+      },
+      {
+        "label": "editor",
+        "title": "Editor de telas",
+        "width": 960,
+        "height": 640,
+        "visible": false
+      }
     ],
-    "trayIcon": { "id": "tray", "iconPath": "icons/tray-template.png", "iconAsTemplate": true },
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
