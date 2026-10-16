@@ -131,7 +131,7 @@ mod loopback {
             MockCapture::new(&win_log),
             MockCursor::new(&win_log),
             win_inj,
-            fast_p,
+            fast_p.into(),
             ctrl_p,
         );
         win.set_reverse(ReverseModifiers::default());

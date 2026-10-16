@@ -7,9 +7,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use relay_core::crypto::{LocalDevice, MemoryKeyStore, load_or_create_identity};
-use relay_core::net::{DialerConfig, FastEvent, Session, SessionDialer, SessionEvent, now_us};
+use relay_core::net::{
+    DialerConfig, FastEvent, FastSender, Session, SessionDialer, SessionEvent, now_us,
+};
 use relay_core::types::{ConnectionStatus, InputEvent, Message, Ports};
-use rtrb::Producer;
 
 use crate::cli::{LoopbackOpts, SendOpts};
 use crate::echo::{echo_loop, start_listener};
@@ -101,7 +102,7 @@ fn wait_until(target: Instant) {
 
 /// Canal rápido: aquece até o eco voltar, depois envia `count` pings no ritmo `rate`.
 fn run_fast(
-    mut producer: Producer<InputEvent>,
+    mut producer: FastSender,
     table: Arc<Table>,
     count: u32,
     rate: u32,

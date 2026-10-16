@@ -11,7 +11,7 @@ use crate::crypto::{
     LocalDevice, MemoryKeyStore, StaticKeypair, load_or_create_identity, noise_accept, write_frame,
 };
 use crate::protocol::FrameWriter;
-use crate::types::{ConnectionStatus, Ports};
+use crate::types::{ConnectionStatus, InputEvent, Ports};
 
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 

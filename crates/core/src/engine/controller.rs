@@ -14,6 +14,7 @@ use crate::keymap::pressed::{MAX_PRESSED, PressedTracker};
 use crate::keymap::translator::{
     KeyEvent, KeymapTranslator, MAX_TRANSLATED, combo_to_scan, modifier_slot, mods_from_slots,
 };
+use crate::net::FastSender;
 use crate::platform::{CursorControl, InputCapture, InputInjector};
 use crate::transition::{LocalDecision, TransitionEngine};
 use crate::types::{
@@ -45,7 +46,7 @@ pub struct Controller<Cap, Cur, Inj> {
     cursor: Cur,
     /// Injetor do Mac: solta as teclas seguradas quando o foco sai daqui.
     injector: Inj,
-    fast: Producer<InputEvent>,
+    fast: FastSender,
     control: Producer<Message>,
     layout: LayoutState,
     transition_cfg: TransitionConfig,
@@ -108,7 +109,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         capture: Cap,
         cursor: Cur,
         injector: Inj,
-        fast: Producer<InputEvent>,
+        fast: FastSender,
         control: Producer<Message>,
     ) -> Self {
         let layout = LayoutState::new(profile, local_displays);
@@ -811,7 +812,7 @@ mod tests {
             MockCapture::new(&log),
             MockCursor::new(&log),
             inj,
-            fast_p,
+            fast_p.into(),
             ctrl_p,
         );
         let events: Arc<Mutex<Vec<EngineEvent>>> = Arc::default();

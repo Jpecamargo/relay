@@ -58,7 +58,22 @@ Mac (Apple Silicon), release, 127.0.0.1 (`loopback`), sessão cifrada. RTT em µ
 
 Meta do loopback (p50 do canal rápido < 500 µs): atendida (~220-260 µs).
 
-O canal rápido é mais lento que o TCP em loopback porque as threads do canal (envio e recepção)
-fazem espera adaptativa: giram, cedem a CPU e dormem 100 µs quando ociosas; em ritmo baixo o
-pacote espera o fim desse sono em cada um dos dois sentidos. Em rede real esse custo é pequeno
-diante do RTT da rede. Cabo e Wi-Fi: a medir na bancada (`docs/bancada.md`, seção 8).
+Depois da otimização do canal rápido (thread de envio estaciona em `park` e o `push` a acorda, em
+vez de dormir 100 µs; a recepção já bloqueava no socket com timeout), mesma máquina, release,
+127.0.0.1, duas execuções cada (RTT em µs, canal rápido):
+
+| Execução | p50 antes | p50 depois | p99 antes | p99 depois |
+|---|---|---|---|---|
+| loopback, 10000 @ 2000 Hz | 231-236 | 61-62 | 336-337 | 72-74 |
+| loopback, 3000 @ 125 Hz | 263-267 | 134-135 | 343-345 | 239-241 |
+| loopback, 1000 @ 30 Hz | 282-310 | 199-205 | 346-352 | 292-299 |
+
+CPU do `relay-bench echo` parado (média de 10 s, `ps -o %cpu`): 2,0% antes, 0,0% depois.
+Medições feitas com a máquina quieta; com outros builds rodando o p95/p99 sobe para milissegundos
+em qualquer versão.
+
+Em ritmo baixo o RTT ainda soma duas acordadas de thread a frio (envio e recepção, nos dois
+sentidos), por isso 125 Hz e 30 Hz ficam acima do caso de 2000 Hz, onde a thread ainda está girando.
+Antes da otimização o sono de 100 µs da thread de envio (o `thread::sleep` do macOS sai ~1,5x o
+pedido) pesava em cada um dos dois sentidos. Em rede real esse custo é pequeno diante do RTT da
+rede. Cabo e Wi-Fi: a medir na bancada (`docs/bancada.md`, seção 8).

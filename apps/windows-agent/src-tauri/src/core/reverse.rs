@@ -12,12 +12,15 @@
 //! `FocusEnter` do PC e o Controller volta.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver as StdReceiver, Sender as StdSender, TryRecvError};
+use std::sync::mpsc::{
+    self, Receiver as StdReceiver, RecvTimeoutError, Sender as StdSender, TryRecvError,
+};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use relay_core::engine::{Controller, EventHandler};
+use relay_core::net::FastSender;
 use relay_core::platform::{
     CaptureError, CursorControl, InjectError, InputCapture, InputInjector, KeyRepeat,
 };
@@ -120,7 +123,7 @@ impl ReverseHandle {
         local: Vec<DisplayInfo>,
         profile: Option<LayoutProfile>,
         deps: ReverseDeps,
-        fast: Producer<InputEvent>,
+        fast: FastSender,
         out: UnboundedSender<Message>,
         events: Option<EventHandler>,
     ) -> Self {
@@ -209,7 +212,7 @@ struct Worker {
     local: Vec<DisplayInfo>,
     profile: Option<LayoutProfile>,
     deps: ReverseDeps,
-    fast: Producer<InputEvent>,
+    fast: FastSender,
     out: UnboundedSender<Message>,
     events: Option<EventHandler>,
     rx: StdReceiver<Cmd>,
@@ -284,15 +287,7 @@ impl Worker {
                     }
                     Ok(cmd) => {
                         active = true;
-                        match cmd {
-                            Cmd::Message(m) => ctl.on_message(m, Instant::now()),
-                            Cmd::LocalDisplays(d) => ctl.set_local_displays(d),
-                            Cmd::Profile(p) => ctl.set_profile(p),
-                            Cmd::Config(c) => ctl.apply_config(&c),
-                            Cmd::Link(up) => link = up,
-                            Cmd::UserPaused(p) => user_paused = p,
-                            Cmd::Shutdown => {}
-                        }
+                        apply(&mut ctl, &mut link, &mut user_paused, cmd);
                     }
                     Err(TryRecvError::Empty) => break,
                 }
@@ -308,12 +303,36 @@ impl Worker {
                 ctl.tick(now);
             }
             remote.store(ctl.is_remote(), Ordering::Release);
-            std::thread::sleep(match (active, ctl.is_remote()) {
+            let wait = match (active, ctl.is_remote()) {
                 (true, _) => BUSY,
                 (false, true) => IDLE_REMOTE,
                 (false, false) => IDLE_LOCAL,
-            });
+            };
+            // Espera por comando em vez de dormir: um comando acorda o laço na hora.
+            match rx.recv_timeout(wait) {
+                Ok(Cmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
+                    ctl.set_paused(true, Instant::now());
+                    flush(&mut ctl_out, &out);
+                    remote.store(false, Ordering::Release);
+                    capture.stop();
+                    return;
+                }
+                Ok(cmd) => apply(&mut ctl, &mut link, &mut user_paused, cmd),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
         }
+    }
+}
+
+fn apply(ctl: &mut Ctl, link: &mut bool, user_paused: &mut bool, cmd: Cmd) {
+    match cmd {
+        Cmd::Message(m) => ctl.on_message(m, Instant::now()),
+        Cmd::LocalDisplays(d) => ctl.set_local_displays(d),
+        Cmd::Profile(p) => ctl.set_profile(p),
+        Cmd::Config(c) => ctl.apply_config(&c),
+        Cmd::Link(up) => *link = up,
+        Cmd::UserPaused(p) => *user_paused = p,
+        Cmd::Shutdown => {}
     }
 }
 

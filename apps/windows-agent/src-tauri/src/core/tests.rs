@@ -83,10 +83,23 @@ struct MockPipe {
 
 impl InputInjector for MockPipe {
     fn inject(&mut self, event: &InputEvent) -> Result<(), InjectError> {
+        self.check()?;
         self.inj.inject(event)
     }
     fn type_text(&mut self, t: &str) -> Result<(), InjectError> {
+        self.check()?;
         self.inj.type_text(t)
+    }
+}
+
+impl MockPipe {
+    /// Como o pipe real: sem helper conectado, o envio falha (e o `RoutedInjector` cai no local).
+    fn check(&self) -> Result<(), InjectError> {
+        if self.available.load(Ordering::SeqCst) {
+            Ok(())
+        } else {
+            Err(InjectError::Platform("helper indisponível".into()))
+        }
     }
 }
 
