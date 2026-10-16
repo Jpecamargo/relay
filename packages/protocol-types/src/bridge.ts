@@ -52,6 +52,8 @@ export interface MacCommandMap {
   set_clipboard_sync: { args: { enabled: boolean }; result: void };
   receive_remote_files: { args: void; result: void };
   wake_pc: { args: void; result: void };
+  /** Derruba e refaz a sessão com o PC (também sai de versão incompatível). */
+  reconnect: { args: void; result: void };
   list_audio_devices: { args: void; result: AudioDevices };
   set_audio_streams: { args: { pc_to_mac: boolean; mac_to_pc: boolean }; result: void };
   set_audio_devices: { args: { output_id?: string; input_id?: string }; result: void };
@@ -100,6 +102,7 @@ export const COMMANDS = {
   set_clipboard_sync: "set_clipboard_sync",
   receive_remote_files: "receive_remote_files",
   wake_pc: "wake_pc",
+  reconnect: "reconnect",
   list_audio_devices: "list_audio_devices",
   set_audio_streams: "set_audio_streams",
   set_audio_devices: "set_audio_devices",

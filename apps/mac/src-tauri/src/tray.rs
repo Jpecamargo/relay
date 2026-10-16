@@ -1,14 +1,17 @@
 //! dono: MI2 (casco: MAC1)
 //! Ícone no menu bar: clique esquerdo alterna o painel (sob o ícone), clique direito abre o menu.
 
-use relay_core::types::{ConnectionStatus, RemoteCommand, StatusSnapshot};
+use relay_core::types::{
+    CommandResult, ConnectionStatus, PowerAction, RemoteCommand, StatusSnapshot,
+};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_positioner::{Position, WindowExt};
 
+use crate::backend::AppBackend;
 use crate::commands::system::show_window;
-use crate::events::emit_status;
+use crate::events::{emit_command_result, emit_status};
 use crate::state::AppState;
 
 /// Itens do menu que refletem o estado.
@@ -55,36 +58,49 @@ fn toggle_panel(app: &AppHandle) {
     let _ = panel.set_focus();
 }
 
-fn on_menu(app: &AppHandle, id: &str) {
-    let state = app.state::<AppState>();
-    let backend = &state.backend;
+/// Ação do menu que fala com o backend (as demais abrem janela ou saem).
+fn perform(backend: &dyn AppBackend, id: &str) -> Option<CommandResult> {
     let power = |action| RemoteCommand::Power {
         action,
         confirm: false,
     };
     match id {
         "lock" => {
-            let locked = !backend.get_status().locked;
-            let _ = backend.set_cursor_lock(locked);
-            emit_status(app, &backend.get_status());
+            let _ = backend.set_cursor_lock(!backend.get_status().locked);
         }
         "pause" => {
-            let paused = !backend.get_status().paused;
-            let _ = backend.set_sharing_paused(paused);
-            emit_status(app, &backend.get_status());
+            let _ = backend.set_sharing_paused(!backend.get_status().paused);
         }
         "clipboard" => {
             let _ = backend.clipboard_send_now();
         }
-        "pc_lock" => {
-            backend.send_command(power(relay_core::types::PowerAction::Lock));
-        }
-        "pc_suspend" => {
-            backend.send_command(power(relay_core::types::PowerAction::Suspend));
-        }
         "pc_wake" => {
             let _ = backend.wake_pc();
         }
+        "reconnect" => {
+            let _ = backend.reconnect();
+        }
+        "pc_lock" => return Some(backend.send_command(power(PowerAction::Lock))),
+        "pc_suspend" => return Some(backend.send_command(power(PowerAction::Suspend))),
+        _ => {}
+    }
+    None
+}
+
+const BACKEND_ACTIONS: [&str; 7] = [
+    "lock",
+    "pause",
+    "clipboard",
+    "pc_lock",
+    "pc_suspend",
+    "pc_wake",
+    "reconnect",
+];
+
+/// Tudo que fala com o backend roda fora da thread principal: `send_command` espera o PC
+/// (até 7 s) e o menu não pode travar.
+fn on_menu(app: &AppHandle, id: &str) {
+    match id {
         "editor" => {
             let _ = show_window(app, "editor");
         }
@@ -92,6 +108,17 @@ fn on_menu(app: &AppHandle, id: &str) {
             let _ = show_window(app, "settings");
         }
         "quit" => app.exit(0),
+        id if BACKEND_ACTIONS.contains(&id) => {
+            let (app, id) = (app.clone(), id.to_owned());
+            let backend = app.state::<AppState>().backend.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let result = perform(&*backend, &id);
+                emit_status(&app, &backend.get_status());
+                if let Some(r) = result {
+                    emit_command_result(&app, &r);
+                }
+            });
+        }
         _ => {}
     }
 }
@@ -128,6 +155,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             &item("pc_lock", "Bloquear PC")?,
             &item("pc_suspend", "Suspender PC")?,
             &item("pc_wake", "Ligar PC")?,
+            &item("reconnect", "Reconectar")?,
             &PredefinedMenuItem::separator(app)?,
             &item("editor", "Editor de telas…")?,
             &item("settings", "Configurações…")?,
@@ -175,5 +203,21 @@ mod tests {
         let mut s = s;
         s.status = ConnectionStatus::Reconnecting;
         assert_eq!(status_label(&s), "Estado: Reconectando");
+    }
+
+    #[test]
+    fn menu_actions_toggle_state_and_send_power_commands() {
+        let b = MockBackend::default();
+        assert!(perform(&b, "lock").is_none());
+        assert!(b.get_status().locked);
+        perform(&b, "lock");
+        assert!(!b.get_status().locked);
+        perform(&b, "pause");
+        assert!(b.get_status().paused);
+        assert!(perform(&b, "pc_lock").is_some_and(|r| r.ok));
+        assert!(perform(&b, "pc_suspend").is_some_and(|r| r.ok));
+        for id in ["clipboard", "pc_wake", "reconnect", "desconhecido"] {
+            assert!(perform(&b, id).is_none());
+        }
     }
 }

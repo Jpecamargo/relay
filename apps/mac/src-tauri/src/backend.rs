@@ -38,6 +38,8 @@ pub trait AppBackend: Send + Sync {
     fn set_clipboard_sync(&self, enabled: bool) -> BackendResult<()>;
     fn receive_remote_files(&self) -> BackendResult<()>;
     fn wake_pc(&self) -> BackendResult<()>;
+    /// Derruba e refaz a sessão com o PC (também sai de `IncompatibleVersion`).
+    fn reconnect(&self) -> BackendResult<()>;
     fn list_audio_devices(&self) -> AudioDevices;
     fn set_audio_streams(&self, pc_to_mac: bool, mac_to_pc: bool) -> BackendResult<()>;
     fn set_audio_devices(
@@ -258,6 +260,9 @@ impl AppBackend for MockBackend {
         Ok(())
     }
     fn wake_pc(&self) -> BackendResult<()> {
+        Ok(())
+    }
+    fn reconnect(&self) -> BackendResult<()> {
         Ok(())
     }
     fn list_audio_devices(&self) -> AudioDevices {

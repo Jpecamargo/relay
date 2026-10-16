@@ -122,6 +122,11 @@ impl<P: Platform> AppBackend for AppCore<P> {
         self.inner.wake_pc()
     }
 
+    fn reconnect(&self) -> BackendResult<()> {
+        AppCore::reconnect(self);
+        Ok(())
+    }
+
     fn list_audio_devices(&self) -> AudioDevices {
         AudioDevices::default()
     }

@@ -113,6 +113,10 @@ export function Panel() {
   const update = updateEvent?.version ?? updateVersion;
   const incompatible = typeof status.status === "object" ? status.status.IncompatibleVersion : undefined;
 
+const retry = (
+    <Button onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
+  );
+
   return (
     <main className={styles.panel} style={{ position: "relative" }}>
       <header className={styles.header}>
@@ -137,8 +141,8 @@ export function Panel() {
             Permissão faltando: {label}
           </Banner>
         ))}
-        {incompatible ? <Banner tone="danger">Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
-        {key === "Reconnecting" ? <Banner tone="warn">Reconectando ao PC…</Banner> : null}
+        {incompatible ? <Banner tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
+        {key === "Reconnecting" ? <Banner tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
         {update ? (
           <Banner tone="info" action={<Button variant="primary" onClick={() => void act("Atualização", () => invokeCommand("install_update"))}>Instalar</Button>}>
             Atualização disponível: {update}

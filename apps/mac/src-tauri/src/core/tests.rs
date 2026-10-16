@@ -20,8 +20,9 @@ use relay_core::platform::{
 };
 use relay_core::types::{
     CapturedEvent, CommandResult, Config, ConnectionStatus, DisplayInfo, DisplaysPayload, DockInfo,
-    DockOrientation, HotCorners, InputEvent, LatencyStats, Machine, Message, PairingEvent,
-    PairingState, PermissionKind, PermissionState, PermissionsStatus, Ports, StatusSnapshot,
+    DockOrientation, HotCorners, HotkeyAction, HotkeyBinding, InputEvent, KeyCode, KeyCombo,
+    LatencyStats, Machine, MediaAction, Message, Modifier, PairingEvent, PairingState,
+    PermissionKind, PermissionState, PermissionsStatus, Ports, RemoteCommand, StatusSnapshot,
 };
 use tokio::runtime::Handle;
 
@@ -270,6 +271,7 @@ struct Rec {
     permissions: Mutex<Vec<PermissionsStatus>>,
     pairing: Mutex<Vec<PairingEvent>>,
     latency: Mutex<Vec<Instant>>,
+    results: Mutex<Vec<CommandResult>>,
 }
 impl CoreEvents for Rec {
     fn status(&self, s: &StatusSnapshot) {
@@ -288,7 +290,9 @@ impl CoreEvents for Rec {
     fn pairing(&self, e: &PairingEvent) {
         self.pairing.lock().unwrap().push(e.clone());
     }
-    fn command_result(&self, _r: &CommandResult) {}
+    fn command_result(&self, r: &CommandResult) {
+        self.results.lock().unwrap().push(r.clone());
+    }
 }
 
 // ---- agente falso: SessionListener + Receiver, com runtime próprio ----
@@ -299,6 +303,8 @@ struct Agent {
     received: Arc<Mutex<Vec<Message>>>,
     injected: Arc<Mutex<Vec<InputEvent>>>,
     active: Arc<AtomicBool>,
+    /// Liga: o agente recebe `Command` mas não responde (provoca o timeout).
+    mute: Arc<AtomicBool>,
     /// Novo código a abrir (o anterior é de uso único).
     next_code: Arc<Mutex<Option<String>>>,
     stop: Arc<AtomicBool>,
@@ -313,17 +319,19 @@ impl Agent {
         let stop = Arc::new(AtomicBool::new(false));
         let (ports_tx, ports_rx) = std::sync::mpsc::channel();
         let next_code: Arc<Mutex<Option<String>>> = Arc::default();
-        let (r, i, a, s, n, code) = (
+        let mute = Arc::new(AtomicBool::new(false));
+        let (r, i, a, s, n, m, code) = (
             received.clone(),
             injected.clone(),
             active.clone(),
             stop.clone(),
             next_code.clone(),
+            mute.clone(),
             code.to_owned(),
         );
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(agent_main(code, ports_tx, r, i, a, n, s));
+            rt.block_on(agent_main(code, ports_tx, r, i, a, n, m, s));
         });
         let (control_port, input_port) = ports_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         Self {
@@ -332,6 +340,7 @@ impl Agent {
             received,
             injected,
             active,
+            mute,
             next_code,
             stop,
             thread: Some(thread),
@@ -352,8 +361,20 @@ impl Drop for Agent {
     }
 }
 
+/// Executor do agente falso: todo comando dá certo.
+struct OkExecutor;
+impl relay_core::platform::CommandExecutor for OkExecutor {
+    fn execute(&mut self, id: u32, _c: &RemoteCommand) -> CommandResult {
+        CommandResult::ok(
+            id,
+            Some(relay_core::types::CommandOutput::Text("ok".into())),
+        )
+    }
+}
+
 type AgentReceiver = Receiver<MockInjector, MockCursor>;
 
+#[allow(clippy::too_many_arguments)]
 async fn agent_main(
     code: String,
     ports_tx: std::sync::mpsc::Sender<(u16, u16)>,
@@ -361,6 +382,7 @@ async fn agent_main(
     injected: Arc<Mutex<Vec<InputEvent>>>,
     active: Arc<AtomicBool>,
     next_code: Arc<Mutex<Option<String>>>,
+    mute: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
 ) {
     let identity = load_or_create_identity(&MemoryKeyStore::default()).unwrap();
@@ -378,6 +400,7 @@ async fn agent_main(
         injector,
         MockCursor::default(),
     )));
+    receiver.lock().unwrap().set_executor(Box::new(OkExecutor));
     let fast_rx = receiver.clone();
     let mut cfg = ListenerConfig::new(
         identity,
@@ -418,6 +441,9 @@ async fn agent_main(
                 }
                 Some(SessionEvent::Message(m)) => {
                     received.lock().unwrap().push(m.clone());
+                    if mute.load(Ordering::SeqCst) && matches!(m, Message::Command { .. }) {
+                        continue;
+                    }
                     let replies = receiver.lock().unwrap().on_message(m, Instant::now());
                     for r in replies {
                         let _ = listener.send(r).await;
@@ -730,5 +756,176 @@ async fn sem_permissao_emite_evento_abre_o_painel_certo_e_retoma() {
     })
     .await;
     assert_eq!(platform.opened.lock().unwrap().len(), 1);
+    core.shutdown();
+}
+
+/// Pareia e espera `Connected`.
+async fn connected(
+    agent: &Agent,
+    platform: &Arc<MockPlatform>,
+    rec: &Arc<Rec>,
+    code: &str,
+) -> Arc<AppCore<MockPlatform>> {
+    let core = Arc::new(AppCore::start(
+        platform.clone(),
+        rec.clone(),
+        Arc::new(NoMedia),
+        options(),
+        Handle::current(),
+    ));
+    let addr = format!("127.0.0.1:{}", agent.control_port);
+    core.pair_with_code(code.into(), Some(addr)).await.unwrap();
+    wait_until("status Connected", 8000, || {
+        core.status().status == ConnectionStatus::Connected
+    })
+    .await;
+    core
+}
+
+fn press(platform: &MockPlatform, vk: u16, down: bool) {
+    platform.push(CapturedEvent::Key {
+        code: KeyCode::Mac(vk),
+        down,
+        flags: 0,
+        autorepeat: false,
+    });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn controles_remotos_hotkeys_wol_timeout_e_reconexao() {
+    const CTRL: u16 = 0x3B;
+    const OPTION: u16 = 0x3A;
+    const KEY_M: u16 = 0x2E;
+    const KEY_W: u16 = 0x0D;
+    let agent = Agent::start("123456");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "123456").await;
+
+    // send_command: o resultado do PC volta como retorno (fora da thread do runtime).
+    let c = core.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        AppBackend::send_command(
+            &*c,
+            RemoteCommand::Media {
+                action: MediaAction::PlayPause,
+            },
+        )
+    })
+    .await
+    .unwrap();
+    assert!(r.ok, "{r:?}");
+    assert!(agent.saw(|m| matches!(
+        m,
+        Message::Command {
+            cmd: RemoteCommand::Media {
+                action: MediaAction::PlayPause
+            },
+            ..
+        }
+    )));
+
+    // Hotkeys configuráveis: Ctrl+Option+M -> Media PlayPause, sem o painel aberto.
+    let combo = |key: &str| KeyCombo {
+        modifiers: vec![Modifier::Ctrl, Modifier::Option],
+        key: key.into(),
+    };
+    let mut cfg = core.config();
+    cfg.hotkeys = vec![
+        HotkeyBinding {
+            combo: combo("KeyM"),
+            action: HotkeyAction::Command(RemoteCommand::Media {
+                action: MediaAction::Next,
+            }),
+        },
+        HotkeyBinding {
+            combo: combo("KeyW"),
+            action: HotkeyAction::WakePc,
+        },
+    ];
+    core.save_config(cfg).unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wake-on-LAN: a porta 9 local recebe o pacote mágico com o MAC do peer (se o SO deixar
+    // abrir a porta e entregar o broadcast; senão só confere que o envio não falha).
+    let wol = std::net::UdpSocket::bind("0.0.0.0:9").ok();
+    eprintln!(
+        "WoL: porta 9 {}",
+        if wol.is_some() {
+            "aberta"
+        } else {
+            "indisponível"
+        }
+    );
+    if let Some(s) = &wol {
+        s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    }
+    for vk in [CTRL, OPTION] {
+        press(&platform, vk, true);
+    }
+    press(&platform, KEY_W, true);
+    press(&platform, KEY_W, false);
+    if let Some(s) = &wol {
+        let mut buf = [0u8; 128];
+        let n = s.recv(&mut buf).expect("pacote de Wake-on-LAN na porta 9");
+        assert_eq!(
+            &buf[..n],
+            &relay_core::wol::magic_packet([1, 2, 3, 4, 5, 6])[..]
+        );
+    }
+    core.inner.wake_pc().unwrap();
+
+    press(&platform, KEY_M, true);
+    press(&platform, KEY_M, false);
+    for vk in [OPTION, CTRL] {
+        press(&platform, vk, false);
+    }
+    wait_until("Command Next no agente", 3000, || {
+        agent.saw(|m| {
+            matches!(
+                m,
+                Message::Command {
+                    cmd: RemoteCommand::Media {
+                        action: MediaAction::Next
+                    },
+                    ..
+                }
+            )
+        })
+    })
+    .await;
+    // O resultado da hotkey (sem quem espere) vira relay:command-result.
+    wait_until("relay:command-result da hotkey", 3000, || {
+        rec.results.lock().unwrap().iter().any(|r| r.ok)
+    })
+    .await;
+
+    // Timeout: o agente não responde; o dispatcher devolve `timeout` em ~5 s.
+    agent.mute.store(true, Ordering::SeqCst);
+    let c = core.clone();
+    let t = Instant::now();
+    let r = tokio::task::spawn_blocking(move || {
+        AppBackend::send_command(&*c, RemoteCommand::GetMetrics)
+    })
+    .await
+    .unwrap();
+    assert!(!r.ok);
+    assert_eq!(r.error.as_deref(), Some("timeout"));
+    assert!(t.elapsed() >= Duration::from_secs(4), "{:?}", t.elapsed());
+    agent.mute.store(false, Ordering::SeqCst);
+
+    // Reconectar: derruba a sessão e volta a Connected.
+    let before = rec.statuses.lock().unwrap().len();
+    AppBackend::reconnect(&*core).unwrap();
+    wait_until("passa por Reconnecting", 5000, || {
+        rec.statuses.lock().unwrap()[before..]
+            .iter()
+            .any(|s| s.status == ConnectionStatus::Reconnecting)
+    })
+    .await;
+    wait_until("volta a Connected", 10000, || {
+        core.status().status == ConnectionStatus::Connected
+    })
+    .await;
     core.shutdown();
 }
