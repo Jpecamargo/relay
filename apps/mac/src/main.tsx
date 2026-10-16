@@ -10,7 +10,16 @@ const PAGES: Record<string, () => React.JSX.Element> = {
   main: Main,
 };
 
-const Page = PAGES[getCurrentWindow().label] ?? Panel;
+const label = getCurrentWindow().label;
+const Page = PAGES[label] ?? Panel;
+
+// Margem padrão do body (8px) fazia o conteúdo passar da janela e gerar rolagem em x e y.
+document.body.style.margin = "0";
+if (label !== "main") {
+  // O painel tem a altura ajustada ao conteúdo e largura fixa: nunca rola.
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
