@@ -3655,6 +3655,7 @@ version = "0.1.0"
 dependencies = [
  "keyring",
  "nvml-wrapper",
+ "png 0.18.1",
  "relay-core",
  "rtrb",
  "thiserror 2.0.21",
