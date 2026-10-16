@@ -10,7 +10,7 @@ use std::time::Duration;
 use relay_core::crypto::{StaticKeypair, UdpKeys};
 use relay_core::platform::{
     CaptureError, CursorControl, DisplaySource, InjectError, InputCapture, InputInjector,
-    KeyRepeat, KeyStore, PlatformError,
+    KeyRepeat, KeyStore, LoopWaker, PlatformError,
 };
 use relay_core::types::{
     AudioDevices, AudioStats, CapturedEvent, CommandResult, Config, DiscoveredPeer,
@@ -160,6 +160,9 @@ impl<T> Clone for Shared<T> {
 impl<T: InputCapture> InputCapture for Shared<T> {
     fn start(&mut self, sink: rtrb::Producer<CapturedEvent>) -> Result<(), CaptureError> {
         self.lock().start(sink)
+    }
+    fn set_waker(&mut self, waker: LoopWaker) {
+        self.lock().set_waker(waker);
     }
     fn stop(&mut self) {
         self.lock().stop();

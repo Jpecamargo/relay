@@ -119,6 +119,7 @@ mod loopback {
     fn pair(dwell_ms: u32) -> Pair {
         let mut cfg = Config::default();
         cfg.transition.dwell_ms = dwell_ms;
+        cfg.transition.edge_resistance_pt = if dwell_ms == 0 { 0.0 } else { f32::MAX };
         let win_log = new_log();
         let (fast_p, fast) = RingBuffer::new(4096);
         let (ctrl_p, control) = RingBuffer::new(4096);

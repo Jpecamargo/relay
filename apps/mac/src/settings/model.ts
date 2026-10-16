@@ -92,6 +92,7 @@ export function validateConfig(c: Config): Errors {
   const e: Errors = {};
   const t = c.transition;
   if (!Number.isInteger(t.dwell_ms) || t.dwell_ms < 0 || t.dwell_ms > 1000) e.dwell_ms = "Use um valor entre 0 e 1000 ms.";
+  if (!(t.edge_resistance_pt >= 0)) e.edge_resistance_pt = "Não pode ser negativo.";
   if (t.corner_dead_zone_mm < 0) e.corner_dead_zone_mm = "Não pode ser negativo.";
   if (c.keymap.cmd_tap_timeout_ms < 1) e.cmd_tap_timeout_ms = "Deve ser maior que 0.";
   if (c.clipboard.max_bytes < 1) e.max_bytes = "Deve ser maior que 0.";

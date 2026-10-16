@@ -13,7 +13,7 @@ vi.mock("@relay/protocol-types", () => ({
 const CONFIG: Config = {
   schema_version: 1,
   network: { ports: { control: 1, input: 2, audio_pc_to_mac: 3, audio_mac_to_pc: 4, transfer: 5 }, manual_address: null },
-  transition: { dwell_ms: 150, require_modifier: null, corner_dead_zone_mm: 5 },
+  transition: { dwell_ms: 150, edge_resistance_pt: 8, require_modifier: null, corner_dead_zone_mm: 5 },
   keymap: { cmd_tap_timeout_ms: 300, rules: [], app_exceptions: [], reverse_modifiers: { ctrl_cmd: false } } as unknown as Config["keymap"],
   hotkeys: [{ combo: { modifiers: ["Ctrl", "Option"], key: "Digit1" }, action: { JumpTo: 1 } }],
   clipboard: { enabled: true, mode: "on_switch", max_bytes: 10 * 1024 * 1024, formats: ["Text"] },
@@ -81,13 +81,11 @@ test("o gravador captura Ctrl+Option+L e o conflito bloqueia o salvamento", asyn
   expect(bridge.invoke).not.toHaveBeenCalledWith("save_config", expect.anything());
 });
 
-test("salvar envia o Config completo com dwell_ms alterado", async () => {
+test("salvar envia o Config completo com a resistência da borda alterada", async () => {
   await open("transition");
-  const field = screen.getByLabelText("Tempo de espera na borda");
-  fireEvent.change(field, { target: { value: "400" } });
-  fireEvent.blur(field);
+  fireEvent.change(screen.getByLabelText("Resistência da borda"), { target: { value: "medium" } });
   fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
-  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("save_config", { config: { ...CONFIG, transition: { ...CONFIG.transition, dwell_ms: 400 } } }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("save_config", { config: { ...CONFIG, transition: { ...CONFIG.transition, edge_resistance_pt: 20, dwell_ms: 0 } } }));
 });
 
 test("erro de validação do backend aparece inline", async () => {
@@ -99,9 +97,7 @@ test("erro de validação do backend aparece inline", async () => {
     return undefined;
   });
   await open("transition");
-  const field = screen.getByLabelText("Tempo de espera na borda");
-  fireEvent.change(field, { target: { value: "200" } });
-  fireEvent.blur(field);
+  fireEvent.change(screen.getByLabelText("Resistência da borda"), { target: { value: "none" } });
   fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("dwell_ms fora do intervalo")).toBeTruthy();
 });

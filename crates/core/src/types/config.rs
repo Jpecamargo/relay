@@ -108,8 +108,12 @@ pub struct NetworkConfig {
 #[serde(default)]
 #[ts(export)]
 pub struct TransitionConfig {
-    /// Tempo empurrando a borda antes de trocar de máquina (0 = imediato).
+    /// Teto de tempo empurrando a borda: passado isso, troca de máquina mesmo sem a pressão
+    /// de `edge_resistance_pt` (0 = sem teto, só a pressão decide).
     pub dwell_ms: u32,
+    /// Pressão (pt somados de movimento para fora da borda) para trocar de máquina (0 = qualquer
+    /// empurrão). Movimento normal passa na hora; esbarrão lento não.
+    pub edge_resistance_pt: f32,
     /// Modificador que precisa estar pressionado para trocar (`None` = não exige).
     pub require_modifier: Option<Modifier>,
     pub corner_dead_zone_mm: f32,
@@ -118,7 +122,8 @@ pub struct TransitionConfig {
 impl Default for TransitionConfig {
     fn default() -> Self {
         Self {
-            dwell_ms: 100,
+            dwell_ms: 0,
+            edge_resistance_pt: 8.0,
             require_modifier: None,
             corner_dead_zone_mm: 10.0,
         }

@@ -3,9 +3,15 @@ import type { Modifier } from "./Modifier";
 
 export type TransitionConfig = { 
 /**
- * Tempo empurrando a borda antes de trocar de máquina (0 = imediato).
+ * Teto de tempo empurrando a borda: passado isso, troca de máquina mesmo sem a pressão
+ * de `edge_resistance_pt` (0 = sem teto, só a pressão decide).
  */
 dwell_ms: number, 
+/**
+ * Pressão (pt somados de movimento para fora da borda) para trocar de máquina (0 = qualquer
+ * empurrão). Movimento normal passa na hora; esbarrão lento não.
+ */
+edge_resistance_pt: number, 
 /**
  * Modificador que precisa estar pressionado para trocar (`None` = não exige).
  */

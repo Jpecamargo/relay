@@ -77,3 +77,30 @@ sentidos), por isso 125 Hz e 30 Hz ficam acima do caso de 2000 Hz, onde a thread
 Antes da otimização o sono de 100 µs da thread de envio (o `thread::sleep` do macOS sai ~1,5x o
 pedido) pesava em cada um dos dois sentidos. Em rede real esse custo é pequeno diante do RTT da
 rede. Cabo e Wi-Fi: a medir na bancada (`docs/bancada.md`, seção 8).
+
+## Travessia da borda (sensação de "agarrada")
+
+Duas causas, ambas corrigidas:
+
+1. **Tempo de espera na borda.** O cursor ficava preso até `dwell_ms` = 100 ms completar. Agora a
+   troca de máquina é por pressão: soma dos deltas para fora da borda >= `edge_resistance_pt`
+   (padrão 8 pt; Ajustes > Transição > "Resistência da borda": Nenhuma 0, Leve 8, Média 20).
+   `dwell_ms` virou só um teto opcional (padrão 0 = sem teto). Vale também para o retorno no
+   receptor. Zona morta de canto e modificador não mudaram.
+2. **Laço do core dormindo.** Em foco local o laço do Mac dormia ~4 ms pedidos (~6 ms reais) e o
+   evento da captura esperava o fim do sono. Agora o callback do tap (Mac) e o hook (Windows, sentido
+   inverso) chamam `LoopWaker::wake` (`Thread::unpark`, sem alocação nem lock) e o laço dorme em
+   `park_timeout`.
+
+Medições (Mac, loopback, release do core, laço ocioso antes de cada cruzamento):
+
+| O que | Antes | Depois |
+|---|---|---|
+| Evento que cruza a borda -> `FocusEnter` no agente (200 cruzamentos, `latencia_da_borda`) | p50 3444 us, p95 5509 us | p50 705 us, p95 803 us |
+| Cursor empurrando 3 pt/evento a 125 Hz até sair (Mac ou retorno no PC) | 100 ms (dwell) | 3 eventos, 16 ms |
+| Flick de 8 pt ou mais num evento | 100 ms | no primeiro evento |
+
+`latencia_da_borda` é um teste `#[ignore]` em `apps/mac/src-tauri/src/core/tests.rs`:
+`cargo test -p relay-mac latencia_da_borda -- --ignored --nocapture`; com `RELAY_NO_WAKE=1` a
+captura simulada não acorda o laço (comportamento antigo). O caso de 3 pt/evento é o teste
+`retorno_por_pressao_sai_em_16_ms_e_nao_em_100` (relógio sintético).

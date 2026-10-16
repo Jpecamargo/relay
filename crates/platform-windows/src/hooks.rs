@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
-use relay_core::platform::{CaptureError, InputCapture};
+use relay_core::platform::{CaptureError, InputCapture, LoopWaker};
 use relay_core::types::CapturedEvent;
 
 /// Estado lido pelos callbacks (que são `extern "system"` e não carregam contexto). Só atômicos:
@@ -62,6 +62,7 @@ pub(crate) fn note_injected_move(pt: (i32, i32)) {
 pub struct WindowsHooks {
     #[cfg(windows)]
     worker: Option<imp::Worker>,
+    waker: Option<LoopWaker>,
 }
 
 impl InputCapture for WindowsHooks {
@@ -71,7 +72,7 @@ impl InputCapture for WindowsHooks {
             if self.worker.is_some() {
                 return Err(CaptureError::AlreadyRunning);
             }
-            self.worker = Some(imp::spawn(sink)?);
+            self.worker = Some(imp::spawn(sink, self.waker.clone())?);
             Ok(())
         }
         #[cfg(not(windows))]
@@ -79,6 +80,10 @@ impl InputCapture for WindowsHooks {
             let _ = sink;
             Err(CaptureError::NotImplemented)
         }
+    }
+
+    fn set_waker(&mut self, waker: LoopWaker) {
+        self.waker = Some(waker);
     }
 
     fn stop(&mut self) {
@@ -125,6 +130,7 @@ mod imp {
     thread_local! {
         /// Só a thread dos hooks (que roda os callbacks) toca nisto.
         static SINK: RefCell<Option<rtrb::Producer<CapturedEvent>>> = const { RefCell::new(None) };
+        static WAKER: RefCell<Option<LoopWaker>> = const { RefCell::new(None) };
     }
 
     pub struct Worker {
@@ -152,11 +158,19 @@ mod imp {
 
     fn push(event: CapturedEvent) {
         // Fila cheia: descarta o evento (nunca bloqueia o hook).
-        SINK.with(|sink| {
-            if let Some(producer) = sink.borrow_mut().as_mut() {
-                let _ = producer.push(event);
-            }
+        let pushed = SINK.with(|sink| {
+            sink.borrow_mut()
+                .as_mut()
+                .is_some_and(|producer| producer.push(event).is_ok())
         });
+        if pushed {
+            // Acorda o laço do Controller na hora (sem alocação nem lock).
+            WAKER.with(|w| {
+                if let Some(w) = w.borrow().as_ref() {
+                    w.wake();
+                }
+            });
+        }
     }
 
     unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -245,11 +259,14 @@ mod imp {
         }
     }
 
-    pub fn spawn(sink: rtrb::Producer<CapturedEvent>) -> Result<Worker, CaptureError> {
+    pub fn spawn(
+        sink: rtrb::Producer<CapturedEvent>,
+        waker: Option<LoopWaker>,
+    ) -> Result<Worker, CaptureError> {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, CaptureError>>();
         let handle = std::thread::Builder::new()
             .name("relay-hooks".into())
-            .spawn(move || run(sink, ready_tx))
+            .spawn(move || run(sink, waker, ready_tx))
             .map_err(|e| CaptureError::Platform(e.to_string()))?;
         match ready_rx.recv() {
             Ok(Ok(thread_id)) => Ok(Worker { thread_id, handle }),
@@ -261,8 +278,13 @@ mod imp {
         }
     }
 
-    fn run(sink: rtrb::Producer<CapturedEvent>, ready: mpsc::Sender<Result<u32, CaptureError>>) {
+    fn run(
+        sink: rtrb::Producer<CapturedEvent>,
+        waker: Option<LoopWaker>,
+        ready: mpsc::Sender<Result<u32, CaptureError>>,
+    ) {
         SINK.with(|s| *s.borrow_mut() = Some(sink));
+        WAKER.with(|w| *w.borrow_mut() = waker);
         let mut hooks = match install() {
             Ok(h) => h,
             Err(e) => {
@@ -294,6 +316,7 @@ mod imp {
         }
         uninstall(hooks);
         SINK.with(|s| *s.borrow_mut() = None);
+        WAKER.with(|w| *w.borrow_mut() = None);
     }
 }
 

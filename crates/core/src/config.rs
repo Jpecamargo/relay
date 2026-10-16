@@ -290,7 +290,8 @@ mod tests {
             (47800, 47801, 47802, 47803, 47804)
         );
         assert_eq!(c.schema_version, 1);
-        assert_eq!(c.transition.dwell_ms, 100);
+        assert_eq!(c.transition.dwell_ms, 0);
+        assert_eq!(c.transition.edge_resistance_pt, 8.0);
         assert_eq!(c.transition.corner_dead_zone_mm, 10.0);
         assert_eq!(c.keymap.cmd_tap_timeout_ms, 400);
         assert_eq!(c.clipboard.mode, ClipboardMode::OnSwitch);

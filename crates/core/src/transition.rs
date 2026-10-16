@@ -51,8 +51,15 @@ struct Link {
     seg: (f32, f32),
 }
 
-/// Empurrão em andamento: (índice do link, início).
-type Push = Option<(usize, Instant)>;
+/// Empurrão em andamento contra a borda `link`: início e pressão (pt) acumulada para fora.
+#[derive(Debug, Clone, Copy)]
+struct PushState {
+    link: usize,
+    start: Instant,
+    pressure: f32,
+}
+
+type Push = Option<PushState>;
 
 #[derive(Debug)]
 pub struct TransitionEngine {
@@ -70,23 +77,27 @@ fn horizontal(side: Side) -> bool {
     matches!(side, Side::Left | Side::Right)
 }
 
-/// `true` quando o empurrão já dura `dwell_ms`; inicia/zera o contador conforme o link.
-fn dwell_elapsed(push: &mut Push, link: usize, now: Instant, dwell_ms: u32) -> bool {
-    if dwell_ms == 0 {
-        *push = None;
-        return true;
-    }
-    let start = match *push {
-        Some((l, s)) if l == link => s,
-        _ => {
-            *push = Some((link, now));
-            now
-        }
+/// Soma `out` (pt empurrados para fora da borda) à pressão do empurrão em `link` e diz se a
+/// troca de máquina vale agora: pressão >= `edge_resistance_pt` (0 = qualquer empurrão) ou, se
+/// `dwell_ms` > 0, empurrão que já dura esse tempo (teto para quem empurra devagar).
+fn push_done(push: &mut Push, link: usize, now: Instant, out: i32, cfg: &TransitionConfig) -> bool {
+    let mut st = match *push {
+        Some(p) if p.link == link => p,
+        _ => PushState {
+            link,
+            start: now,
+            pressure: 0.0,
+        },
     };
-    if now.saturating_duration_since(start) >= Duration::from_millis(u64::from(dwell_ms)) {
+    st.pressure += out.unsigned_abs() as f32;
+    let timed_out = cfg.dwell_ms > 0
+        && now.saturating_duration_since(st.start)
+            >= Duration::from_millis(u64::from(cfg.dwell_ms));
+    if timed_out || st.pressure >= cfg.edge_resistance_pt {
         *push = None;
         true
     } else {
+        *push = Some(st);
         false
     }
 }
@@ -232,7 +243,8 @@ impl TransitionEngine {
             self.local_push = None;
             return LocalDecision::Stay;
         }
-        if !dwell_elapsed(&mut self.local_push, li, now, self.config.dwell_ms) {
+        let out = if horizontal(side) { delta.0 } else { delta.1 };
+        if !push_done(&mut self.local_push, li, now, out, &self.config) {
             return LocalDecision::Stay;
         }
         let to = &self.disps[self.links[li].to];
@@ -243,7 +255,7 @@ impl TransitionEngine {
     }
 
     /// Lado receptor: posição do cursor no desktop virtual do Windows. O receptor não vê o
-    /// modificador do Mac; vale dwell e zona morta.
+    /// modificador do Mac; valem resistência da borda e zona morta.
     pub fn on_remote_cursor(
         &mut self,
         pos_px: (i32, i32),
@@ -288,7 +300,8 @@ impl TransitionEngine {
             self.remote_push = None;
             return RemoteDecision::Stay;
         }
-        if !dwell_elapsed(&mut self.remote_push, li, now, self.config.dwell_ms) {
+        let out = if horizontal(l.side) { delta.0 } else { delta.1 };
+        if !push_done(&mut self.remote_push, li, now, out, &self.config) {
             return RemoteDecision::Stay;
         }
         let to = &self.disps[l.to];
@@ -386,6 +399,9 @@ mod tests {
     fn cfg(dwell_ms: u32) -> TransitionConfig {
         TransitionConfig {
             dwell_ms,
+            // Os testes de tempo isolam o teto de `dwell_ms` (pressão inalcançável); com
+            // `dwell_ms` 0 a troca é imediata.
+            edge_resistance_pt: if dwell_ms == 0 { 0.0 } else { f32::MAX },
             require_modifier: None,
             corner_dead_zone_mm: 10.0,
         }
@@ -516,6 +532,68 @@ mod tests {
         assert!(matches!(
             push_right(&mut e, 450, &[], t + ms(260)),
             LocalDecision::Enter { .. }
+        ));
+    }
+
+    #[test]
+    fn pressao_soma_deltas_e_zera_ao_sair() {
+        let mut c = cfg(0);
+        c.edge_resistance_pt = 8.0;
+        let mut e = engine_with(c, -100.0, 336.0);
+        let t = Instant::now();
+        // 5 pt (um evento) não basta; 5+5 passa, sem depender de tempo.
+        assert_eq!(push_right(&mut e, 450, &[], t), LocalDecision::Stay);
+        assert!(matches!(
+            push_right(&mut e, 450, &[], t),
+            LocalDecision::Enter { .. }
+        ));
+        // Esbarrão que sai da borda zera a pressão.
+        assert_eq!(push_right(&mut e, 450, &[], t), LocalDecision::Stay);
+        assert_eq!(
+            e.on_local_move(MAC, (1000, 450), (5, 0), &[], t),
+            LocalDecision::Stay
+        );
+        assert_eq!(push_right(&mut e, 450, &[], t), LocalDecision::Stay);
+    }
+
+    #[test]
+    fn movimento_rapido_cruza_no_primeiro_evento() {
+        let mut c = cfg(0);
+        c.edge_resistance_pt = 8.0;
+        let mut e = engine_with(c, -100.0, 336.0);
+        let t = Instant::now();
+        assert!(matches!(
+            e.on_local_move(MAC, (1439, 450), (20, 0), &[], t),
+            LocalDecision::Enter { .. }
+        ));
+    }
+
+    #[test]
+    fn dwell_e_teto_quando_a_pressao_nao_chega() {
+        let mut c = cfg(100);
+        c.edge_resistance_pt = 50.0;
+        let mut e = engine_with(c, -100.0, 336.0);
+        let t = Instant::now();
+        assert_eq!(push_right(&mut e, 450, &[], t), LocalDecision::Stay);
+        assert!(matches!(
+            push_right(&mut e, 450, &[], t + Duration::from_millis(100)),
+            LocalDecision::Enter { .. }
+        ));
+    }
+
+    #[test]
+    fn retorno_no_receptor_tambem_usa_pressao() {
+        let mut c = cfg(0);
+        c.edge_resistance_pt = 8.0;
+        let mut e = engine_with(c, -100.0, 336.0);
+        let t = Instant::now();
+        assert_eq!(
+            e.on_remote_cursor((0, 836), (-4, 0), t),
+            RemoteDecision::Stay
+        );
+        assert!(matches!(
+            e.on_remote_cursor((0, 836), (-4, 0), t),
+            RemoteDecision::Return { .. }
         ));
     }
 

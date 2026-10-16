@@ -86,6 +86,7 @@ fn start_reverse_agent() -> RevAgent {
         ..Ports::default()
     };
     config.transition.dwell_ms = 0;
+    config.transition.edge_resistance_pt = 0.0;
     config.clipboard.enabled = true;
     config.clipboard.mode = relay_core::types::ClipboardMode::OnSwitch;
     let engine_log: Arc<Mutex<Vec<relay_core::engine::EngineEvent>>> = Arc::default();
@@ -190,6 +191,7 @@ async fn connect_mac(ra: &RevAgent, mac_id: &StaticKeypair, peer: PairedPeer) ->
     let cursor: Pos = Arc::default();
     let mut config = Config::default();
     config.transition.dwell_ms = 0;
+    config.transition.edge_resistance_pt = 0.0;
     let mut rx = Receiver::new(
         &config,
         vec![mac_display()],

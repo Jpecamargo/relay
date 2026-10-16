@@ -377,6 +377,7 @@ mod tests {
     fn rig(sens: f32) -> Rig {
         let mut cfg = Config::default();
         cfg.transition.dwell_ms = 0;
+        cfg.transition.edge_resistance_pt = 0.0;
         let log = new_log();
         let cur = MockCursor::new(&log);
         let cursor = cur.pos.clone();
@@ -588,6 +589,7 @@ mod tests {
     fn dwell_do_retorno_conta_com_o_cursor_preso() {
         let mut cfg = Config::default();
         cfg.transition.dwell_ms = 100;
+        cfg.transition.edge_resistance_pt = f32::MAX;
         let log = new_log();
         let cur = MockCursor::new(&log);
         let cursor = cur.pos.clone();
@@ -608,6 +610,39 @@ mod tests {
         assert!(rx.on_input(mv, t0).is_empty());
         assert!(rx.on_input(mv, t0 + ms(60)).is_empty());
         assert_eq!(rx.on_input(mv, t0 + ms(110)).len(), 1);
+    }
+
+    /// Cursor colado na borda a 125 Hz, empurrando 3 pt por evento: com a pressão padrão o
+    /// retorno sai no 3º evento (16 ms); antes, só depois de `dwell_ms` = 100 ms parado na borda.
+    #[test]
+    fn retorno_por_pressao_sai_em_16_ms_e_nao_em_100() {
+        let first_return = |cfg: &Config| {
+            let log = new_log();
+            let cur = MockCursor::new(&log);
+            let cursor = cur.pos.clone();
+            let mut inj = MockInjector::new();
+            inj.cursor = Some((cursor, (0, 0, 2560, 1440)));
+            let mut rx = Receiver::new(cfg, vec![dell_display()], inj, cur);
+            let t0 = Instant::now();
+            rx.on_message(Message::Displays(vec![mac_display()]), t0);
+            rx.on_message(Message::LayoutSync(profile(1.0)), t0);
+            rx.on_message(
+                Message::FocusEnter {
+                    display_id: DELL.into(),
+                    entry_px: (0, 830),
+                },
+                t0,
+            );
+            let mv = InputEvent::MouseMove { dx: -3, dy: 0 };
+            (0..200u64).find(|i| !rx.on_input(mv, t0 + ms(i * 8)).is_empty())
+        };
+        let mut antes = Config::default();
+        antes.transition.dwell_ms = 100;
+        antes.transition.edge_resistance_pt = f32::MAX;
+        let mut depois = Config::default();
+        depois.transition.dwell_ms = 0;
+        assert_eq!(first_return(&antes), Some(13)); // 13 x 8 ms = 104 ms
+        assert_eq!(first_return(&depois), Some(2)); // 3 eventos: 0, 8 e 16 ms
     }
 
     #[test]

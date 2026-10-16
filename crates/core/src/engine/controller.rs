@@ -795,6 +795,7 @@ mod tests {
     fn config(dwell_ms: u32, mode: ClipboardMode) -> Config {
         let mut c = Config::default();
         c.transition.dwell_ms = dwell_ms;
+        c.transition.edge_resistance_pt = if dwell_ms == 0 { 0.0 } else { f32::MAX };
         c.clipboard.mode = mode;
         c
     }

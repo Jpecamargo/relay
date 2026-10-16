@@ -12,9 +12,7 @@
 //! `FocusEnter` do PC e o Controller volta.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{
-    self, Receiver as StdReceiver, RecvTimeoutError, Sender as StdSender, TryRecvError,
-};
+use std::sync::mpsc::{self, Receiver as StdReceiver, Sender as StdSender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -22,7 +20,7 @@ use std::time::{Duration, Instant};
 use relay_core::engine::{Controller, EventHandler};
 use relay_core::net::FastSender;
 use relay_core::platform::{
-    CaptureError, CursorControl, InjectError, InputCapture, InputInjector, KeyRepeat,
+    CaptureError, CursorControl, InjectError, InputCapture, InputInjector, KeyRepeat, LoopWaker,
 };
 use relay_core::types::{CapturedEvent, Config, DisplayInfo, InputEvent, LayoutProfile, Message};
 use rtrb::{Producer, RingBuffer};
@@ -71,6 +69,9 @@ impl InputCapture for BoxCapture {
     fn start(&mut self, sink: Producer<CapturedEvent>) -> Result<(), CaptureError> {
         self.lock().start(sink)
     }
+    fn set_waker(&mut self, waker: LoopWaker) {
+        self.lock().set_waker(waker);
+    }
     fn stop(&mut self) {
         self.lock().stop();
     }
@@ -110,6 +111,8 @@ enum Cmd {
 /// Ponta do pump para a thread do Controller reverso.
 pub struct ReverseHandle {
     tx: StdSender<Cmd>,
+    /// Acorda o laço da thread a cada comando e a cada evento da captura (hooks).
+    waker: LoopWaker,
     blocked: Arc<AtomicBool>,
     remote: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
@@ -130,7 +133,9 @@ impl ReverseHandle {
         let (tx, rx) = mpsc::channel();
         let blocked = Arc::new(AtomicBool::new(false));
         let remote = Arc::new(AtomicBool::new(false));
+        let waker = LoopWaker::default();
         let worker = Worker {
+            waker: waker.clone(),
             config: config.clone(),
             local,
             profile,
@@ -149,10 +154,16 @@ impl ReverseHandle {
             .ok();
         Self {
             tx,
+            waker,
             blocked,
             remote,
             thread,
         }
+    }
+
+    fn post(&self, cmd: Cmd) {
+        let _ = self.tx.send(cmd);
+        self.waker.wake();
     }
 
     /// O PC está controlando o Mac (o `FocusReturn` seguinte é do Controller, não do Receiver).
@@ -166,33 +177,33 @@ impl ReverseHandle {
     }
 
     pub fn send(&self, msg: Message) {
-        let _ = self.tx.send(Cmd::Message(msg));
+        self.post(Cmd::Message(msg));
     }
 
     pub fn set_local_displays(&self, displays: Vec<DisplayInfo>) {
-        let _ = self.tx.send(Cmd::LocalDisplays(displays));
+        self.post(Cmd::LocalDisplays(displays));
     }
 
     pub fn set_profile(&self, profile: LayoutProfile) {
-        let _ = self.tx.send(Cmd::Profile(profile));
+        self.post(Cmd::Profile(profile));
     }
 
     pub fn apply_config(&self, config: &Config) {
-        let _ = self.tx.send(Cmd::Config(Box::new(config.clone())));
+        self.post(Cmd::Config(Box::new(config.clone())));
     }
 
     /// Sessão `Connected` (ou não): sem Mac conectado o Controller não engole input.
     pub fn set_link(&self, up: bool) {
-        let _ = self.tx.send(Cmd::Link(up));
+        self.post(Cmd::Link(up));
     }
 
     pub fn set_paused(&self, paused: bool) {
-        let _ = self.tx.send(Cmd::UserPaused(paused));
+        self.post(Cmd::UserPaused(paused));
     }
 
     /// Para a thread (devolve o foco e solta a captura) e espera.
     pub fn shutdown(&mut self) {
-        let _ = self.tx.send(Cmd::Shutdown);
+        self.post(Cmd::Shutdown);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -201,13 +212,14 @@ impl ReverseHandle {
 
 impl Drop for ReverseHandle {
     fn drop(&mut self) {
-        let _ = self.tx.send(Cmd::Shutdown);
+        self.post(Cmd::Shutdown);
     }
 }
 
 type Ctl = Controller<BoxCapture, BoxCursor, BoxInjector>;
 
 struct Worker {
+    waker: LoopWaker,
     config: Config,
     local: Vec<DisplayInfo>,
     profile: Option<LayoutProfile>,
@@ -223,6 +235,7 @@ struct Worker {
 impl Worker {
     fn run(self) {
         let Worker {
+            waker,
             config,
             local,
             profile,
@@ -234,8 +247,10 @@ impl Worker {
             blocked,
             remote,
         } = self;
+        waker.bind_current();
         let (cap_tx, mut cap_rx) = RingBuffer::new(CAPTURE_RING);
         let mut capture = BoxCapture(Arc::new(Mutex::new(deps.capture)));
+        capture.set_waker(waker.clone());
         if let Err(e) = capture.start(cap_tx) {
             // Sem hooks (permissão, ou fora do Windows) o PC simplesmente não controla o Mac.
             tracing::warn!("captura do sentido inverso indisponível: {e}");
@@ -303,23 +318,12 @@ impl Worker {
                 ctl.tick(now);
             }
             remote.store(ctl.is_remote(), Ordering::Release);
-            let wait = match (active, ctl.is_remote()) {
+            // Dorme até o relógio do laço vencer ou até a captura/um comando acordar a thread.
+            LoopWaker::park(match (active, ctl.is_remote()) {
                 (true, _) => BUSY,
                 (false, true) => IDLE_REMOTE,
                 (false, false) => IDLE_LOCAL,
-            };
-            // Espera por comando em vez de dormir: um comando acorda o laço na hora.
-            match rx.recv_timeout(wait) {
-                Ok(Cmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
-                    ctl.set_paused(true, Instant::now());
-                    flush(&mut ctl_out, &out);
-                    remote.store(false, Ordering::Release);
-                    capture.stop();
-                    return;
-                }
-                Ok(cmd) => apply(&mut ctl, &mut link, &mut user_paused, cmd),
-                Err(RecvTimeoutError::Timeout) => {}
-            }
+            });
         }
     }
 }

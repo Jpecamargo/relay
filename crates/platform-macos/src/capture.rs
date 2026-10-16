@@ -28,7 +28,7 @@ use objc2::encode::{Encoding, RefEncode};
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::{ClassType, msg_send};
 use objc2_app_kit::NSEvent;
-use relay_core::platform::{CaptureError, InputCapture};
+use relay_core::platform::{CaptureError, InputCapture, LoopWaker};
 use relay_core::types::{CapturedEvent, KeyCode, MediaKey, MouseButton, ScrollPhase};
 
 // Tipos de evento (CGEventType / NSEventType). Valores crus: ver `CGEventTypes.h`.
@@ -378,6 +378,7 @@ struct TapState {
     swallow: Arc<AtomicBool>,
     reactivations: Arc<AtomicU64>,
     dropped: Arc<AtomicU64>,
+    waker: Option<LoopWaker>,
     port: CFMachPortRef,
 }
 
@@ -405,11 +406,15 @@ unsafe extern "C" fn tap_callback(
         sink,
         swallow,
         dropped,
+        waker,
         ..
     } = state;
     let mut push = |ev| {
         if sink.push(ev).is_err() {
             dropped.fetch_add(1, Ordering::Relaxed);
+        } else if let Some(w) = waker {
+            // Acorda o laço do Controller na hora (sem alocação nem lock).
+            w.wake();
         }
     };
     match dispatch(
@@ -429,6 +434,7 @@ pub struct MacCapture {
     swallow: Arc<AtomicBool>,
     reactivations: Arc<AtomicU64>,
     dropped: Arc<AtomicU64>,
+    waker: Option<LoopWaker>,
     running: Option<Running>,
 }
 
@@ -470,6 +476,7 @@ impl InputCapture for MacCapture {
         let swallow = self.swallow.clone();
         let reactivations = self.reactivations.clone();
         let dropped = self.dropped.clone();
+        let waker = self.waker.clone();
         let (tx, rx) = mpsc::channel::<Result<CFRunLoop, CaptureError>>();
         let thread = std::thread::Builder::new()
             .name("relay-event-tap".into())
@@ -481,6 +488,7 @@ impl InputCapture for MacCapture {
                     swallow,
                     reactivations,
                     dropped,
+                    waker,
                     port: std::ptr::null_mut(),
                 });
                 let user_info = &mut *state as *mut TapState as *mut c_void;
@@ -526,6 +534,10 @@ impl InputCapture for MacCapture {
                 Err(CaptureError::Platform("thread do tap terminou".into()))
             }
         }
+    }
+
+    fn set_waker(&mut self, waker: LoopWaker) {
+        self.waker = Some(waker);
     }
 
     fn stop(&mut self) {

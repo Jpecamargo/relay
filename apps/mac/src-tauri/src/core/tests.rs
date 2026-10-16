@@ -17,7 +17,7 @@ use relay_core::engine::testutil::{MockCursor, MockInjector};
 use relay_core::net::{ListenerConfig, SessionEvent, SessionListener};
 use relay_core::platform::{
     CaptureError, ChangeCallback, DisplaySource, InjectError, InputCapture, InputInjector,
-    KeyStore, PlatformError,
+    KeyStore, LoopWaker, PlatformError,
 };
 use relay_core::types::{
     CapturedEvent, CommandResult, Config, ConnectionStatus, DisplayInfo, DisplaysPayload, DockInfo,
@@ -66,13 +66,18 @@ fn dell_display() -> DisplayInfo {
 
 type SysCb = Arc<Mutex<Option<Box<dyn Fn(SysEvent) + Send + Sync>>>>;
 type Sink = Arc<Mutex<Option<rtrb::Producer<CapturedEvent>>>>;
+type WakerSlot = Arc<Mutex<Option<LoopWaker>>>;
 
 pub(super) struct MockCapture {
     sink: Sink,
+    waker: WakerSlot,
     swallow: Arc<AtomicBool>,
     deny: Arc<AtomicBool>,
 }
 impl InputCapture for MockCapture {
+    fn set_waker(&mut self, waker: LoopWaker) {
+        *self.waker.lock().unwrap() = Some(waker);
+    }
     fn start(&mut self, sink: rtrb::Producer<CapturedEvent>) -> Result<(), CaptureError> {
         if self.deny.load(Ordering::SeqCst) {
             return Err(CaptureError::PermissionDenied);
@@ -107,6 +112,10 @@ pub(super) struct MockPlatform {
     config_path: PathBuf,
     keys: Arc<MemoryKeyStore>,
     sink: Sink,
+    /// Acordador que o core entregou à captura; o `push` o aciona como o tap real faria.
+    waker: WakerSlot,
+    /// Simula uma captura sem waker (laço só vê o evento na próxima volta do relógio).
+    no_wake: AtomicBool,
     swallow: Arc<AtomicBool>,
     deny: Arc<AtomicBool>,
     cursor_log: Arc<Mutex<Vec<String>>>,
@@ -129,6 +138,8 @@ impl MockPlatform {
             config_path,
             keys: Arc::default(),
             sink: Arc::default(),
+            waker: Arc::default(),
+            no_wake: AtomicBool::new(false),
             swallow: Arc::default(),
             deny: Arc::default(),
             cursor_log: Arc::default(),
@@ -147,6 +158,11 @@ impl MockPlatform {
     fn push(&self, ev: CapturedEvent) {
         if let Some(p) = self.sink.lock().unwrap().as_mut() {
             let _ = p.push(ev);
+        }
+        if !self.no_wake.load(Ordering::Relaxed) {
+            if let Some(w) = self.waker.lock().unwrap().as_ref() {
+                w.wake();
+            }
         }
     }
 }
@@ -168,6 +184,7 @@ impl Platform for MockPlatform {
     fn new_capture(&self) -> MockCapture {
         MockCapture {
             sink: self.sink.clone(),
+            waker: self.waker.clone(),
             swallow: self.swallow.clone(),
             deny: self.deny.clone(),
         }
@@ -889,5 +906,57 @@ async fn controles_remotos_hotkeys_wol_timeout_e_reconexao() {
         core.status().status == ConnectionStatus::Connected
     })
     .await;
+    core.shutdown();
+}
+
+/// Do evento que cruza a borda até o `FocusEnter` chegar ao agente (loopback, laço do core em
+/// foco local). `RELAY_NO_WAKE=1` desliga o acordar por evento da captura (comportamento antigo).
+/// Rodar: `cargo test -p relay-mac latencia_da_borda -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "medição"]
+async fn latencia_da_borda() {
+    let agent = Agent::start("123456");
+    let platform = MockPlatform::new(&base_config(&agent));
+    if std::env::var("RELAY_NO_WAKE").is_ok() {
+        platform.no_wake.store(true, Ordering::Relaxed);
+    }
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "123456").await;
+    wait_until("LayoutSync no agente", 5000, || {
+        agent.saw(|m| matches!(m, Message::LayoutSync(p) if p.displays.len() == 2))
+    })
+    .await;
+    let mut us = Vec::new();
+    for _ in 0..200 {
+        agent.received.lock().unwrap().clear();
+        // Deixa o laço ocioso (dormindo) antes de cada cruzamento.
+        std::thread::sleep(Duration::from_millis(30));
+        let t = Instant::now();
+        platform.push(CapturedEvent::MouseMove {
+            dx: 20,
+            dy: 0,
+            pos: (1439.0, 450.0),
+        });
+        while !agent.saw(|m| matches!(m, Message::FocusEnter { .. })) {
+            assert!(
+                t.elapsed() < Duration::from_secs(2),
+                "FocusEnter não chegou"
+            );
+            std::hint::spin_loop();
+        }
+        us.push(t.elapsed().as_micros() as u64);
+        core.set_sharing_paused(true);
+        wait_until("volta ao Mac", 2000, || core.status().focus == Machine::Mac).await;
+        core.set_sharing_paused(false);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    us.sort_unstable();
+    println!(
+        "borda->FocusEnter (n={}): p50 {} us, p95 {} us, max {} us",
+        us.len(),
+        us[us.len() / 2],
+        us[us.len() * 95 / 100],
+        us[us.len() - 1]
+    );
     core.shutdown();
 }
