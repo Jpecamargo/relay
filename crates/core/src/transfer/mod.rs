@@ -404,8 +404,12 @@ impl TransferClient {
                     }
                 }
                 MSG_CHUNK => {
-                    let (f, hasher, read, _) = file.as_mut().ok_or_else(|| proto("Chunk solto"))?;
+                    let (f, hasher, read, expected) =
+                        file.as_mut().ok_or_else(|| proto("Chunk solto"))?;
                     let data = &plain[1..];
+                    if read.saturating_add(data.len() as u64) > *expected {
+                        return Err(proto("arquivo maior que o declarado"));
+                    }
                     f.write_all(data).await?;
                     hasher.update(data);
                     *read += data.len() as u64;
@@ -477,10 +481,25 @@ pub fn sanitize_component(name: &str) -> String {
             }
         })
         .collect();
-    match s.as_str() {
-        "" | "." | ".." => "_".to_string(),
-        _ => s,
+    // O Windows descarta ponto e espaço no fim do nome.
+    let s = s.trim_end_matches(['.', ' ']);
+    if s.is_empty() {
+        return "_".to_string();
     }
+    if is_windows_reserved(s) {
+        return format!("_{s}");
+    }
+    s.to_string()
+}
+
+/// Nomes de dispositivo do Windows (CON, PRN, AUX, NUL, COM1-9, LPT1-9), com ou sem extensão.
+fn is_windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end_matches(' ');
+    let up = stem.to_ascii_uppercase();
+    matches!(up.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (up.len() == 4
+            && (up.starts_with("COM") || up.starts_with("LPT"))
+            && matches!(up.as_bytes()[3], b'1'..=b'9'))
 }
 
 /// Quebra um caminho do peer em componentes seguros. Raiz, `.` e componentes vazios somem
