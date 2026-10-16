@@ -36,7 +36,7 @@ impl ScrollAccumulator {
 
     /// Devolve as unidades i16 prontas para enviar (o resto fica acumulado).
     pub fn push(&mut self, delta_px: f64) -> i16 {
-        if !(self.pixels_per_notch > 0.0) || !delta_px.is_finite() {
+        if self.pixels_per_notch <= 0.0 || self.pixels_per_notch.is_nan() || !delta_px.is_finite() {
             return 0;
         }
         let total = delta_px / self.pixels_per_notch * UNITS_PER_NOTCH + self.carry;
@@ -144,7 +144,7 @@ impl RotationMapper {
     /// Devolve o atalho e quantas vezes disparar (sempre >= 1), ou `None`.
     pub fn push(&mut self, delta: f64) -> Option<(&KeyCombo, u32)> {
         let combo = self.combo.as_ref()?;
-        if !(self.degrees_per_step > 0.0) || !delta.is_finite() {
+        if self.degrees_per_step <= 0.0 || self.degrees_per_step.is_nan() || !delta.is_finite() {
             return None;
         }
         self.acc += delta.abs();
