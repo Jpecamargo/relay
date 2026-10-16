@@ -14,7 +14,7 @@ use std::time::Duration;
 use tauri::{Manager, WindowEvent};
 
 use backend::{AppBackend, MockBackend};
-use commands::{audio, clipboard, config, controls, layout, pairing, status, system};
+use commands::{audio, clipboard, config, controls, layout, pairing, status, system, updater};
 use state::AppState;
 
 pub fn run() {
@@ -23,6 +23,7 @@ pub fn run() {
             let _ = system::show_window(app, "settings");
         }))
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             status::get_status,
             status::list_discovered,
@@ -48,8 +49,8 @@ pub fn run() {
             system::check_permissions,
             system::open_permission_settings,
             system::set_launch_at_login,
-            system::check_updates,
-            system::install_update,
+            updater::check_updates,
+            updater::install_update,
             system::open_window,
         ])
         .on_window_event(|window, event| match (window.label(), event) {
@@ -68,6 +69,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let backend: Arc<dyn AppBackend> = Arc::new(MockBackend::default());
             app.manage(AppState::new(backend.clone()));
+            app.manage(updater::PendingUpdate::default());
             tray::setup(app.handle())?;
 
             // Mock: relay:latency a 2 Hz.
