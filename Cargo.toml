@@ -91,6 +91,7 @@ windows = { version = "0.62.2", features = [
     "Win32_System_ProcessStatus",
     "Win32_System_WinRT_Graphics_Capture",
     "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
