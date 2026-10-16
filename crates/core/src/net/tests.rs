@@ -173,7 +173,7 @@ async fn pair_then_session_with_nodelay_stats_and_one_hello_version() {
 }
 
 #[tokio::test]
-async fn wrong_pairing_code_is_refused_and_consumed() {
+async fn wrong_code_does_not_burn_the_code_but_three_wrong_ones_invalidate_it() {
     let rig = Rig::new();
     let mut cfg = rig.listener_cfg(ephemeral());
     cfg.peers.clear();
@@ -181,13 +181,82 @@ async fn wrong_pairing_code_is_refused_and_consumed() {
     listener.open_pairing("111111".into(), PAIRING_CODE_TTL);
     let addr = listener.local_control_addr();
     let me = device_of(&rig.mac, "Mac");
+    let retry = control::PAIR_RETRY_DELAY + Duration::from_millis(150);
+
+    // Um estranho erra uma vez: o código legítimo continua valendo.
     assert!(SessionDialer::pair(addr, "222222", &me).await.is_err());
     assert!(matches!(
         listener.recv_event().await,
         Some(SessionEvent::PairFailed(_))
     ));
-    // Uso único: o código certo, agora, também falha.
+    sleep(retry).await;
+    let peer = SessionDialer::pair(addr, "111111", &me).await.unwrap();
+    assert_eq!(peer.public_key, rig.pc.public);
+    assert!(matches!(
+        listener.recv_event().await,
+        Some(SessionEvent::Paired(_))
+    ));
+
+    // Sucesso consome: o mesmo código não serve de novo.
+    sleep(retry).await;
     assert!(SessionDialer::pair(addr, "111111", &me).await.is_err());
+
+    // Três erradas invalidam; a certa depois também falha.
+    listener.open_pairing("333333".into(), PAIRING_CODE_TTL);
+    for _ in 0..control::MAX_PAIR_FAILURES {
+        sleep(retry).await;
+        assert!(SessionDialer::pair(addr, "000000", &me).await.is_err());
+    }
+    sleep(retry).await;
+    assert!(SessionDialer::pair(addr, "333333", &me).await.is_err());
+    listener.shutdown().await;
+}
+
+#[tokio::test]
+async fn pairing_attempts_are_rate_limited() {
+    let rig = Rig::new();
+    let mut cfg = rig.listener_cfg(ephemeral());
+    cfg.peers.clear();
+    let listener = SessionListener::start(cfg, noop()).await.unwrap();
+    listener.open_pairing("111111".into(), PAIRING_CODE_TTL);
+    let addr = listener.local_control_addr();
+    let me = device_of(&rig.mac, "Mac");
+    assert!(SessionDialer::pair(addr, "222222", &me).await.is_err());
+    // Imediatamente depois, nem o código certo é atendido (atraso entre tentativas).
+    assert!(SessionDialer::pair(addr, "111111", &me).await.is_err());
+    sleep(control::PAIR_RETRY_DELAY + Duration::from_millis(150)).await;
+    assert!(SessionDialer::pair(addr, "111111", &me).await.is_ok());
+    listener.shutdown().await;
+}
+
+#[tokio::test]
+async fn pending_handshakes_are_capped_and_recover() {
+    use tokio::io::AsyncReadExt;
+    use tokio::net::TcpStream;
+    let rig = Rig::new();
+    let listener = SessionListener::start(rig.listener_cfg(ephemeral()), noop())
+        .await
+        .unwrap();
+    let addr = listener.local_control_addr();
+    // Enche as vagas com conexões mudas.
+    let mut idle = Vec::new();
+    for _ in 0..control::MAX_PENDING_HANDSHAKES {
+        idle.push(TcpStream::connect(addr).await.unwrap());
+    }
+    sleep(Duration::from_millis(200)).await;
+    // A próxima é fechada na hora pelo agente (EOF), sem esperar o timeout do handshake.
+    let mut extra = TcpStream::connect(addr).await.unwrap();
+    let mut b = [0u8; 1];
+    let r = timeout(Duration::from_millis(500), extra.read(&mut b)).await;
+    assert!(matches!(r, Ok(Ok(0)) | Ok(Err(_))), "{r:?}");
+    // Liberadas as vagas, uma sessão legítima entra normalmente.
+    drop(idle);
+    sleep(Duration::from_millis(200)).await;
+    let dialer = SessionDialer::start(rig.dialer_cfg(&listener), noop())
+        .await
+        .unwrap();
+    wait_connections(&dialer, 1, 5000).await;
+    dialer.shutdown().await;
     listener.shutdown().await;
 }
 
