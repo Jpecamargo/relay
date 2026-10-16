@@ -5,7 +5,7 @@
 //! Scroll: dy > 0 = cima, dx > 0 = direita (convenção do core); o CG usa dx invertido.
 
 use std::ffi::c_void;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use core_graphics::display::CGDisplay;
 use core_graphics::geometry::CGPoint;
@@ -343,6 +343,26 @@ fn display_rects() -> Vec<Rect> {
         .collect()
 }
 
+/// Retângulos das telas em cache: `CGDisplay` custa dezenas de µs e aloca, e o clamp roda a cada
+/// MouseMove. Renova a cada `TTL`, então uma tela plugada/removida vale em até esse tempo.
+#[derive(Debug, Default)]
+struct DisplayCache {
+    rects: Vec<Rect>,
+    at: Option<Instant>,
+}
+
+impl DisplayCache {
+    const TTL: Duration = Duration::from_secs(1);
+
+    fn get(&mut self) -> &[Rect] {
+        if self.at.is_none_or(|t| t.elapsed() >= Self::TTL) {
+            self.rects = display_rects();
+            self.at = Some(Instant::now());
+        }
+        &self.rects
+    }
+}
+
 // --- injetor ----------------------------------------------------------------------------------
 
 /// Injeta input no Mac. Exige Acessibilidade; sem ela o CGEventPost é descartado em silêncio.
@@ -355,6 +375,7 @@ pub struct MacInjector {
     right: bool,
     other: bool,
     epoch: Instant,
+    displays: DisplayCache,
 }
 
 impl Default for MacInjector {
@@ -367,6 +388,7 @@ impl Default for MacInjector {
             right: false,
             other: false,
             epoch: Instant::now(),
+            displays: DisplayCache::default(),
         }
     }
 }
@@ -391,13 +413,16 @@ impl MacInjector {
 
     fn mouse_move(&mut self, dx: i16, dy: i16) -> Result<(), InjectError> {
         let (cx, cy) = current_location()?;
-        let target = clamp_to_union((cx + f64::from(dx), cy + f64::from(dy)), &display_rects());
+        let target = clamp_to_union(
+            (cx + f64::from(dx), cy + f64::from(dy)),
+            self.displays.get(),
+        );
         self.post_move(target, (i64::from(dx), i64::from(dy)))
     }
 
     fn mouse_abs(&mut self, x: i32, y: i32) -> Result<(), InjectError> {
         let (cx, cy) = current_location()?;
-        let target = clamp_to_union((f64::from(x), f64::from(y)), &display_rects());
+        let target = clamp_to_union((f64::from(x), f64::from(y)), self.displays.get());
         self.post_move(target, ((target.0 - cx) as i64, (target.1 - cy) as i64))
     }
 

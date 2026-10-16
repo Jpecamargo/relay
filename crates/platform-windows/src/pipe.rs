@@ -266,14 +266,13 @@ impl InjectPipeClient {
         }
     }
 
-    fn state(&mut self) -> &mut ClientState {
-        self.state.get_mut().unwrap_or_else(|e| e.into_inner())
-    }
-
     /// Conecta agora (ignora o intervalo de reconexão). `true` se o helper aceitou.
     pub fn connect(&mut self) -> bool {
-        let path = self.path.clone();
-        self.state().try_connect(&path)
+        let Self { path, state } = self;
+        state
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .try_connect(path)
     }
 
     /// `true` se o helper do serviço está conectado. Se não estiver, tenta reconectar no máximo
@@ -293,16 +292,16 @@ impl InjectPipeClient {
     }
 
     fn send_bytes(&mut self, bytes: &[u8]) -> Result<(), InjectError> {
-        let path = self.path.clone();
-        let st = self.state();
-        if !st.connect_if_due(&path) {
+        let Self { path, state } = self;
+        let st = state.get_mut().unwrap_or_else(|e| e.into_inner());
+        if !st.connect_if_due(path) {
             return Err(unavailable());
         }
         if write_to(st, bytes).is_ok() {
             return Ok(());
         }
         st.file = None;
-        if !st.try_connect(&path) {
+        if !st.try_connect(path) {
             return Err(unavailable());
         }
         write_to(st, bytes).map_err(|e| {

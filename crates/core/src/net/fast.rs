@@ -7,12 +7,12 @@
 
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::{self, JoinHandle};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering, fence};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
 
-use rtrb::{Consumer, Producer, RingBuffer};
+use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use super::stats::{Jitter, now_us};
@@ -36,6 +36,48 @@ pub struct FastEvent {
     /// `net::now_us()` na chegada.
     pub recv_us: u64,
     pub event: InputEvent,
+}
+
+/// Acordador da thread de envio: ela dorme em `park` quando a fila esvazia e o `push` a acorda.
+#[derive(Default)]
+struct Waker {
+    parked: AtomicBool,
+    thread: OnceLock<Thread>,
+}
+
+impl Waker {
+    fn wake(&self) {
+        // Pareia com o `fence` do laço de envio: ou ele vê o item, ou nós vemos `parked`.
+        fence(Ordering::SeqCst);
+        if self.parked.load(Ordering::Relaxed) && self.parked.swap(false, Ordering::Relaxed) {
+            if let Some(t) = self.thread.get() {
+                t.unpark();
+            }
+        }
+    }
+}
+
+/// Lado produtor da fila de saída do canal rápido: empurra o evento e acorda a thread de envio.
+pub struct FastSender {
+    ring: Producer<InputEvent>,
+    waker: Option<Arc<Waker>>,
+}
+
+impl FastSender {
+    pub fn push(&mut self, ev: InputEvent) -> Result<(), PushError<InputEvent>> {
+        self.ring.push(ev)?;
+        if let Some(w) = &self.waker {
+            w.wake();
+        }
+        Ok(())
+    }
+}
+
+/// Produtor solto, sem thread para acordar (testes que inspecionam a fila).
+impl From<Producer<InputEvent>> for FastSender {
+    fn from(ring: Producer<InputEvent>) -> Self {
+        Self { ring, waker: None }
+    }
 }
 
 /// Jitter (us) e perda (%) do canal rápido na sessão atual.
@@ -216,7 +258,7 @@ impl FastChannel {
         bind: SocketAddr,
         capacity: usize,
         on_event: Box<dyn FnMut(FastEvent) + Send>,
-    ) -> std::io::Result<(Self, Producer<InputEvent>)> {
+    ) -> std::io::Result<(Self, FastSender)> {
         let socket = Socket::new(Domain::for_address(bind), Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_reuse_address(true)?;
         let _ = socket.set_recv_buffer_size(RCVBUF);
@@ -236,11 +278,13 @@ impl FastChannel {
             unsent: AtomicU64::new(0),
         });
         let (producer, consumer) = RingBuffer::new(capacity.max(2));
+        let waker = Arc::new(Waker::default());
         let tx = {
             let shared = shared.clone();
+            let waker = waker.clone();
             thread::Builder::new()
                 .name("relay-fast-tx".into())
-                .spawn(move || sender_loop(&shared, consumer))?
+                .spawn(move || sender_loop(&shared, &waker, consumer))?
         };
         let rx = {
             let shared = shared.clone();
@@ -254,13 +298,19 @@ impl FastChannel {
                 local_addr,
                 threads: vec![tx, rx],
             },
-            producer,
+            FastSender {
+                ring: producer,
+                waker: Some(waker),
+            },
         ))
     }
 
     /// Pede às threads que parem (sem esperar).
     pub fn signal_stop(&self) {
         self.shared.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.threads.first() {
+            t.thread().unpark();
+        }
     }
 
     /// Para e espera as threads (o socket só fecha depois disso).
@@ -278,7 +328,8 @@ impl Drop for FastChannel {
     }
 }
 
-fn sender_loop(shared: &FastShared, mut ring: Consumer<InputEvent>) {
+fn sender_loop(shared: &FastShared, waker: &Waker, mut ring: Consumer<InputEvent>) {
+    let _ = waker.thread.set(thread::current());
     let mut sc = Scratch::new();
     let mut idle = 0u32;
     while !shared.stop.load(Ordering::Relaxed) {
@@ -297,15 +348,20 @@ fn sender_loop(shared: &FastShared, mut ring: Consumer<InputEvent>) {
                 }
             }
             Err(_) => {
-                // Gira primeiro (latência de microssegundos), cede a CPU depois e só dorme
-                // quando está parado de verdade.
+                // Gira primeiro (latência de microssegundos), cede a CPU depois e só estaciona
+                // quando está parado de verdade; o `push` acorda na hora.
                 idle = idle.saturating_add(1);
                 if idle < 256 {
                     std::hint::spin_loop();
                 } else if idle < 2048 {
                     thread::yield_now();
                 } else {
-                    thread::sleep(Duration::from_micros(100));
+                    waker.parked.store(true, Ordering::Relaxed);
+                    fence(Ordering::SeqCst);
+                    if ring.is_empty() {
+                        thread::park_timeout(READ_TIMEOUT);
+                    }
+                    waker.parked.store(false, Ordering::Relaxed);
                 }
             }
         }

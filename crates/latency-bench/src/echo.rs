@@ -6,13 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use relay_core::crypto::{LocalDevice, MemoryKeyStore, load_or_create_identity};
-use relay_core::net::{FastEvent, ListenerConfig, SessionEvent, SessionListener};
+use relay_core::net::{FastEvent, FastSender, ListenerConfig, SessionEvent, SessionListener};
 use relay_core::types::{InputEvent, Message, Ports};
-use rtrb::Producer;
 
 use crate::cli::EchoOpts;
 
-type SharedProducer = Arc<Mutex<Option<Producer<InputEvent>>>>;
+type SharedProducer = Arc<Mutex<Option<FastSender>>>;
 
 /// Escuta com identidade efêmera; devolve o listener já com o refletor do canal rápido ligado.
 pub async fn start_listener(

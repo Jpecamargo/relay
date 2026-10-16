@@ -6,19 +6,20 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use relay_core::engine::{CommandDispatcher, Controller, EngineEvent};
 use relay_core::layout;
+use relay_core::net::FastSender;
 use relay_core::platform::{CaptureError, DisplaySource, InputCapture};
 use relay_core::types::{
     AudioState, CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, HotkeyAction,
     InputEvent, KeyCode, LayoutProfile, Machine, Message, MouseButton, PermissionKind,
     PermissionState, PermissionsStatus, RemoteCommand,
 };
-use rtrb::{Consumer, Producer, RingBuffer};
+use rtrb::{Consumer, RingBuffer};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Inner;
@@ -30,7 +31,7 @@ use super::reverse::MacReverse;
 pub(crate) enum CoreCmd {
     /// Sessão nova: reconstrói o Controller com o canal rápido dela.
     SessionUp {
-        fast: Producer<InputEvent>,
+        fast: FastSender,
         out: UnboundedSender<Message>,
     },
     SessionDown,
@@ -230,11 +231,20 @@ impl<P: Platform> Core<P> {
             }
 
             let remote = self.ctl.as_ref().is_some_and(|c| c.is_remote());
-            std::thread::sleep(match (active, remote) {
+            // Espera por comando em vez de dormir: um `Fast`/`Peer` acorda o laço na hora.
+            let wait = match (active, remote) {
                 (true, _) => BUSY,
                 (false, true) => IDLE_REMOTE,
                 (false, false) => IDLE_LOCAL,
-            });
+            };
+            match self.rx.recv_timeout(wait) {
+                Ok(CoreCmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
+                    self.stop();
+                    return;
+                }
+                Ok(cmd) => self.on_cmd(cmd),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
         }
     }
 
@@ -393,7 +403,7 @@ impl<P: Platform> Core<P> {
 
     // ---- sessão e Controller ----
 
-    fn build_controller(&mut self, fast: Producer<InputEvent>) {
+    fn build_controller(&mut self, fast: FastSender) {
         self.teardown_controller();
         let (control, ctl_out) = RingBuffer::new(CONTROL_RING);
         self.ctl_out = ctl_out;

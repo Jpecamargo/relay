@@ -34,7 +34,7 @@ impl RoutedInjector {
     ) -> bool {
         let Some(pipe) = &self.pipe else { return false };
         let mut guard = pipe.lock().unwrap_or_else(|e| e.into_inner());
-        guard.is_available() && send(guard.as_mut()).is_ok()
+        send(guard.as_mut()).is_ok()
     }
 }
 

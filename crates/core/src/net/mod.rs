@@ -25,16 +25,15 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rtrb::Producer;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::crypto::{LocalDevice, StaticKeypair, device_id_of};
 use crate::types::consts::PROTOCOL_VERSION;
-use crate::types::{ConnectionStatus, InputEvent, LatencyStats, Message, PairedPeer, Ports, Role};
+use crate::types::{ConnectionStatus, LatencyStats, Message, PairedPeer, Ports, Role};
 
-pub use fast::{FastEvent, FastStats};
+pub use fast::{FastEvent, FastSender, FastStats};
 pub use stats::{Backoff, Jitter, RttTracker, now_us};
 
 use control::{Ctx, DialerState, ListenerState, PairingOffer, Shared};
@@ -165,7 +164,7 @@ pub struct Session {
     shutdown_tx: watch::Sender<bool>,
     tasks: Vec<JoinHandle<()>>,
     fast: Option<FastChannel>,
-    producer: Option<Producer<InputEvent>>,
+    producer: Option<FastSender>,
 }
 
 impl Session {
@@ -219,7 +218,7 @@ impl Session {
 
     /// Fila do canal rápido (uma vez). A thread de envio lê dela; MouseMove e Scroll viajam por
     /// UDP, qualquer outro evento é descartado (e contado) — esses vão por `send`.
-    pub fn take_input_producer(&mut self) -> Option<Producer<InputEvent>> {
+    pub fn take_input_producer(&mut self) -> Option<FastSender> {
         self.producer.take()
     }
 
@@ -272,7 +271,7 @@ fn start_fast(
     bind_ip: IpAddr,
     port: u16,
     on_fast: Box<dyn FnMut(FastEvent) + Send>,
-) -> Result<(FastChannel, Producer<InputEvent>), NetError> {
+) -> Result<(FastChannel, FastSender), NetError> {
     FastChannel::start(SocketAddr::new(bind_ip, port), FAST_RING_CAPACITY, on_fast)
         .map_err(|e| NetError::Io(e.to_string()))
 }
@@ -284,7 +283,7 @@ struct Parts {
 
 fn build(
     fast: FastChannel,
-    producer: Producer<InputEvent>,
+    producer: FastSender,
     role: Role,
     device_id: String,
     app_version: String,
