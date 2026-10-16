@@ -48,6 +48,8 @@ export interface MacCommandMap {
   send_command: { args: { command: RemoteCommand }; result: CommandResult };
   set_cursor_lock: { args: { locked: boolean }; result: void };
   set_sharing_paused: { args: { paused: boolean }; result: void };
+  /** Pula o cursor para a tela de número `n` (1 = MacBook), como o atalho ⌃⌥n. */
+  jump_to: { args: { n: number }; result: void };
   clipboard_send_now: { args: void; result: void };
   set_clipboard_sync: { args: { enabled: boolean }; result: void };
   receive_remote_files: { args: void; result: void };
@@ -99,6 +101,7 @@ export const COMMANDS = {
   send_command: "send_command",
   set_cursor_lock: "set_cursor_lock",
   set_sharing_paused: "set_sharing_paused",
+  jump_to: "jump_to",
   clipboard_send_now: "clipboard_send_now",
   set_clipboard_sync: "set_clipboard_sync",
   receive_remote_files: "receive_remote_files",

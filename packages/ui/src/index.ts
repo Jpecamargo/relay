@@ -4,7 +4,7 @@ export { Banner, type BannerProps } from "./Banner";
 export { Button, type ButtonProps } from "./Button";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 export { Icon, type IconName, type IconProps } from "./Icon";
-export { KeyCombo, keyLabel, type KeyComboProps } from "./KeyCombo";
+export { comboLabel, KeyCombo, keyLabel, type KeyComboProps } from "./KeyCombo";
 export { LatencySparkline, type LatencySparklineProps } from "./LatencySparkline";
 export { MenuRow, type MenuRowProps } from "./MenuRow";
 export { NumberField, type NumberFieldProps } from "./NumberField";

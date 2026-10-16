@@ -23,19 +23,37 @@ const STATUS: StatusSnapshot = {
 };
 
 let sendResult: unknown;
+let hotkeys: unknown[];
+const DEVICES = [
+  { id: "spk", name: "Alto-falantes", is_default: true },
+  { id: "hp", name: "Fone USB", is_default: false },
+];
+const MAC_DEVICES = {
+  outputs: [{ id: "m1", name: "MacBook Speakers", is_default: true }, { id: "m2", name: "AirPods", is_default: false }],
+  inputs: [],
+};
+const info = (id: string, name: string, machine: string) => ({ id, name, machine, origin_px: [0, 0], size_px: [1, 1], scale: 1, size_mm: null, is_primary: false, is_builtin: false });
+const placed = (id: string, machine: string, x: number) => ({ display_id: id, machine, rect_mm: { x, y: 0, w: 100, h: 100 }, sensitivity: 1, rotation: null });
 
 beforeEach(() => {
   bridge.listeners.clear();
   bridge.invoke.mockReset();
   sendResult = { id: 1, ok: true, output: null, error: null };
-  bridge.invoke.mockImplementation(async (name: string) => {
+  hotkeys = [
+    { combo: { modifiers: ["Ctrl", "Option"], key: "KeyL" }, action: "ToggleLock" },
+    { combo: { modifiers: ["Ctrl", "Option"], key: "Digit2" }, action: { JumpTo: 2 } },
+  ];
+  bridge.invoke.mockImplementation(async (name: string, args?: { command?: unknown }) => {
     switch (name) {
       case "get_status": return STATUS;
       case "check_permissions": return { accessibility: "Granted", input_monitoring: "Granted" };
-      case "list_audio_devices": return { outputs: [], inputs: [] };
-      case "get_config": return { audio: { stream_volume: 1 } };
-      case "get_displays": return { mac: [], windows: [] };
-      case "send_command": return sendResult;
+      case "list_audio_devices": return MAC_DEVICES;
+      case "get_config": return { audio: { stream_volume: 1, mac_output_id: null }, hotkeys };
+      case "get_displays": return { mac: [info("mac", "MacBook", "Mac")], windows: [info("d1", "Dell 1", "Windows"), info("d2", "Dell 2", "Windows")] };
+      case "get_layout": return { displays: [placed("mac", "Mac", 0), placed("d1", "Windows", 100), placed("d2", "Windows", 200)] };
+      case "send_command":
+        if (args?.command === "ListOutputDevices") return { id: 5, ok: true, output: { Devices: DEVICES }, error: null };
+        return sendResult;
       default: return undefined;
     }
   });
@@ -57,13 +75,15 @@ const openPc = async () => {
   fireEvent.click(screen.getByRole("button", { name: "PC" }));
 };
 
-test("Bloquear envia Power Lock sem confirmação e mostra toast de sucesso", async () => {
+test("Bloquear envia Power Lock sem confirmação e sucesso não mostra toast", async () => {
   await openPc();
   fireEvent.click(screen.getByRole("button", { name: "Bloquear" }));
   await waitFor(() =>
     expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { Power: { action: "Lock", confirm: false } } }),
   );
-  expect(await screen.findByText("Bloquear: ok")).toBeTruthy();
+  await waitFor(() => expect(sentWith("Lock")).toHaveLength(1));
+  expect(screen.queryByText(/: ok/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Fechar" })).toBeNull(); // nenhum toast
 });
 
 test("Reiniciar só envia depois de confirmar, com confirm:true", async () => {
@@ -105,7 +125,7 @@ test("cabeçalho mostra o PC pareado e onde está o foco", async () => {
 
 test("toggle de cursor chama set_cursor_lock sem toast de sucesso", async () => {
   await ready();
-  fireEvent.click(screen.getByRole("switch", { name: "Travar cursor" }));
+  fireEvent.click(screen.getByRole("switch", { name: /Travar cursor/ }));
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_cursor_lock", { locked: true }));
   expect(screen.queryByText(/Travar cursor: ok/)).toBeNull();
 });
@@ -168,4 +188,98 @@ test("resultado de hotkey (só evento) aparece como toast", async () => {
   await ready();
   await emit("relay:command-result", { id: 9, ok: false, output: null, error: "unsupported" });
   expect((await screen.findByRole("alert")).textContent).toContain("Não suportado");
+});
+
+const menu = async (name: string | RegExp) => {
+  await ready();
+  fireEvent.click(screen.getByRole("button", { name }));
+};
+
+test("Saída de som lista as do PC com check na atual e troca na hora", async () => {
+  await menu("Saída de som");
+  const hp = await screen.findByRole("menuitemradio", { name: "Fone USB" });
+  expect(screen.getByRole("menuitemradio", { name: "Alto-falantes" }).getAttribute("aria-checked")).toBe("true");
+  expect(hp.getAttribute("aria-checked")).toBe("false");
+  expect(screen.queryByText("No Mac")).toBeNull(); // stream desligado: sem grupo do Mac
+  fireEvent.click(hp);
+  await waitFor(() =>
+    expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { SetOutputDevice: { id: "hp" } } }),
+  );
+  expect(hp.getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByRole("menuitemradio", { name: "Alto-falantes" }).getAttribute("aria-checked")).toBe("false");
+  expect(screen.queryByRole("button", { name: "Fechar" })).toBeNull(); // sem toast de sucesso
+});
+
+test("com Som do PC no Mac ligado aparece o grupo No Mac e troca a saída do stream", async () => {
+  bridge.invoke.mockImplementation(async (name: string, args?: { command?: unknown }) => {
+    if (name === "get_status") return { ...STATUS, audio: { pc_to_mac: true, mac_to_pc: false } };
+    if (name === "list_audio_devices") return MAC_DEVICES;
+    if (name === "get_config") return { audio: { stream_volume: 1, mac_output_id: "m2" }, hotkeys };
+    if (name === "send_command" && args?.command === "ListOutputDevices") return { id: 5, ok: true, output: { Devices: DEVICES }, error: null };
+    return name === "send_command" ? sendResult : undefined;
+  });
+  render(<Panel />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Mudo no Windows" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Saída de som" }));
+  expect(await screen.findByText("No Mac")).toBeTruthy();
+  expect((await screen.findByRole("menuitemradio", { name: "AirPods" })).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "MacBook Speakers" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_audio_devices", { output_id: "m1" }));
+});
+
+test("erro ao trocar a saída vira toast de erro", async () => {
+  await menu("Saída de som");
+  const hp = await screen.findByRole("menuitemradio", { name: "Fone USB" });
+  sendResult = { id: 9, ok: false, output: null, error: "timeout" };
+  fireEvent.click(hp);
+  expect((await screen.findByRole("alert")).textContent).toContain("O PC não respondeu a tempo.");
+});
+
+test("atalhos mostrados vêm do Config real e atualizam ao reabrir o painel", async () => {
+  await ready();
+  const lock = () => screen.getByRole("switch", { name: /Travar cursor/ }).textContent;
+  await waitFor(() => expect(lock()).toContain("⌃⌥L"));
+  expect(screen.getByRole("switch", { name: /Pausar compartilhamento/ }).textContent).not.toContain("⌃");
+  hotkeys = [{ combo: { modifiers: ["Cmd", "Shift"], key: "KeyK" }, action: "ToggleLock" }];
+  await act(async () => void window.dispatchEvent(new Event("focus")));
+  await waitFor(() => expect(lock()).toContain("⇧⌘K"));
+});
+
+test("Ir para lista as telas na ordem do pulo, com o atalho configurado, e pula", async () => {
+  await menu("Ir para");
+  const dell2 = await screen.findByRole("button", { name: /Dell 2/ });
+  expect(screen.getByRole("button", { name: /Dell 1/ }).textContent).toContain("⌃⌥2"); // n = 2
+  expect(dell2.textContent).not.toContain("⌃"); // sem atalho configurado para a tela 3
+  const names = screen.getAllByRole("button").map((b) => b.textContent ?? "").filter((t) => /MacBook|Dell/.test(t));
+  expect(names[0]).toContain("MacBook");
+  fireEvent.click(dell2);
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("jump_to", { n: 3 }));
+});
+
+test("Capturar tela do PC só envia o comando e avisa que foi copiada", async () => {
+  sendResult = { id: 3, ok: true, output: null, error: null };
+  await ready();
+  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela do PC" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Dell 2" }));
+  expect(await screen.findByText("Captura copiada para o clipboard")).toBeTruthy();
+  expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { CaptureScreen: { display_id: "d2" } } });
+});
+
+test("falha na captura vira toast de erro e não diz que copiou", async () => {
+  sendResult = { id: 4, ok: false, output: null, error: "timeout" };
+  await ready();
+  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela do PC" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Dell 1" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("O PC não respondeu a tempo.");
+  expect(screen.queryByText(/copiada/)).toBeNull();
+});
+
+test("itens condicionais: Capturar só online; Reconectar só desconectado", async () => {
+  await ready();
+  expect(screen.getByRole("button", { name: "Capturar tela do PC" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Reconectar" })).toBeNull();
+  await emit("relay:status", { ...STATUS, status: "Disconnected" });
+  expect(screen.queryByRole("button", { name: "Capturar tela do PC" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Reconectar" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
 });

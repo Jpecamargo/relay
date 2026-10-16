@@ -33,6 +33,8 @@ pub trait AppBackend: Send + Sync {
     fn save_config(&self, config: Config) -> BackendResult<()>;
     fn send_command(&self, command: RemoteCommand) -> CommandResult;
     fn set_cursor_lock(&self, locked: bool) -> BackendResult<()>;
+    /// Pula o cursor para a tela de número `n` (1 = MacBook), como o atalho ⌃⌥n.
+    fn jump_to(&self, n: u8) -> BackendResult<()>;
     fn set_sharing_paused(&self, paused: bool) -> BackendResult<()>;
     fn clipboard_send_now(&self) -> BackendResult<()>;
     fn set_clipboard_sync(&self, enabled: bool) -> BackendResult<()>;
@@ -244,6 +246,9 @@ impl AppBackend for MockBackend {
     }
     fn set_cursor_lock(&self, locked: bool) -> BackendResult<()> {
         self.with(|s| s.status.locked = locked);
+        Ok(())
+    }
+    fn jump_to(&self, _n: u8) -> BackendResult<()> {
         Ok(())
     }
     fn set_sharing_paused(&self, paused: bool) -> BackendResult<()> {

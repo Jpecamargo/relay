@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../shared/errors";
 import { Canvas } from "./Canvas";
 import styles from "./editor.module.css";
-import { alignDisplays, clampSensitivity, jumpIds, profileId, reconcile, rotateDisplay, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
+import { jumpIds } from "../shared/jump";
+import { alignDisplays, clampSensitivity, profileId, reconcile, rotateDisplay, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
 
 interface Loaded {
   profile: LayoutProfile;

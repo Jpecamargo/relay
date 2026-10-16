@@ -140,3 +140,9 @@ mod tests {
         assert_eq!(metrics_of(text), None);
     }
 }
+
+/// Pulo de tela pelo menu do painel (mesmo efeito do atalho ⌃⌥n).
+#[tauri::command(rename_all = "snake_case", async)]
+pub fn jump_to(state: State<'_, AppState>, n: u8) -> Result<(), String> {
+    state.backend.jump_to(n)
+}

@@ -4,8 +4,11 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { errorText, isCommandResult } from "./errors";
 import styles from "./shared.module.css";
 
-/** Executa uma ação e mostra o resultado (sucesso ou erro) como toast. `quiet` omite o "ok". */
-export type Act = <T>(label: string, fn: () => Promise<T>, quiet?: boolean) => Promise<T | undefined>;
+/**
+ * Executa uma ação; só o erro vira toast. Sucesso é silencioso, salvo `okMessage` (para o que o
+ * usuário não vê acontecer, como "Captura copiada para o clipboard").
+ */
+export type Act = <T>(label: string, fn: () => Promise<T>, okMessage?: string) => Promise<T | undefined>;
 
 interface ToastState { message: string; tone: "ok" | "danger"; n: number }
 
@@ -35,7 +38,7 @@ export function useActions(): {
   }, []);
 
   const act: Act = useCallback(
-    async (label, fn, quiet) => {
+    async (label, fn, okMessage) => {
       try {
         const r = await fn();
         if (isCommandResult(r) && !firstTime(r)) return r;
@@ -43,7 +46,7 @@ export function useActions(): {
           show(`${label}: ${errorText(r.error ?? "falhou")}`, "danger");
           return r;
         }
-        if (!quiet) show(`${label}: ok`, "ok");
+        if (okMessage) show(okMessage, "ok");
         return r;
       } catch (e) {
         show(`${label}: ${errorText(e)}`, "danger");

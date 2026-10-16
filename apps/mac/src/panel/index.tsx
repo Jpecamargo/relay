@@ -7,10 +7,13 @@ import { useEffect, useRef, useState } from "react";
 import { errorText } from "../shared/errors";
 import { decimal, STATUS_LABELS, statusKey, statusTone } from "../shared/status";
 import { useActions } from "../shared/useActions";
+import { useHotkeys } from "../shared/useHotkeys";
 import { useLiveStatus } from "../shared/useLiveStatus";
 import { openMain } from "../shared/windows";
 import styles from "./panel.module.css";
 import { PcMenu } from "./PcMenu";
+import { CaptureMenu, GotoMenu } from "./ScreenMenus";
+import { SoundMenu } from "./SoundMenu";
 import { useFitWindow } from "./useFitWindow";
 import { VolumeBlock } from "./VolumeBlock";
 
@@ -51,6 +54,7 @@ export function Panel() {
     if (update) void emit("relay:update-available", { version: update }).catch(() => undefined);
   }, [update]);
   const { act, show, firstTime, toast } = useActions();
+  const hotkey = useHotkeys();
   const root = useRef<HTMLElement>(null);
   useFitWindow(root, WIDTH);
 
@@ -73,7 +77,6 @@ export function Panel() {
       }).then(refresh, () => undefined);
     }
     if (!r.ok) show(errorText(r.error ?? "falhou"), "danger");
-    else if (r.id !== 0) show("Comando executado", "ok");
   });
 
   // Atalhos do menu: ⌘, abre os Ajustes, ⌘Q encerra, Esc fecha o painel.
@@ -108,7 +111,7 @@ export function Panel() {
   );
   const audio = status.audio;
   const setAudio = (label: string, next: { pc_to_mac: boolean; mac_to_pc: boolean }) =>
-    void act(label, () => invokeCommand("set_audio_streams", next), true).then(refresh);
+    void act(label, () => invokeCommand("set_audio_streams", next)).then(refresh);
 
   return (
     <main ref={root} className={styles.panel}>
@@ -146,12 +149,12 @@ export function Panel() {
 
       <div className={styles.group}>
         <MenuRow
-          label="Travar cursor" icon="lock" checked={status.locked}
-          onClick={() => void act("Travar cursor", () => invokeCommand("set_cursor_lock", { locked: !status.locked }), true).then(refresh)}
+          label="Travar cursor" icon="lock" checked={status.locked} shortcut={hotkey("ToggleLock")}
+          onClick={() => void act("Travar cursor", () => invokeCommand("set_cursor_lock", { locked: !status.locked })).then(refresh)}
         />
         <MenuRow
-          label="Pausar compartilhamento" icon="pause" checked={status.paused}
-          onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused }), true).then(refresh)}
+          label="Pausar compartilhamento" icon="pause" checked={status.paused} shortcut={hotkey("TogglePause")}
+          onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused })).then(refresh)}
         />
         <MenuRow
           label="Som do PC no Mac" icon="volume" checked={audio.pc_to_mac}
@@ -167,11 +170,17 @@ export function Panel() {
       <div className={styles.group}>
         {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={openUpdateFromPanel} /> : null}
         <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
-        <PcMenu act={act} online={online} canWake={canWake} />
+        <SoundMenu act={act} online={online} streamToMac={audio.pc_to_mac} />
+        <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />
+        {online ? <CaptureMenu show={show} firstTime={firstTime} /> : null}
+        <PcMenu act={act} online={online} canWake={canWake} wakeShortcut={hotkey("WakePc")} />
         <MenuRow
-          label="Enviar clipboard agora" icon="clipboard"
-          onClick={() => void act("Clipboard enviado", () => invokeCommand("clipboard_send_now"))}
+          label="Enviar clipboard agora" icon="clipboard" shortcut={hotkey("ClipboardSendNow")}
+          onClick={() => void act("Clipboard enviado", () => invokeCommand("clipboard_send_now"), "Clipboard enviado")}
         />
+        {key === "Disconnected" ? (
+          <MenuRow label="Reconectar" icon="refresh" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))} />
+        ) : null}
       </div>
       <hr className={styles.sep} />
 

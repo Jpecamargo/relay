@@ -26,3 +26,4 @@
 }
 .switch[data-on="true"] .knob { transform: translateX(12px); }
 @media (prefers-reduced-motion: reduce) { .switch, .knob { transition: none; } }
+.check { display: inline-flex; color: var(--relay-text-2); }
