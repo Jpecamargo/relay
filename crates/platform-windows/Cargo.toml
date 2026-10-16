@@ -10,9 +10,10 @@ publish.workspace = true
 [dependencies]
 relay-core.workspace = true
 rtrb.workspace = true
+png.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows.workspace = true
+windows = { workspace = true, features = ["Win32_System_Variant"] }
 windows-service.workspace = true
 wasapi.workspace = true
 nvml-wrapper.workspace = true
