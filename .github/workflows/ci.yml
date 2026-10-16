@@ -35,6 +35,8 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r build
       - run: pnpm -r test
+      - name: sidecar stub (tauri-build exige externalBin)
+        run: bash scripts/prepare-sidecar.sh --stub
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -59,6 +61,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # frontendDist dos apps Tauri precisa existir antes de compilar.
       - run: pnpm -r build
+      - name: sidecar stub (tauri-build exige externalBin)
+        shell: bash
+        run: bash scripts/prepare-sidecar.sh --stub
       - name: clippy
         run: cargo clippy -p relay-core -p relay-platform-windows -p relay-windows-agent -p relay-windows-service --all-targets -- -D warnings
       - name: test
