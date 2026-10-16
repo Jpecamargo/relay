@@ -405,6 +405,7 @@ fn start_capture(
     device.start(producer).map_err(|e| e.to_string())?;
     let mut stopper = Stopper::new();
     let flag = stopper.flag.clone();
+    let counter = sh.st().tx_seq.clone();
     stopper.spawn("relay-audio-tx", move || {
         let mut pkt = AudioPacket {
             stream: STREAM_MAC_TO_PC,
@@ -427,6 +428,8 @@ fn start_capture(
             if i16_to_pcm_bytes(&frame, &mut pkt.payload).is_err() {
                 continue;
             }
+            pkt.seq = counter.fetch_add(1, Ordering::Relaxed);
+            pkt.ts_samples = pkt.seq * FRAMES_PER_PACKET as u64;
             wire.clear();
             if pkt.encode(&mut wire).is_err() {
                 continue;
@@ -439,8 +442,6 @@ fn start_capture(
             datagram.extend_from_slice(header);
             datagram.extend_from_slice(&sealed);
             let _ = socket.send_to(&datagram, dest);
-            pkt.seq += 1;
-            pkt.ts_samples += FRAMES_PER_PACKET as u64;
         }
     });
     Ok(Capture {

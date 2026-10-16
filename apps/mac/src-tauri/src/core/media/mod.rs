@@ -17,6 +17,7 @@ mod transfer;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -31,6 +32,9 @@ use transfer::Files;
 
 #[cfg(target_os = "macos")]
 pub use mac::MacMedia;
+
+/// Quanto tempo depois de um `CaptureScreen` o PNG do PC é aceito mesmo com o clipboard desligado.
+const CAPTURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Tudo o que a mídia pede ao sistema.
 pub trait MediaPlatform: Send + Sync + 'static {
@@ -63,11 +67,16 @@ pub(crate) struct St {
     /// Streams pedidos pelo usuário (PC→Mac, Mac→PC); valem de sessão em sessão.
     pub want: (bool, bool),
     pub audio: AudioRun,
+    /// Próximo `seq` do áudio Mac→PC. Vale pela sessão (mesma chave): religar o stream continua
+    /// de onde parou, senão o nonce do AEAD se repetiria.
+    pub tx_seq: Arc<AtomicU64>,
     /// Arquivos que o PC ofereceu e ainda não foram baixados.
     pub pending: Option<Vec<FileEntry>>,
     /// Oferta do arraste Mac→Dell à espera do mouse up remoto.
     pub armed: Option<u32>,
     pub next_offer: u32,
+    /// Até quando um PNG do PC vale como resultado de `CaptureScreen` (ignora o toggle do clipboard).
+    pub capture_until: Option<std::time::Instant>,
 }
 
 impl Sh {
@@ -196,7 +205,18 @@ impl MediaHooks for RealMedia {
 
     fn session_up(&self, ctx: SessionCtx) {
         let ctx = Arc::new(ctx);
-        self.sh.st().session = Some(ctx.clone());
+        {
+            let mut st = self.sh.st();
+            // Chave nova (sessão nova): o contador pode recomeçar; com a mesma, nunca.
+            let same_keys = st
+                .session
+                .as_ref()
+                .is_some_and(|old| old.audio_keys.is_some() && old.audio_keys == ctx.audio_keys);
+            if !same_keys {
+                st.tx_seq = Arc::new(AtomicU64::new(0));
+            }
+            st.session = Some(ctx.clone());
+        }
         self.sh.files.listen(&self.sh, &ctx);
         audio::session_up(&self.sh);
     }
@@ -221,5 +241,9 @@ impl MediaHooks for RealMedia {
 
     fn audio_devices(&self) -> AudioDevices {
         self.sh.platform.audio_devices()
+    }
+
+    fn capture_screen_requested(&self) {
+        self.sh.st().capture_until = Some(std::time::Instant::now() + CAPTURE_WINDOW);
     }
 }
