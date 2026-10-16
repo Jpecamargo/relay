@@ -160,7 +160,8 @@ const fn modifier_mask(keycode: u16) -> Option<u64> {
 
 /// Sinal do scroll: o valor sai como o CGEvent entrega, e ele já traz a direção que o usuário
 /// configurou (rolagem natural incluída). Positivo em `dy_px` = rolar para cima, o mesmo sinal
-/// de WHEEL_DELTA no Windows; nada é invertido aqui. `dx_px` também sai cru do CGEvent.
+/// de WHEEL_DELTA no Windows; nada é invertido. `dx_px` é invertido: no CG positivo é rolar para a
+/// esquerda, e a convenção do InputEvent::Scroll é dx>0 = direita (HWHEEL).
 ///
 /// Converte um `CGEvent` dos tipos que o CoreGraphics descreve por campos. Função pura e sem
 /// alocação. `None` para tipos tratados à parte (mídia/gestos) ou irrelevantes.
@@ -227,7 +228,7 @@ pub fn convert(event_type: u32, event: CGEventRef) -> Option<CapturedEvent> {
                 )
             };
             Some(CapturedEvent::Scroll {
-                dx_px: ev.dbl(f2),
+                dx_px: -ev.dbl(f2),
                 dy_px: ev.dbl(f1),
                 phase: scroll_phase(ev.int(FIELD_SCROLL_PHASE), ev.int(FIELD_MOMENTUM_PHASE)),
                 continuous,
@@ -772,6 +773,18 @@ mod tests {
                 assert_eq!(dx_px, 5.0);
                 assert_eq!(phase, ScrollPhase::Changed);
             }
+            other => panic!("esperava Scroll, veio {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scroll_horizontal_positivo_e_direita() {
+        // CG: wheel2 positivo = esquerda; a conversão inverte para dx>0 = direita.
+        let ev = Synth::new(unsafe {
+            CGEventCreateScrollWheelEvent2(std::ptr::null_mut(), 1, 2, 0, 4, 0)
+        });
+        match convert_no_alloc(SCROLL_WHEEL, &ev).unwrap() {
+            CapturedEvent::Scroll { dx_px, .. } => assert_eq!(dx_px, -4.0),
             other => panic!("esperava Scroll, veio {other:?}"),
         }
     }
