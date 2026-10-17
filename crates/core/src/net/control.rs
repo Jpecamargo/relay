@@ -389,6 +389,7 @@ async fn connect(cfg: &DialerConfig, identity: &StaticKeypair) -> Result<Establi
         .map_err(|_| NetError::Timeout)?
         .map_err(io_err)?;
     stream.set_nodelay(true).map_err(io_err)?;
+    super::mark_low_latency((&stream).into());
     let noise = timeout(HANDSHAKE_TIMEOUT, async {
         write_frame(&mut stream, &[TAG_SESSION])
             .await
@@ -465,6 +466,7 @@ pub(super) async fn dial_pair(
         .map_err(|_| NetError::Timeout)?
         .map_err(io_err)?;
     stream.set_nodelay(true).map_err(io_err)?;
+    super::mark_low_latency((&stream).into());
     timeout(PAIR_TIMEOUT, async {
         write_frame(&mut stream, &[TAG_PAIR])
             .await
@@ -643,6 +645,7 @@ pub(super) async fn accept_loop(
         if stream.set_nodelay(true).is_err() {
             continue;
         }
+        super::mark_low_latency((&stream).into());
         // Sem vaga de handshake: fecha na hora, para quem enche a fila não segurar o agente.
         let Ok(permit) = pending.clone().try_acquire_owned() else {
             continue;

@@ -39,6 +39,15 @@ pub use stats::{Backoff, Jitter, RttTracker, now_us};
 use control::{Ctx, DialerState, ListenerState, PairingOffer, Shared};
 use fast::FastChannel;
 
+/// DSCP EF (46) no byte TOS. No Wi-Fi, o WMM põe esses pacotes na fila de voz (AC_VO), a de menor
+/// espera; em rede cabeada o switch costuma ignorar. O Windows descarta o IP_TOS sem política de QoS.
+const TOS_EF: u32 = 0xB8;
+
+/// Marca um socket IPv4 como tráfego de baixa latência. Falha (IPv6, sistema que recusa) é ignorada.
+pub(crate) fn mark_low_latency(sock: socket2::SockRef<'_>) {
+    let _ = sock.set_tos_v4(TOS_EF);
+}
+
 /// Capacidade do ring de saída do canal rápido.
 pub const FAST_RING_CAPACITY: usize = 4096;
 /// Validade do código de pareamento (D5).

@@ -262,6 +262,7 @@ impl FastChannel {
         let socket = Socket::new(Domain::for_address(bind), Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_reuse_address(true)?;
         let _ = socket.set_recv_buffer_size(RCVBUF);
+        super::mark_low_latency((&socket).into());
         socket.bind(&bind.into())?;
         let socket: UdpSocket = socket.into();
         socket.set_read_timeout(Some(READ_TIMEOUT))?;
