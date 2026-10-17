@@ -257,6 +257,8 @@ mod loopback {
         p.key(CTRL, true);
         p.wire.clear();
         // Move o cursor do Mac até a borda direita (ligada ao Dell).
+        *p.mac_pos.lock().unwrap() = (1420, 449);
+        p.mv(1, 0, (0.0, 830.0));
         *p.mac_pos.lock().unwrap() = (1430, 449);
         p.mac_inj.lock().unwrap().clear();
         p.mv(9, 0, (0.0, 830.0));
