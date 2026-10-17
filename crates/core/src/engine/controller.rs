@@ -682,6 +682,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
                 // O Mac é a autoridade da trava (D11 fica com o receptor, a trava com o Mac).
                 if self.focus == Focus::Remote && !self.locked {
                     self.leave_remote(display_id, point_px, now);
+                    self.transition.landed_local(point_px);
                 }
             }
             Message::ForegroundApp { exe } => self.foreground = Some(exe),

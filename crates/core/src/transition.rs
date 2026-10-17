@@ -61,6 +61,22 @@ struct PushState {
 
 type Push = Option<PushState>;
 
+/// Afastamento (px) do ponto de pouso a partir do qual a borda volta a acumular pressão.
+const REARM_PX: i32 = 4;
+
+/// Pouso em andamento: enquanto o cursor não se afastar `REARM_PX` de `origin`, a borda não conta.
+type Landing = Option<(i32, i32)>;
+
+/// `true` se a borda continua desarmada em `pos` (e desarma o pouso quando o cursor já saiu).
+fn still_landed(landing: &mut Landing, pos: (i32, i32)) -> bool {
+    let Some(o) = *landing else { return false };
+    if (pos.0 - o.0).abs().max((pos.1 - o.1).abs()) >= REARM_PX {
+        *landing = None;
+        return false;
+    }
+    true
+}
+
 #[derive(Debug)]
 pub struct TransitionEngine {
     config: TransitionConfig,
@@ -69,6 +85,8 @@ pub struct TransitionEngine {
     locked: bool,
     local_push: Push,
     remote_push: Push,
+    local_landing: Landing,
+    remote_landing: Landing,
     /// Máquina que captura e controla (Mac; Windows no sentido inverso, D24).
     local: Machine,
 }
@@ -141,6 +159,8 @@ impl TransitionEngine {
             locked: false,
             local_push: None,
             remote_push: None,
+            local_landing: None,
+            remote_landing: None,
             local: Machine::Mac,
         }
     }
@@ -150,6 +170,19 @@ impl TransitionEngine {
         self.local = machine;
         self.local_push = None;
         self.remote_push = None;
+    }
+
+    /// O cursor local acabou de pousar em `point` (retorno do outro lado): a borda só volta a
+    /// contar depois de um afastamento, senão uma inversão pequena cruza de novo.
+    pub fn landed_local(&mut self, point: (i32, i32)) {
+        self.local_push = None;
+        self.local_landing = Some(point);
+    }
+
+    /// Idem no receptor: o cursor entrou em `point` por um `FocusEnter`.
+    pub fn landed_remote(&mut self, point: (i32, i32)) {
+        self.remote_push = None;
+        self.remote_landing = Some(point);
     }
 
     /// Posição ao longo da borda `side` de `d` (px) → mm absolutos no plano do layout.
@@ -210,6 +243,10 @@ impl TransitionEngine {
             self.local_push = None;
             return LocalDecision::Stay;
         }
+        if still_landed(&mut self.local_landing, pos_px) {
+            self.local_push = None;
+            return LocalDecision::Stay;
+        }
         let d = &self.disps[from];
         let (nx, ny) = (pos_px.0 + delta.0, pos_px.1 + delta.1);
         let (x1, y1) = (d.origin.0 + d.size.0, d.origin.1 + d.size.1);
@@ -263,6 +300,10 @@ impl TransitionEngine {
         now: Instant,
     ) -> RemoteDecision {
         if self.locked {
+            self.remote_push = None;
+            return RemoteDecision::Stay;
+        }
+        if still_landed(&mut self.remote_landing, pos_px) {
             self.remote_push = None;
             return RemoteDecision::Stay;
         }
@@ -420,6 +461,51 @@ mod tests {
         t: Instant,
     ) -> LocalDecision {
         e.on_local_move(MAC, (1439, y), (5, 0), mods, t)
+    }
+
+    fn pressao() -> TransitionConfig {
+        TransitionConfig {
+            edge_resistance_pt: 8.0,
+            ..cfg(0)
+        }
+    }
+
+    #[test]
+    fn pouso_no_mac_so_conta_a_borda_depois_de_afastar() {
+        let mut e = engine_with(pressao(), -100.0, 336.0);
+        let t = Instant::now();
+        e.landed_local((1439, 450));
+        for _ in 0..4 {
+            let d = e.on_local_move(MAC, (1439, 450), (3, 0), &[], t);
+            assert_eq!(d, LocalDecision::Stay);
+        }
+        assert_eq!(
+            e.on_local_move(MAC, (1430, 450), (-3, 0), &[], t),
+            LocalDecision::Stay
+        );
+        let cruzou = (0..3)
+            .map(|_| e.on_local_move(MAC, (1439, 450), (3, 0), &[], t))
+            .any(|d| matches!(d, LocalDecision::Enter { .. }));
+        assert!(cruzou);
+    }
+
+    #[test]
+    fn pouso_no_pc_so_conta_a_borda_depois_de_afastar() {
+        let mut e = engine_with(pressao(), -100.0, 336.0);
+        let t = Instant::now();
+        e.landed_remote((0, 830));
+        for _ in 0..4 {
+            let d = e.on_remote_cursor((0, 830), (-3, 0), t);
+            assert_eq!(d, RemoteDecision::Stay);
+        }
+        assert_eq!(
+            e.on_remote_cursor((10, 830), (3, 0), t),
+            RemoteDecision::Stay
+        );
+        let voltou = (0..3)
+            .map(|_| e.on_remote_cursor((0, 830), (-3, 0), t))
+            .any(|d| matches!(d, RemoteDecision::Return { .. }));
+        assert!(voltou);
     }
 
     #[test]

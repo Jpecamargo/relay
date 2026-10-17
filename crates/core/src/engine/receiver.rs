@@ -212,6 +212,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
         }
         let _ = self.cursor.warp(entry_px.0, entry_px.1);
         self.last_pos = entry_px;
+        self.transition.landed_remote(entry_px);
         self.active = true;
         self.return_sent = None;
         self.focus_changed(true);
@@ -552,6 +553,8 @@ mod tests {
     #[test]
     fn detecta_o_retorno_pela_posicao_real_e_emite_focus_return() {
         let mut r = rig(1.0);
+        r.rx.on_input(InputEvent::MouseMove { dx: 5, dy: 0 }, r.t0);
+        *r.cursor.lock().unwrap() = (0, 830);
         let out = r.rx.on_input(InputEvent::MouseMove { dx: -5, dy: 0 }, r.t0);
         match out.as_slice() {
             [
@@ -594,7 +597,7 @@ mod tests {
         let cur = MockCursor::new(&log);
         let cursor = cur.pos.clone();
         let mut inj = MockInjector::new();
-        inj.cursor = Some((cursor, (0, 0, 2560, 1440)));
+        inj.cursor = Some((cursor.clone(), (0, 0, 2560, 1440)));
         let mut rx = Receiver::new(&cfg, vec![dell_display()], inj, cur);
         let t0 = Instant::now();
         rx.on_message(Message::Displays(vec![mac_display()]), t0);
@@ -607,6 +610,8 @@ mod tests {
             t0,
         );
         let mv = InputEvent::MouseMove { dx: -5, dy: 0 };
+        rx.on_input(InputEvent::MouseMove { dx: 5, dy: 0 }, t0);
+        *cursor.lock().unwrap() = (0, 830);
         assert!(rx.on_input(mv, t0).is_empty());
         assert!(rx.on_input(mv, t0 + ms(60)).is_empty());
         assert_eq!(rx.on_input(mv, t0 + ms(110)).len(), 1);
@@ -621,7 +626,7 @@ mod tests {
             let cur = MockCursor::new(&log);
             let cursor = cur.pos.clone();
             let mut inj = MockInjector::new();
-            inj.cursor = Some((cursor, (0, 0, 2560, 1440)));
+            inj.cursor = Some((cursor.clone(), (0, 0, 2560, 1440)));
             let mut rx = Receiver::new(cfg, vec![dell_display()], inj, cur);
             let t0 = Instant::now();
             rx.on_message(Message::Displays(vec![mac_display()]), t0);
@@ -633,6 +638,8 @@ mod tests {
                 },
                 t0,
             );
+            rx.on_input(InputEvent::MouseMove { dx: 5, dy: 0 }, t0);
+            *cursor.lock().unwrap() = (0, 830);
             let mv = InputEvent::MouseMove { dx: -3, dy: 0 };
             (0..200u64).find(|i| !rx.on_input(mv, t0 + ms(i * 8)).is_empty())
         };
