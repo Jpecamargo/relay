@@ -168,7 +168,7 @@ test("banner de reconexão tem 'Tentar de novo' que chama reconnect", async () =
 test("relay:command-result de áudio mostra toast e desliga o toggle", async () => {
   await ready();
   await emit("relay:command-result", { id: 0, ok: false, output: null, error: "vbcable_missing" });
-  expect((await screen.findByRole("alert")).textContent).toContain("VB-Cable");
+  expect((await screen.findByRole("alert")).textContent).toContain("VB-CABLE");
   await waitFor(() =>
     expect(bridge.invoke).toHaveBeenCalledWith("set_audio_streams", { pc_to_mac: false, mac_to_pc: false }),
   );

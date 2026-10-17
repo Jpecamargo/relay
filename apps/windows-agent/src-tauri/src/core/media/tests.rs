@@ -323,12 +323,30 @@ fn expect_audio_error(r: &mut Rig, code: &str) {
 // ---- áudio ----
 
 #[test]
-fn system_mode_without_virtual_output_is_virtual_output_missing() {
+fn system_mode_without_virtual_output_captures_the_default_output_without_switching() {
     let (o, i) = speakers_and_cables();
     let host = MockHost::new(o, i);
     let mut r = rig(
         host.clone(),
         audio_cfg(PcAudioMode::System, None),
+        no_captures(),
+    );
+    r.media.link_changed(Some(agent_link()));
+    r.feed(Message::AudioControl {
+        pc_to_mac: true,
+        mac_to_pc: false,
+    });
+    wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
+    assert_eq!(host.events(), ["capture:endpoint:"]);
+}
+
+#[test]
+fn system_mode_with_a_missing_virtual_output_is_virtual_output_missing() {
+    let (o, i) = speakers_and_cables();
+    let host = MockHost::new(o, i);
+    let mut r = rig(
+        host.clone(),
+        audio_cfg(PcAudioMode::System, Some("Saída que não existe")),
         no_captures(),
     );
     r.media.link_changed(Some(agent_link()));

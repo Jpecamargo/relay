@@ -23,6 +23,7 @@ const WIDTH = 360;
 const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
   vbcable_missing: "mac_to_pc",
   virtual_output_missing: "pc_to_mac",
+  process_not_found: "pc_to_mac",
 };
 
 /** Abre a janela principal já com o modal da atualização e some com o painel. */

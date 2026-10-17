@@ -28,8 +28,8 @@ function statusInfo(s: ConnectionStatus | undefined): { tone: StatusTone; label:
 }
 
 const PC_MODES = [
-  { value: "process", label: "Só o app (por processo)" },
   { value: "system", label: "Todo o sistema" },
+  { value: "process", label: "Só o Discord" },
 ] as const;
 
 export function App() {
@@ -141,7 +141,7 @@ export function App() {
               <StatusDot tone={vbcable ? "ok" : "warn"} label={vbcable ? "Detectado" : "Não detectado"} />
               <span>{vbcable ? "VB-CABLE detectado" : "VB-CABLE não detectado"}</span>
             </div>
-            {!vbcable ? <p className="muted">Instale o VB-CABLE para enviar o áudio do Mac a este PC.</p> : null}
+            {!vbcable ? <p className="muted">Instale o VB-CABLE para usar o microfone do Mac neste PC.</p> : null}
             <Toggle
               label="Sincronizar área de transferência"
               checked={config.clipboard.enabled}

@@ -105,6 +105,20 @@ pub fn migrate(table: &mut Table) {
                 }
                 table.insert("schema_version".into(), Value::Integer(2));
             }
+            // v2 -> v3: o padrão do áudio do PC passa a ser o sistema inteiro. Quem estava no padrão
+            // antigo (só o Discord) nunca escolheu isso e quase sempre ficava sem som.
+            2 => {
+                if let Some(Value::Table(t)) = table.get_mut("audio") {
+                    let only_discord = t
+                        .get("process_names")
+                        .and_then(Value::as_array)
+                        .is_some_and(|a| a.len() == 1 && a[0].as_str() == Some("Discord.exe"));
+                    if t.get("pc_mode").and_then(Value::as_str) == Some("process") && only_discord {
+                        t.insert("pc_mode".into(), Value::String("system".into()));
+                    }
+                }
+                table.insert("schema_version".into(), Value::Integer(3));
+            }
             _ => break,
         }
         version += 1;
@@ -274,13 +288,13 @@ mod tests {
     fn migra_v0_sem_campo_para_v1() {
         let mut t: Table = "[transition]\ndwell_ms = 200\n".parse().unwrap();
         migrate(&mut t);
-        assert_eq!(t["schema_version"].as_integer(), Some(2));
+        assert_eq!(t["schema_version"].as_integer(), Some(3));
 
         let d = dir();
         let p = d.path().join("config.toml");
         fs::write(&p, "[transition]\ndwell_ms = 200\n").unwrap();
         let c = load_or_default(&p).unwrap();
-        assert_eq!(c.schema_version, 2);
+        assert_eq!(c.schema_version, 3);
         assert_eq!(c.transition.dwell_ms, 200);
         assert!(!d.path().join("config.toml.bak").exists());
     }
@@ -294,12 +308,34 @@ mod tests {
             load_or_default(&p).unwrap()
         };
         let c = load("schema_version = 1\n[transition]\ndwell_ms = 100\n");
-        assert_eq!((c.schema_version, c.transition.dwell_ms), (2, 0));
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (3, 0));
         let c = load("schema_version = 1\n[transition]\ndwell_ms = 250\n");
-        assert_eq!((c.schema_version, c.transition.dwell_ms), (2, 250));
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (3, 250));
         // Já na v2: 100 é escolha do usuário e fica.
         let c = load("schema_version = 2\n[transition]\ndwell_ms = 100\n");
         assert_eq!(c.transition.dwell_ms, 100);
+    }
+
+    #[test]
+    fn migra_v2_troca_o_audio_so_do_discord_pelo_sistema_e_mantem_o_escolhido() {
+        let load = |toml: &str| {
+            let d = dir();
+            let p = d.path().join("config.toml");
+            fs::write(&p, toml).unwrap();
+            load_or_default(&p).unwrap()
+        };
+        let old = "[audio]\npc_mode = \"process\"\nprocess_names = [\"Discord.exe\"]\n";
+        let c = load(&format!("schema_version = 2\n{old}"));
+        assert_eq!(
+            (c.schema_version, c.audio.pc_mode),
+            (3, PcAudioMode::System)
+        );
+        let c = load(
+            "schema_version = 2\n[audio]\npc_mode = \"process\"\nprocess_names = [\"Spotify.exe\"]\n",
+        );
+        assert_eq!(c.audio.pc_mode, PcAudioMode::Process);
+        let c = load(&format!("schema_version = 3\n{old}"));
+        assert_eq!(c.audio.pc_mode, PcAudioMode::Process);
     }
 
     #[test]
@@ -316,7 +352,7 @@ mod tests {
             ),
             (47800, 47801, 47802, 47803, 47804)
         );
-        assert_eq!(c.schema_version, 2);
+        assert_eq!(c.schema_version, 3);
         assert_eq!(c.transition.dwell_ms, 0);
         assert_eq!(c.transition.edge_resistance_pt, 8.0);
         assert_eq!(c.transition.corner_dead_zone_mm, 10.0);
@@ -324,7 +360,7 @@ mod tests {
         assert_eq!(c.clipboard.mode, ClipboardMode::OnSwitch);
         assert_eq!(c.clipboard.max_bytes, 50 * 1024 * 1024);
         assert_eq!(c.audio.jitter_target_ms, 20);
-        assert_eq!(c.audio.pc_mode, PcAudioMode::Process);
+        assert_eq!(c.audio.pc_mode, PcAudioMode::System);
         assert_eq!(c.audio.process_names, vec!["Discord.exe"]);
         assert_eq!(c.hotkeys, crate::types::config::default_hotkeys());
         assert_eq!(c.hotkeys.len(), 5);

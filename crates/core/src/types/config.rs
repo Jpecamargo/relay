@@ -9,7 +9,7 @@ use super::consts::*;
 use super::display::LayoutProfile;
 use super::hotkey::{HotkeyAction, HotkeyBinding, KeyCombo, Modifier};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
@@ -231,9 +231,10 @@ impl Default for ClipboardConfig {
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename_all = "snake_case")]
 pub enum PcAudioMode {
-    /// Loopback por processo (padrão, D14).
+    /// Loopback por processo (D14).
     Process,
-    /// Troca a saída padrão para a saída virtual configurada.
+    /// Padrão. Com saída virtual configurada, troca a saída padrão para ela; sem, captura a saída
+    /// padrão sem trocá-la.
     System,
 }
 
@@ -254,7 +255,7 @@ pub struct AudioConfig {
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            pc_mode: PcAudioMode::Process,
+            pc_mode: PcAudioMode::System,
             process_names: vec!["Discord.exe".to_string()],
             virtual_output_name: None,
             jitter_target_ms: 20,

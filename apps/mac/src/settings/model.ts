@@ -98,7 +98,6 @@ export function validateConfig(c: Config): Errors {
   if (c.clipboard.max_bytes < 1) e.max_bytes = "Deve ser maior que 0.";
   if (c.clipboard.formats.length === 0) e.formats = "Escolha ao menos um formato.";
   if (c.audio.jitter_target_ms < 1) e.jitter_target_ms = "Deve ser maior que 0.";
-  if (c.audio.pc_mode === "process" && c.audio.process_names.length === 0) e.process_names = "Informe ao menos um processo.";
   c.keymap.app_exceptions.forEach((x, i) => {
     if (!x.exe.trim()) e[`exception_${i}`] = "Informe o executável (ex.: Code.exe).";
   });

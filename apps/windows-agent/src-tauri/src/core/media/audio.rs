@@ -101,6 +101,19 @@ fn start_pc(
     }
     let mut guard: Option<Box<dyn OutputGuard>> = None;
     let (mut capture, ring_rx): (Box<dyn AudioCapture>, _) = match cfg.pc_mode {
+        PcAudioMode::System
+            if cfg
+                .virtual_output_name
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty() =>
+        {
+            // Sem saída virtual: captura a saída padrão sem trocá-la (o PC também continua tocando).
+            let mut c = host.loopback(None);
+            let rx = begin(&mut *c)?;
+            (c, rx)
+        }
         PcAudioMode::System => {
             let name = cfg.virtual_output_name.as_deref().unwrap_or("");
             let devices = host.devices().map_err(|e| plat_err(&e))?;
@@ -115,7 +128,7 @@ fn start_pc(
             (c, rx)
         }
         PcAudioMode::Process => {
-            let mut last = error_code::UNSUPPORTED.to_string();
+            let mut last = error_code::PROCESS_NOT_FOUND.to_string();
             let mut found = None;
             for exe in &cfg.process_names {
                 let mut c = host.process_loopback(exe);
@@ -124,7 +137,8 @@ fn start_pc(
                         found = Some((c, rx));
                         break;
                     }
-                    Err(e) => last = e,
+                    Err(e) if e == error_code::UNSUPPORTED => last = e,
+                    Err(_) => {}
                 }
             }
             found.ok_or(last)?
@@ -288,7 +302,8 @@ fn start_mic(
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioOutcome {
     pub state: AudioState,
-    /// Código de erro (`vbcable_missing`, `virtual_output_missing`, `unsupported`) ou texto.
+    /// Código de erro (`vbcable_missing`, `virtual_output_missing`, `process_not_found`,
+    /// `unsupported`) ou texto.
     pub error: Option<String>,
 }
 

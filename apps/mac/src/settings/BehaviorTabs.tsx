@@ -1,5 +1,5 @@
 // dono: U3. Abas Transição, Clipboard e Áudio.
-import type { ClipboardFormat, ClipboardMode, Modifier, PcAudioMode } from "@relay/protocol-types";
+import type { ClipboardFormat, ClipboardMode, Modifier } from "@relay/protocol-types";
 import { NumberField, Section, Select, Toggle } from "@relay/ui";
 import type { TabProps } from "./ConnectionTab";
 import styles from "./settings.module.css";
@@ -90,42 +90,6 @@ export function AudioTab({ config, update, errors }: TabProps) {
   const set = (patch: Partial<typeof a>) => update((c) => ({ ...c, audio: { ...c.audio, ...patch } }));
   return (
     <Section title="Áudio do PC" grouped>
-      <Select<PcAudioMode>
-        label="Captura no PC"
-        value={a.pc_mode}
-        onChange={(pc_mode) => set({ pc_mode })}
-        options={[
-          { value: "system", label: "Sistema inteiro" },
-          { value: "process", label: "Só processos listados" },
-        ]}
-      />
-      {a.pc_mode === "process" ? (
-        <div className={styles.field}>
-          <label htmlFor="process-names" className={styles.fieldLabel}>
-            Processos (um por linha)
-          </label>
-          <textarea
-            id="process-names"
-            className={styles.input}
-            rows={3}
-            value={a.process_names.join("\n")}
-            onChange={(e) => set({ process_names: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })}
-          />
-          <Err text={errors.process_names} />
-        </div>
-      ) : null}
-      <div className={styles.field}>
-        <label htmlFor="virtual-output" className={styles.fieldLabel}>
-          Saída virtual (Mac para PC)
-        </label>
-        <input
-          id="virtual-output"
-          className={styles.input}
-          placeholder="CABLE Input"
-          value={a.virtual_output_name ?? ""}
-          onChange={(e) => set({ virtual_output_name: e.target.value || null })}
-        />
-      </div>
       <NumberField label="Jitter alvo" unit="ms" min={1} value={a.jitter_target_ms} onChange={(v) => set({ jitter_target_ms: v })} />
       <Err text={errors.jitter_target_ms} />
     </Section>
