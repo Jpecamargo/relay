@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- Som do PC no Mac funciona sem configurar nada: o padrão passa a ser o sistema inteiro (antes só o Discord). Configs antigas migram sozinhas.
+- Ao voltar para o Mac, o cursor não fica mais indo e voltando na borda: a borda de chegada só conta depois de o cursor se afastar dela.
+- Pacotes de mouse e controle saem do Mac com prioridade de voz no Wi-Fi (menos atraso em rede sem fio).
+- Mensagens de áudio mais claras: o VB-CABLE é necessário só para o microfone do Mac no PC.
+
 ## 0.1.2
 
 - Menu da barra de menus mais útil: "Saída de som" para trocar o dispositivo de áudio do PC, "Ir para" uma tela específica, "Capturar tela do PC" e os atalhos reais mostrados ao lado de cada ação.
