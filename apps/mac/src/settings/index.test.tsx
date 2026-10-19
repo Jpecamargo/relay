@@ -42,18 +42,12 @@ const open = async (...views: SettingsView[]) => {
   await screen.findByRole("heading", { name: views[0] === "connection" ? "PC pareado" : views[0] === "hotkeys" ? "Atalhos globais" : "Troca de máquina" });
 };
 
-test("código de 5 dígitos desabilita Parear, 6 habilita e envia", async () => {
+test("em Ajustes, colar os 6 dígitos envia o pareamento sem o botão Parear", async () => {
   await open("connection");
-  const input = screen.getByLabelText("Código de 6 dígitos");
-  const btn = screen.getByRole("button", { name: "Parear" });
-  fireEvent.change(input, { target: { value: "12a45" } });
-  expect((input as HTMLInputElement).value).toBe("1245");
-  fireEvent.change(input, { target: { value: "12345" } });
-  expect((btn as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(input, { target: { value: "123456" } });
-  expect((btn as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(btn);
-  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456" }));
+  expect(screen.queryByRole("button", { name: "Parear" })).toBeNull();
+  await screen.findByRole("button", { name: /DESKTOP-PC/ });
+  fireEvent.paste(screen.getByLabelText("Dígito 1"), { clipboardData: { getData: () => "123456" } });
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000" }));
 });
 
 test("revogar pede confirmação antes de unpair", async () => {

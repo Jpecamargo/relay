@@ -11,14 +11,17 @@ export function useLiveStatus(): {
   latency: LatencyStats | undefined;
   history: number[];
   refresh: () => void;
+  /** `false` até o primeiro status chegar: antes disso `peer_name` ainda não diz se há PC pareado. */
+  loaded: boolean;
 } {
   const [initial, setInitial] = useState<StatusSnapshot>(EMPTY_STATUS);
+  const [loaded, setLoaded] = useState(false);
   const [history, setHistory] = useState<number[]>([]);
   const statusEvent = useRelayEvent("relay:status");
   const latency = useRelayEvent("relay:latency", (l) => setHistory((h) => [...h.slice(-(HISTORY - 1)), l.rtt_ms]));
   const refresh = useCallback(() => {
-    invokeCommand("get_status").then(setInitial).catch(() => undefined);
+    invokeCommand("get_status").then((s) => { setInitial(s); setLoaded(true); }).catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
-  return { status: statusEvent ?? initial, latency, history, refresh };
+  return { status: statusEvent ?? initial, latency, history, refresh, loaded: loaded || statusEvent !== undefined };
 }

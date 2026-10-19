@@ -1,0 +1,20 @@
+.page { display: flex; justify-content: center; align-items: center; min-height: 100%; padding: var(--relay-space-5) 0; box-sizing: border-box; }
+.column { display: flex; flex-direction: column; align-items: center; gap: var(--relay-space-4); width: 100%; max-width: 380px; }
+.title { margin: 0; font: 600 26px/1.15 var(--relay-font); letter-spacing: -0.01em; }
+.done { color: var(--relay-ok); vertical-align: -3px; }
+.lead { margin: 0; text-align: center; color: var(--relay-text-2); }
+.steps { align-self: stretch; margin: 0; padding-left: var(--relay-space-5); color: var(--relay-text-2); line-height: 1.7; }
+.steps li::marker { color: var(--relay-text-3); font-variant-numeric: tabular-nums; }
+.column > ul, .column > p:not(.lead) { align-self: stretch; }
+.status, .error { min-height: 18px; margin: 0; font: var(--relay-text-sm) var(--relay-font); text-align: center; color: var(--relay-text-2); }
+.error { color: var(--relay-danger); }
+.link { border: 0; padding: 0; background: none; font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); text-decoration: underline; text-underline-offset: 2px; cursor: default; }
+.link:hover { color: var(--relay-text); }
+.link:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 2px; border-radius: 2px; }
+.manual { display: flex; gap: var(--relay-space-2); }
+.input {
+  min-width: 0; width: 180px; height: var(--relay-control-h); box-sizing: border-box; padding: 0 var(--relay-space-2);
+  border: 0; border-radius: var(--relay-radius-md); background: var(--relay-fill-hover); color: var(--relay-text);
+  font: var(--relay-text-md) var(--relay-font); -webkit-user-select: text; user-select: text;
+}
+.input:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }

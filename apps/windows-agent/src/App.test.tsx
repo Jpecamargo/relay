@@ -105,3 +105,14 @@ test("Ajustes traz o bloco Sobre com a atualização manual desabilitada fora do
   expect(screen.getByRole("heading", { name: "Sobre" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Procurar atualizações" }).hasAttribute("disabled")).toBe(true);
 });
+
+test("sem Mac pareado o código aparece grande, dígito a dígito, com a contagem, antes do status", async () => {
+  setup({ status: "Pairing", peer_name: null, focus: "Windows" });
+  render(<UpdaterProvider><App /></UpdaterProvider>);
+  await act(async () => {});
+  expect(screen.getByRole("heading", { name: "Conecte seu Mac" })).toBeTruthy();
+  const code = screen.getByLabelText("Código de pareamento");
+  expect([...code.children].map((d) => d.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
+  expect(screen.getByText("2:00")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Revogar" })).toBeNull();
+});

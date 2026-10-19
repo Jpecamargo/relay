@@ -39,7 +39,7 @@ interface SettingsState {
 
 const Ctx = createContext<SettingsState | null>(null);
 
-function useSettings(): SettingsState {
+export function useSettings(): SettingsState {
   const s = useContext(Ctx);
   if (!s) throw new Error("SettingsProvider ausente");
   return s;

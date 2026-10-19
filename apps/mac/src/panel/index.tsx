@@ -42,7 +42,7 @@ function openFromPanel(section?: Parameters<typeof openMain>[0]) {
 }
 
 export function Panel() {
-  const { status, latency, refresh } = useLiveStatus();
+  const { status, latency, refresh, loaded } = useLiveStatus();
   const secureEvent = useRelayEvent("relay:secure-input");
   const permEvent = useRelayEvent("relay:permissions");
 
@@ -85,7 +85,7 @@ export function Panel() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey && e.key === ",") {
         e.preventDefault();
-        openFromPanel("general");
+        openFromPanel(statusRef.current.peer_name ? "general" : undefined);
       } else if (e.metaKey && e.key.toLowerCase() === "q") {
         e.preventDefault();
         void invokeCommand("quit_app");
@@ -99,6 +99,7 @@ export function Panel() {
 
   const key = statusKey(status.status);
   const online = key === "Connected";
+  const firstUse = loaded && !status.peer_name;
   const canWake = key === "Disconnected" || key === "Discovering";
   const secure = secureEvent?.active ?? status.secure_input;
   const permissions = permEvent ?? perms;
@@ -123,8 +124,8 @@ export function Panel() {
         </div>
         <div className={styles.subRow}>
           <StatusDot tone={statusTone(key)} label={STATUS_LABELS[key] ?? key} />
-          <span>{STATUS_LABELS[key] ?? key}{latency && online ? ` · ${decimal(latency.rtt_ms)} ms` : ""}</span>
-          <span className={styles.focus}>{status.focus === "Mac" ? "Foco: Mac" : "Foco: Windows"}</span>
+          <span>{firstUse ? "Nenhum PC pareado" : `${STATUS_LABELS[key] ?? key}${latency && online ? ` · ${decimal(latency.rtt_ms)} ms` : ""}`}</span>
+          {firstUse ? null : <span className={styles.focus}>{status.focus === "Mac" ? "Foco: Mac" : "Foco: Windows"}</span>}
         </div>
       </header>
 
@@ -145,49 +146,62 @@ export function Panel() {
         </div>
       ) : null}
 
-      <hr className={styles.sep} />
-      <VolumeBlock act={act} online={online} />
-      <hr className={styles.sep} />
+      {firstUse ? (
+        <>
+          <hr className={styles.sep} />
+          <div className={styles.group}>
+            <MenuRow label="Conectar seu PC…" icon="link" onClick={() => openFromPanel()} />
+          </div>
+          <hr className={styles.sep} />
+        </>
+      ) : (
+        <>
+        <hr className={styles.sep} />
+        <VolumeBlock act={act} online={online} />
+        <hr className={styles.sep} />
+
+        <div className={styles.group}>
+          <MenuRow
+            label="Travar cursor" icon="lock" checked={status.locked} shortcut={hotkey("ToggleLock")}
+            onClick={() => void act("Travar cursor", () => invokeCommand("set_cursor_lock", { locked: !status.locked })).then(refresh)}
+          />
+          <MenuRow
+            label="Pausar compartilhamento" icon="pause" checked={status.paused} shortcut={hotkey("TogglePause")}
+            onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused })).then(refresh)}
+          />
+          <MenuRow
+            label="Som do PC no Mac" icon="volume" checked={audio.pc_to_mac}
+            onClick={() => setAudio("Som do PC no Mac", { ...audio, pc_to_mac: !audio.pc_to_mac })}
+          />
+          <MenuRow
+            label="Microfone do Mac no PC" icon="mic" checked={audio.mac_to_pc}
+            onClick={() => setAudio("Microfone do Mac no PC", { ...audio, mac_to_pc: !audio.mac_to_pc })}
+          />
+        </div>
+        <hr className={styles.sep} />
+
+        <div className={styles.group}>
+          {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={openUpdateFromPanel} /> : null}
+          <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
+          <SoundMenu act={act} online={online} streamToMac={audio.pc_to_mac} />
+          <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />
+          {online ? <CaptureMenu show={show} firstTime={firstTime} /> : null}
+          <PcMenu act={act} online={online} canWake={canWake} wakeShortcut={hotkey("WakePc")} />
+          <MenuRow
+            label="Enviar clipboard agora" icon="clipboard" shortcut={hotkey("ClipboardSendNow")}
+            onClick={() => void act("Clipboard enviado", () => invokeCommand("clipboard_send_now"), "Clipboard enviado")}
+          />
+          {key === "Disconnected" ? (
+            <MenuRow label="Reconectar" icon="refresh" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))} />
+          ) : null}
+        </div>
+        <hr className={styles.sep} />
+
+        </>
+      )}
 
       <div className={styles.group}>
-        <MenuRow
-          label="Travar cursor" icon="lock" checked={status.locked} shortcut={hotkey("ToggleLock")}
-          onClick={() => void act("Travar cursor", () => invokeCommand("set_cursor_lock", { locked: !status.locked })).then(refresh)}
-        />
-        <MenuRow
-          label="Pausar compartilhamento" icon="pause" checked={status.paused} shortcut={hotkey("TogglePause")}
-          onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused })).then(refresh)}
-        />
-        <MenuRow
-          label="Som do PC no Mac" icon="volume" checked={audio.pc_to_mac}
-          onClick={() => setAudio("Som do PC no Mac", { ...audio, pc_to_mac: !audio.pc_to_mac })}
-        />
-        <MenuRow
-          label="Microfone do Mac no PC" icon="mic" checked={audio.mac_to_pc}
-          onClick={() => setAudio("Microfone do Mac no PC", { ...audio, mac_to_pc: !audio.mac_to_pc })}
-        />
-      </div>
-      <hr className={styles.sep} />
-
-      <div className={styles.group}>
-        {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={openUpdateFromPanel} /> : null}
-        <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
-        <SoundMenu act={act} online={online} streamToMac={audio.pc_to_mac} />
-        <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />
-        {online ? <CaptureMenu show={show} firstTime={firstTime} /> : null}
-        <PcMenu act={act} online={online} canWake={canWake} wakeShortcut={hotkey("WakePc")} />
-        <MenuRow
-          label="Enviar clipboard agora" icon="clipboard" shortcut={hotkey("ClipboardSendNow")}
-          onClick={() => void act("Clipboard enviado", () => invokeCommand("clipboard_send_now"), "Clipboard enviado")}
-        />
-        {key === "Disconnected" ? (
-          <MenuRow label="Reconectar" icon="refresh" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))} />
-        ) : null}
-      </div>
-      <hr className={styles.sep} />
-
-      <div className={styles.group}>
-        <MenuRow label="Ajustes…" icon="gear" shortcut="⌘," onClick={() => openFromPanel("general")} />
+        {firstUse ? null : <MenuRow label="Ajustes…" icon="gear" shortcut="⌘," onClick={() => openFromPanel("general")} />}
         <MenuRow label="Encerrar" icon="quit" shortcut="⌘Q" onClick={() => void invokeCommand("quit_app")} />
       </div>
       {toast}

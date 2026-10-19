@@ -2,7 +2,7 @@
 import { invokeCommand, type TransferProgress } from "@relay/protocol-types";
 import { Icon, StatusDot, updateOf, UpdaterProvider, useRelayEvent, useUpdate, type IconName } from "@relay/ui";
 import { listen } from "@tauri-apps/api/event";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Editor } from "../editor";
 import { SaveBar, SettingsPane, SettingsProvider } from "../settings";
 import { STATUS_LABELS, statusKey, statusTone } from "../shared/status";
@@ -11,6 +11,7 @@ import { useLiveStatus } from "../shared/useLiveStatus";
 import type { Section } from "../shared/windows";
 import { LiveAudio } from "./LiveAudio";
 import styles from "./main.module.css";
+import { FirstPairing } from "./FirstPairing";
 import { Overview } from "./Overview";
 
 const SECTIONS: ReadonlyArray<{ id: Section; label: string; icon: IconName }> = [
@@ -42,7 +43,7 @@ function MainShell() {
   const newVersion = updateOf(state)?.version;
   useRelayEvent("relay:update-available", () => void verify());
   const [section, setSection] = useState<Section>("overview");
-  const { status, latency, history, refresh } = useLiveStatus();
+  const { status, latency, history, refresh, loaded } = useLiveStatus();
   const metrics = useRelayEvent("relay:metrics");
   const audioStats = useRelayEvent("relay:audio-stats");
   const [transfers, setTransfers] = useState<TransferProgress[]>([]);
@@ -69,9 +70,33 @@ function MainShell() {
     };
   }, []);
 
+  // Sem PC pareado a janela é só a tela de pareamento; o sucesso fica em tela até o usuário seguir.
+  const needsPairing = loaded && !status.peer_name;
+  const [showingPairing, setShowingPairing] = useState(false);
+  if (needsPairing && !showingPairing) setShowingPairing(true);
+  const finishPairing = useCallback(() => {
+    setShowingPairing(false);
+    setSection("overview");
+  }, []);
+
   const key = statusKey(status.status);
   const online = key === "Connected";
   const current = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]!;
+
+  if (!loaded) return <div className={styles.boot} data-tauri-drag-region />;
+
+  if (needsPairing || showingPairing) {
+    return (
+      <SettingsProvider>
+        <div className={styles.pairingShell}>
+          <div className={styles.drag} data-tauri-drag-region />
+          <main className={styles.scroll}>
+            <FirstPairing peerName={needsPairing ? null : status.peer_name} onDone={finishPairing} />
+          </main>
+        </div>
+      </SettingsProvider>
+    );
+  }
 
   return (
     <SettingsProvider>

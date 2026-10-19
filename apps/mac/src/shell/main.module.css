@@ -1,5 +1,7 @@
 /* Janela com material "sidebar": a coluna da esquerda fica transparente (vibrancy), o conteúdo é opaco. */
 .shell { display: grid; grid-template-columns: 224px 1fr; height: 100vh; color: var(--relay-text); font: var(--relay-text-md) var(--relay-font); -webkit-user-select: none; user-select: none; }
+.boot { height: 100vh; background: var(--relay-bg); }
+.pairingShell { position: relative; display: flex; flex-direction: column; height: 100vh; background: var(--relay-bg); color: var(--relay-text); font: var(--relay-text-md) var(--relay-font); -webkit-user-select: none; user-select: none; }
 .sidebar { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 56px 10px 10px; overflow-y: auto; }
 .drag { position: absolute; top: 0; left: 0; right: 0; height: 52px; }
 .item {

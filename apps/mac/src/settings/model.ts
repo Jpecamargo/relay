@@ -50,10 +50,6 @@ export const actionKey = (a: HotkeyAction): string => (typeof a === "string" ? a
 
 export const comboKey = (c: KeyCombo): string => `${[...c.modifiers].sort().join("+")}+${c.key}`;
 
-export function isValidPairCode(code: string): boolean {
-  return /^\d{6}$/.test(code);
-}
-
 /** Troca (ou remove, com `null`) o atalho de uma ação. */
 export function setHotkey(list: HotkeyBinding[], action: HotkeyAction, combo: KeyCombo | null): HotkeyBinding[] {
   const k = actionKey(action);

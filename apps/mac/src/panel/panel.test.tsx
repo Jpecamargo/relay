@@ -301,3 +301,12 @@ test("itens condicionais: Capturar só online; Reconectar só desconectado", asy
   expect(screen.queryByRole("button", { name: "Capturar tela do PC" })).toBeNull();
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
 });
+
+test("sem PC pareado o painel leva à tela de pareamento e esconde os controles", async () => {
+  await ready();
+  await emit("relay:status", { ...STATUS, status: "Disconnected", peer_name: null });
+  expect(await screen.findByRole("button", { name: "Conectar seu PC…" })).toBeTruthy();
+  expect(screen.getByText("Nenhum PC pareado")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Travar cursor" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Ajustes…" })).toBeNull();
+});

@@ -68,6 +68,34 @@ export function Pairing({ peerName }: PairingProps) {
 
   const hasPeer = paired || peerName !== null;
 
+  if (!hasPeer) {
+    const showing = code !== null && !expired;
+    return (
+      <section className="hero" aria-labelledby="hero-title">
+        <h1 id="hero-title" className="hero-title">Conecte seu Mac</h1>
+        <p className="hero-lead">No Mac, abra o Relay e digite este código.</p>
+        {error ? <Banner tone="danger">{error}</Banner> : null}
+        {showing ? (
+          <>
+            <output className="hero-code" aria-label="Código de pareamento">
+              {code.split("").map((digit, i) => (
+                <span key={i} className="hero-digit">{digit}</span>
+              ))}
+            </output>
+            <p className="hero-expiry">
+              Expira em <span className={remaining !== null && remaining <= 30 ? "hero-expiry-soon" : undefined}>{format(remaining ?? 0)}</span>
+            </p>
+          </>
+        ) : (
+          <p className="hero-lead">{expired ? "O código expirou." : "Gere um código para parear."}</p>
+        )}
+        <Button variant={showing ? "default" : "primary"} onClick={() => void generate()}>
+          {showing ? "Gerar novo código" : "Gerar código"}
+        </Button>
+      </section>
+    );
+  }
+
   return (
     <Section
       title="Pareamento"
