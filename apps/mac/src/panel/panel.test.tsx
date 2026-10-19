@@ -286,10 +286,10 @@ test("falha na captura vira toast de erro e não diz que copiou", async () => {
 
 test("itens condicionais: Capturar só online; Reconectar só desconectado", async () => {
   await ready();
-  expect(screen.getByRole("button", { name: "Capturar tela do PC" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Capturar tela do PC" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Reconectar" })).toBeNull();
   await emit("relay:status", { ...STATUS, status: "Disconnected" });
+  fireEvent.click(await screen.findByRole("button", { name: "Reconectar" }));
   expect(screen.queryByRole("button", { name: "Capturar tela do PC" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Reconectar" }));
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
 });

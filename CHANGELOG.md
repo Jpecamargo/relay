@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- Som do PC no Mac: se o instalador do VB-CABLE deixou o "CABLE Input" como saída padrão do Windows, o agente volta para a saída real (caixas/fone) enquanto o stream está ligado, em vez de capturar o próprio microfone.
+- O volume no menu acompanha cada troca de saída de som do PC, não só a primeira.
+- O ícone da barra de menus não pisca mais nas trocas de tela.
+- Logs de diagnóstico do som do PC e das trocas de foco, nos dois apps.
+
 - O app do Mac passa a ter assinatura fixa: depois de conceder Acessibilidade e Monitoramento de Entrada uma última vez, as atualizações não pedem mais as permissões.
 
 ## 0.1.3
