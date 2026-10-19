@@ -62,6 +62,8 @@ fn supervise() -> windows_service::Result<()> {
     let accept = ServiceControlAccept::STOP | ServiceControlAccept::SESSION_CHANGE;
     handle.set_service_status(status(ServiceState::Running, accept, Duration::ZERO))?;
 
+    crate::firewall::repair();
+
     let mut helper: Option<HelperProcess> = None;
     let mut backoff = Backoff::default();
     let mut next_launch = Instant::now();

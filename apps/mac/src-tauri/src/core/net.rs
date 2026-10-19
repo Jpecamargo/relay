@@ -295,6 +295,10 @@ impl<P: Platform> Manager<P> {
     }
 
     async fn maybe_connect(&mut self) {
+        if self.active.is_some() {
+            // Recalcula `pc_unreachable` com o passar do tempo; só emite se o snapshot mudar.
+            self.inner.mutate(|_| {});
+        }
         let (peer, pairing) = {
             let st = self.inner.st();
             (st.peer.clone(), st.pairing)
@@ -369,6 +373,7 @@ impl<P: Platform> Manager<P> {
         let (ctl_tx, ctl_rx) = unbounded_channel();
         self.inner.mutate(|s| {
             s.session_gen = epoch;
+            s.dialing_since = Some(Instant::now());
             s.session = Some(ConnectionStatus::Connecting);
         });
         let to_pump = out_tx.clone();
@@ -393,6 +398,7 @@ impl<P: Platform> Manager<P> {
         }
         self.inner.mutate(|s| {
             s.session_gen += 1;
+            s.dialing_since = None;
             s.session = None;
         });
         self.inner.core(CoreCmd::SessionDown);

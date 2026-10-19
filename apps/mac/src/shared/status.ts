@@ -3,7 +3,7 @@ import type { StatusTone } from "@relay/ui";
 
 export const EMPTY_STATUS: StatusSnapshot = {
   status: "Disconnected", peer_name: null, focus: "Mac", locked: false, paused: false,
-  secure_input: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
+  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
 };
 
 export const STATUS_LABELS: Record<string, string> = {

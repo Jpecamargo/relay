@@ -128,7 +128,7 @@ export function Panel() {
         </div>
       </header>
 
-      {secure || missing.length > 0 || incompatible || key === "Reconnecting" ? (
+      {secure || missing.length > 0 || incompatible || status.pc_unreachable || key === "Reconnecting" ? (
         <div className={styles.banners}>
           {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
           {missing.map(([kind, label]) => (
@@ -140,6 +140,7 @@ export function Panel() {
             </Banner>
           ))}
           {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
+          {status.pc_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O firewall do Windows pode estar bloqueando o Relay: atualize o Relay Agent.</Banner> : null}
           {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
         </div>
       ) : null}

@@ -43,7 +43,7 @@ beforeEach(() => {
   bridge.invoke.mockReset();
   bridge.invoke.mockImplementation(async (name: string) => {
     if (name === "get_status")
-      return { status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false, secure_input: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false } };
+      return { status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false, secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false } };
     if (name === "get_displays") return { mac: [], windows: [] };
     if (name === "get_config") return structuredClone(CONFIG);
     return undefined;

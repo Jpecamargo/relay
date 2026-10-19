@@ -313,6 +313,7 @@ impl Pump {
             locked: false,
             paused: self.paused,
             secure_input: false,
+            pc_unreachable: false,
             clipboard_sync: self.shared.config().clipboard.enabled,
             audio: self
                 .media

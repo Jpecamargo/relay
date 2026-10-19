@@ -19,7 +19,7 @@ vi.mock("@relay/protocol-types", () => ({
 
 const STATUS: StatusSnapshot = {
   status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false,
-  secure_input: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
+  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
 };
 
 let sendResult: unknown;
@@ -173,6 +173,14 @@ test("banner de reconexão tem 'Tentar de novo' que chama reconnect", async () =
   emit("relay:status", { ...STATUS, status: "Reconnecting" });
   fireEvent.click(await screen.findByRole("button", { name: "Tentar de novo" }));
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
+});
+
+test("PC visto mas sem resposta explica o firewall; sem o flag, nada", async () => {
+  await ready();
+  emit("relay:status", { ...STATUS, status: "Connecting" });
+  expect(screen.queryByText(/firewall do Windows/)).toBeNull();
+  emit("relay:status", { ...STATUS, status: "Connecting", pc_unreachable: true });
+  expect((await screen.findByText(/O PC está na rede mas não responde/)).textContent).toContain("atualize o Relay Agent");
 });
 
 test("relay:command-result de áudio mostra toast e desliga o toggle", async () => {

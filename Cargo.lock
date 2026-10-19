@@ -3883,6 +3883,7 @@ dependencies = [
 name = "relay-windows-service"
 version = "0.1.5"
 dependencies = [
+ "relay-core",
  "relay-platform-windows",
  "tracing",
  "tracing-subscriber",

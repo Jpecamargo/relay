@@ -7,4 +7,9 @@ export type StatusSnapshot = { status: ConnectionStatus, peer_name: string | nul
 /**
  * Máquina que recebe o input agora.
  */
-focus: Machine, locked: boolean, paused: boolean, secure_input: boolean, clipboard_sync: boolean, audio: AudioState, };
+focus: Machine, locked: boolean, paused: boolean, secure_input: boolean, 
+/**
+ * O PC é conhecido (mDNS ou endereço manual) mas o TCP de controle não responde há tempo
+ * demais: no Windows, em geral o firewall.
+ */
+pc_unreachable: boolean, clipboard_sync: boolean, audio: AudioState, };

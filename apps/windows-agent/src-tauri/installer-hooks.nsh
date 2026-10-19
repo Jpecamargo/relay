@@ -14,6 +14,7 @@
 !macro NSIS_HOOK_POSTINSTALL
   ; Serviço RelayService (SYSTEM) + regras de firewall do Relay. Valem em qualquer perfil (o Windows
   ; costuma marcar Ethernet nova como Pública), mas só para a sub-rede local.
+  ; O serviço recria as mesmas regras a cada início (apps/windows-service/src/firewall.rs): mudou aqui, mude lá.
   nsExec::ExecToLog '"$INSTDIR\relay-service.exe" install'
   Pop $0
   ; Rede de segurança: garante o início mesmo se o install não conseguiu (já rodando = ok).

@@ -39,6 +39,9 @@ pub struct StatusSnapshot {
     pub locked: bool,
     pub paused: bool,
     pub secure_input: bool,
+    /// O PC é conhecido (mDNS ou endereço manual) mas o TCP de controle não responde há tempo
+    /// demais: no Windows, em geral o firewall.
+    pub pc_unreachable: bool,
     pub clipboard_sync: bool,
     pub audio: AudioState,
 }

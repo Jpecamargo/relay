@@ -108,6 +108,7 @@ impl AgentBackend for ResilientBackend {
                 locked: false,
                 paused: false,
                 secure_input: false,
+                pc_unreachable: false,
                 clipboard_sync: lock(&self.config).clipboard.enabled,
                 audio: Default::default(),
             },

@@ -152,6 +152,7 @@ fn initial_snapshot(config: &Config) -> StatusSnapshot {
         locked: false,
         paused: false,
         secure_input: false,
+        pc_unreachable: false,
         clipboard_sync: config.clipboard.enabled,
         audio: AudioState::default(),
     }

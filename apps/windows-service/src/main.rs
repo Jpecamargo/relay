@@ -3,6 +3,8 @@
 
 mod cli;
 #[cfg_attr(not(windows), allow(dead_code))]
+mod firewall;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod logging;
 #[cfg(windows)]
 mod supervisor;

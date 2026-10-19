@@ -64,6 +64,7 @@ mod mock {
                         locked: false,
                         paused: false,
                         secure_input: false,
+                        pc_unreachable: false,
                         clipboard_sync: true,
                         audio: Default::default(),
                     },

@@ -159,6 +159,7 @@ impl Default for MockBackend {
                     locked: false,
                     paused: false,
                     secure_input: false,
+                    pc_unreachable: false,
                     clipboard_sync: true,
                     audio: AudioState {
                         pc_to_mac: false,

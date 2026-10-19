@@ -960,3 +960,13 @@ async fn latencia_da_borda() {
     );
     core.shutdown();
 }
+
+#[test]
+fn pc_visto_mas_mudo_so_depois_do_limite_na_primeira_conexao() {
+    use ConnectionStatus::*;
+    let (curto, longo) = (Some(UNREACHABLE_AFTER / 2), Some(UNREACHABLE_AFTER));
+    assert!(!pc_unreachable(Connecting, curto));
+    assert!(pc_unreachable(Connecting, longo));
+    assert!(!pc_unreachable(Reconnecting, longo));
+    assert!(!pc_unreachable(Discovering, None));
+}

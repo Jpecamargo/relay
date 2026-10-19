@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use relay_core::config;
 use relay_core::platform::{DisplaySource, KeyStore, LoopWaker};
@@ -82,6 +82,8 @@ pub(crate) struct State {
     pub session: Option<ConnectionStatus>,
     /// Geração da sessão atual: a bomba de uma sessão velha não escreve no estado.
     pub session_gen: u64,
+    /// Quando a sessão atual começou a discar (`None`: não há sessão).
+    pub dialing_since: Option<Instant>,
     pub pairing: bool,
     pub local: Vec<DisplayInfo>,
     pub remote: Vec<DisplayInfo>,
@@ -110,9 +112,20 @@ pub(crate) fn derive_status(
     }
 }
 
+/// Quanto o primeiro TCP de controle pode ficar sem resposta antes de culparmos o PC/firewall.
+pub(crate) const UNREACHABLE_AFTER: Duration = Duration::from_secs(10);
+
+/// Só vale para a primeira conexão (`Connecting`): em `Reconnecting` o PC pode simplesmente ter
+/// sido desligado. Sem sessão (`Discovering`: PC fora do mDNS) nunca acusa.
+pub(crate) fn pc_unreachable(status: ConnectionStatus, dialing_for: Option<Duration>) -> bool {
+    status == ConnectionStatus::Connecting && dialing_for.is_some_and(|d| d >= UNREACHABLE_AFTER)
+}
+
 impl State {
     fn derive(&mut self) {
         self.status.status = derive_status(self.peer.is_some(), self.pairing, self.session);
+        self.status.pc_unreachable =
+            pc_unreachable(self.status.status, self.dialing_since.map(|t| t.elapsed()));
         self.status.peer_name = self.peer.as_ref().map(|p| p.name.clone());
     }
 }
@@ -266,6 +279,7 @@ impl<P: Platform> AppCore<P> {
             locked: false,
             paused: false,
             secure_input: false,
+            pc_unreachable: false,
             clipboard_sync: config.clipboard.enabled,
             audio: AudioState::default(),
         };
@@ -282,6 +296,7 @@ impl<P: Platform> AppCore<P> {
                 peer: None,
                 session: None,
                 session_gen: 0,
+                dialing_since: None,
                 pairing: false,
                 local,
                 remote: Vec::new(),
