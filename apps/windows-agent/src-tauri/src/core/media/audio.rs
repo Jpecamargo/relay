@@ -9,7 +9,7 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub use relay_core::audio::DATAGRAM_LEN;
 use relay_core::audio::{
@@ -25,6 +25,7 @@ use relay_platform_windows::audio_endpoints::{find_vbcable, find_virtual_output}
 use super::platform::{AudioHost, OutputGuard};
 
 const TAG_LEN: usize = 16;
+const STATS_EVERY: Duration = Duration::from_secs(5);
 
 /// Frames de 5 ms que o ring do dispositivo de reprodução mantém cheios (15 ms).
 const RING_FILL_FRAMES: usize = 3;
@@ -110,7 +111,37 @@ fn start_pc(
                 .is_empty() =>
         {
             // Sem saída virtual: captura a saída padrão sem trocá-la (o PC também continua tocando).
-            let mut c = host.loopback(None);
+            // O instalador do VB-CABLE a deixa como padrão: o loopback dele traria de volta o
+            // microfone do Mac (que o agente toca ali) e o PC ficaria mudo. Sai dele para uma real.
+            let devices = host.devices().map_err(|e| plat_err(&e))?;
+            let cable = find_vbcable(&devices).input;
+            let default_is_cable = cable
+                .as_ref()
+                .is_some_and(|c| devices.outputs.iter().any(|d| d.is_default && d.id == c.id));
+            let real = default_is_cable
+                .then(|| {
+                    devices
+                        .outputs
+                        .iter()
+                        .find(|d| !d.name.trim().to_lowercase().starts_with("cable"))
+                })
+                .flatten();
+            let id = match real {
+                Some(dev) => {
+                    let mut g = host.guard().map_err(|e| plat_err(&e))?;
+                    g.switch_to(&dev.id).map_err(|e| plat_err(&e))?;
+                    guard = Some(g);
+                    tracing::info!(saida = %dev.name, "saída padrão era o CABLE Input; trocada para captura");
+                    Some(dev.id.clone())
+                }
+                None => {
+                    if default_is_cable {
+                        tracing::warn!("saída padrão é o CABLE Input e não há outra saída real");
+                    }
+                    None
+                }
+            };
+            let mut c = host.loopback(id);
             let rx = begin(&mut *c)?;
             (c, rx)
         }
@@ -158,6 +189,7 @@ fn start_pc(
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let mut rx = ring_rx;
+    tracing::info!(%dest, "áudio PC→Mac iniciado");
     let thread = std::thread::Builder::new()
         .name("relay-audio-tx".into())
         .spawn(move || {
@@ -166,7 +198,14 @@ fn start_pc(
                 Vec::with_capacity(PLAIN_LEN + TAG_LEN),
                 Vec::with_capacity(DATAGRAM_LEN),
             );
+            let (mut sent, mut send_errors, mut last) = (0u64, 0u64, Instant::now());
             while !flag.load(Ordering::Acquire) {
+                if last.elapsed() >= STATS_EVERY {
+                    last = Instant::now();
+                    // Zero pacotes: endpoint em silêncio (o WASAPI não entrega frames) ou captura morta.
+                    tracing::info!(sent, send_errors, %dest, "áudio PC→Mac");
+                    (sent, send_errors) = (0, 0);
+                }
                 match rx.pop() {
                     Ok(frame) => {
                         // Contador por sessão e canal: nunca repete seq com a mesma chave (nonce).
@@ -180,12 +219,16 @@ fn start_pc(
                             &mut cipher,
                             &mut wire,
                         ) {
-                            let _ = socket.send_to(&wire, dest);
+                            match socket.send_to(&wire, dest) {
+                                Ok(_) => sent += 1,
+                                Err(_) => send_errors += 1,
+                            }
                         }
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(1)),
                 }
             }
+            tracing::info!(%dest, "áudio PC→Mac encerrado");
         })
         .map_err(|e| e.to_string());
     match thread {
