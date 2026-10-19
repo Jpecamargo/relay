@@ -39,7 +39,7 @@ Sem conta Apple Developer, a release assina com o certificado autoassinado "Rela
 O ponto é o designated requirement: em ad-hoc ele é o `cdhash`, que muda a cada build, e o macOS esquece
 Acessibilidade e Monitoramento de Entrada a cada versão. Com o certificado ele vira
 `identifier "com.joaocamargo.relay" and certificate leaf = H"bb9d7e96…"`, estável entre versões. Conferir com
-`codesign -d -r- /Applications/Relay.app`. O certificado público fica em `apps/mac/src-tauri/relay-codesign.crt`; o CI o marca como confiável para assinatura antes do build (o tauri só aceita identidades válidas). Perder o `.p12` muda o DR e todos concedem de novo; não
+`codesign -d -r- /Applications/Relay.app`. O CI importa o `.p12` num keychain do job (o tauri, ao importar `APPLE_CERTIFICATE` sozinho, só aceita nomes da Apple) e passa só `APPLE_SIGNING_IDENTITY`. O certificado público fica em `apps/mac/src-tauri/relay-codesign.crt`, para conferência. Perder o `.p12` muda o DR e todos concedem de novo; não
 regenerar. O Gatekeeper continua pedindo "Abrir mesmo assim" no primeiro download (sem notarização).
 
 ## Updater
