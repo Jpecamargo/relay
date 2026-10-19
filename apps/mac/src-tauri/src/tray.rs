@@ -1,6 +1,8 @@
 //! dono: MI2 (casco: MAC1)
 //! Ícone no menu bar: clique esquerdo alterna o painel (sob o ícone), clique direito abre o menu.
 
+use std::sync::Mutex;
+
 use relay_core::types::{
     CommandResult, ConnectionStatus, PowerAction, RemoteCommand, StatusSnapshot,
 };
@@ -20,6 +22,45 @@ pub struct TrayHandles {
     lock: CheckMenuItem<Wry>,
     pause: CheckMenuItem<Wry>,
     tray: TrayIcon<Wry>,
+    applied: Mutex<Applied>,
+}
+
+/// O que já está na bandeja. Reaplicar o mesmo ícone faz o NSStatusItem piscar, e o status é
+/// emitido a cada troca de foco: `sync` só toca no que mudou.
+#[derive(Default)]
+struct Applied {
+    label: String,
+    locked: bool,
+    paused: bool,
+    connected: Option<bool>,
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct Changes {
+    label: bool,
+    locked: bool,
+    paused: bool,
+    icon: bool,
+}
+
+impl Applied {
+    fn update(&mut self, s: &StatusSnapshot) -> Changes {
+        let label = status_label(s);
+        let connected = tray_connected(s);
+        let changes = Changes {
+            label: self.label != label,
+            locked: self.locked != s.locked,
+            paused: self.paused != s.paused,
+            icon: self.connected != Some(connected),
+        };
+        *self = Applied {
+            label,
+            locked: s.locked,
+            paused: s.paused,
+            connected: Some(connected),
+        };
+        changes
+    }
 }
 
 /// Ícone cheio só com o PC conectado; qualquer outro estado usa a variante tracejada.
@@ -45,16 +86,29 @@ pub fn status_label(s: &StatusSnapshot) -> String {
 
 impl TrayHandles {
     pub fn sync(&self, s: &StatusSnapshot) {
-        let _ = self.status.set_text(status_label(s));
-        let _ = self.lock.set_checked(s.locked);
-        let _ = self.pause.set_checked(s.paused);
-        let icon = if tray_connected(s) {
-            tauri::include_image!("icons/tray-template@2x.png")
-        } else {
-            tauri::include_image!("icons/tray-template-off@2x.png")
-        };
-        let _ = self.tray.set_icon(Some(icon));
-        let _ = self.tray.set_icon_as_template(true);
+        let changes = self
+            .applied
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .update(s);
+        if changes.label {
+            let _ = self.status.set_text(status_label(s));
+        }
+        if changes.locked {
+            let _ = self.lock.set_checked(s.locked);
+        }
+        if changes.paused {
+            let _ = self.pause.set_checked(s.paused);
+        }
+        if changes.icon {
+            let icon = if tray_connected(s) {
+                tauri::include_image!("icons/tray-template@2x.png")
+            } else {
+                tauri::include_image!("icons/tray-template-off@2x.png")
+            };
+            let _ = self.tray.set_icon(Some(icon));
+            let _ = self.tray.set_icon_as_template(true);
+        }
     }
 }
 
@@ -204,6 +258,11 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         lock,
         pause,
         tray,
+        applied: Mutex::new({
+            let mut a = Applied::default();
+            a.update(&snapshot);
+            a
+        }),
     });
     Ok(())
 }
@@ -212,6 +271,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 mod tests {
     use super::*;
     use crate::backend::{AppBackend, MockBackend};
+    use relay_core::types::Machine;
 
     #[test]
     fn status_label_names_the_peer_when_connected() {
@@ -220,6 +280,20 @@ mod tests {
         let mut s = s;
         s.status = ConnectionStatus::Reconnecting;
         assert_eq!(status_label(&s), "Estado: Reconectando");
+    }
+
+    #[test]
+    fn focus_flips_do_not_touch_the_tray() {
+        let mut a = Applied::default();
+        let mut s = MockBackend::default().get_status();
+        assert!(a.update(&s).icon);
+        s.focus = Machine::Windows;
+        assert_eq!(a.update(&s), Changes::default());
+        s.focus = Machine::Mac;
+        assert_eq!(a.update(&s), Changes::default());
+        s.status = ConnectionStatus::Reconnecting;
+        let c = a.update(&s);
+        assert!(c.icon && c.label);
     }
 
     #[test]
