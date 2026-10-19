@@ -6,6 +6,8 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- A release só fica visível ao atualizador quando Mac e Windows estão prontos (antes, o Windows podia ver "None of the fallback platforms…" durante a publicação).
+
 - Primeiro uso mais simples: sem PC pareado, o Mac abre direto numa tela "Conecte seu PC" com o código de 6 dígitos em caixas grandes (digite ou cole; envia sozinho ao completar). No Windows, o código aparece grande, com a contagem de expiração, no topo do agente.
 
 ## 0.1.5

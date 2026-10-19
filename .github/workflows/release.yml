@@ -23,7 +23,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       # Notas = seção da versão no CHANGELOG.md (sem seção, cai nas notas geradas do GitHub). O corpo
       # do release vira o campo `notes` do latest.json, que o modal de atualização mostra.
-      - name: cria o release (publicado, notas do CHANGELOG)
+      # Nasce como rascunho e só é publicado no job `publish`, depois de todos os builds: publicado
+      # antes, o latest.json ficava minutos só com o Mac e o updater do Windows falhava nesse intervalo.
+      - name: cria o release (rascunho, notas do CHANGELOG)
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -36,10 +38,12 @@ jobs:
             echo "::warning::CHANGELOG.md sem seção para $TAG: usando notas geradas"
             notes_arg=(--generate-notes)
           fi
-          gh release create "$TAG" --verify-tag --title "Relay $TAG" "${notes_arg[@]}" --draft=false
-          id=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .id)
+          gh release create "$TAG" --verify-tag --title "Relay $TAG" "${notes_arg[@]}" --draft
+          # releases/tags/<tag> não enxerga rascunhos: procura na lista.
+          rel=$(gh api "repos/${{ github.repository }}/releases" --jq "[.[] | select(.tag_name == \"$TAG\")][0]")
+          id=$(jq -r .id <<< "$rel")
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
-          body=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .body)
+          body=$(jq -r .body <<< "$rel")
           { echo "notes<<RELAY_NOTES_EOF"; echo "$body"; echo "RELAY_NOTES_EOF"; } >> "$GITHUB_OUTPUT"
 
   # Os jobs de build rodam em sequência (max-parallel 1 + needs): cada um regrava o latest.json
@@ -94,7 +98,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Relay ${{ github.ref_name }}
           releaseBody: ${{ needs.create-release.outputs.notes }}
-          releaseDraft: false
+          releaseDraft: true
           includeUpdaterJson: true
       # O tauri, ao importar APPLE_CERTIFICATE, só aceita nomes da Apple ("Developer ID Application:"…).
       # O certificado próprio vai para um keychain do job, na lista de busca, e o tauri recebe só o nome.
@@ -130,7 +134,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Relay ${{ github.ref_name }}
           releaseBody: ${{ needs.create-release.outputs.notes }}
-          releaseDraft: false
+          releaseDraft: true
           includeUpdaterJson: true
       - name: build sem certificado (assinatura ad-hoc)
         if: env.HAS_APPLE_CERT != 'true'
@@ -148,7 +152,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Relay ${{ github.ref_name }}
           releaseBody: ${{ needs.create-release.outputs.notes }}
-          releaseDraft: false
+          releaseDraft: true
           includeUpdaterJson: true
 
   windows:
@@ -202,5 +206,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Relay ${{ github.ref_name }}
           releaseBody: ${{ needs.create-release.outputs.notes }}
-          releaseDraft: false
+          releaseDraft: true
           includeUpdaterJson: true
+
+  publish:
+    needs: [create-release, mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: publica o release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --latest

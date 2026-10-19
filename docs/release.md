@@ -1,7 +1,8 @@
 # Release
 
 Release por tag: `.github/workflows/release.yml` dispara em `v*` e publica **um único** GitHub Release
-(`draft=false`, notas = seção da versão no `CHANGELOG.md`) com:
+(criado como rascunho e publicado pelo job `publish` só depois de todos os builds, para o `latest.json`
+nunca ficar incompleto; notas = seção da versão no `CHANGELOG.md`) com:
 
 - Mac: `Relay_<v>_aarch64.dmg` e `Relay_<v>_x64.dmg` (+ `.app.tar.gz` e `.sig` do updater);
 - Windows: instalador NSIS do agente (`Relay Agent_<v>_x64-setup.exe`, com o `relay-service` como sidecar) + `.sig`;
