@@ -102,7 +102,8 @@ Teclado. Atalhos do Relay: ⌃⌥1/2/3 pulam para uma tela, ⌃⌥L trava o curs
 <summary><strong>Problemas comuns</strong></summary>
 
 - **"Acessibilidade negada" mesmo com a permissão dada:** o macOS amarra a permissão à assinatura do
-  app, e builds sem certificado mudam a cada versão. Feche o Relay, rode
+  app. Até a 0.1.3 ela mudava a cada versão; a partir da 0.1.4 é fixa e basta conceder uma última vez.
+  Feche o Relay, rode
   `tccutil reset Accessibility com.joaocamargo.relay && tccutil reset ListenEvent com.joaocamargo.relay`
   e conceda de novo.
 - **O Mac não encontra o PC:** confira a rede Privada no Windows, o acesso à rede local no Mac e se a

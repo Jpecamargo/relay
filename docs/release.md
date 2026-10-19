@@ -51,7 +51,7 @@ Opcionais. O workflow só os usa se existirem; sem eles o build sai **sem assina
 
 | Secret | Uso |
 |---|---|
-| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | assina o app Mac (.p12 em base64) |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | assina o app Mac (.p12 em base64); hoje o certificado próprio "Relay Self-Signed" (ver `docs/distribuicao-mac.md`) |
 | `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | notarização (senha específica de app); só com os três |
 | `WINDOWS_CERTIFICATE` (+ `WINDOWS_CERTIFICATE_PASSWORD`) | .pfx em base64 e sua senha; assina o NSIS |
 

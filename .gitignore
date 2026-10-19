@@ -4,3 +4,4 @@ dist/
 .DS_Store
 apps/*/src-tauri/gen/
 packages/*/dist/
+.claude/worktrees/

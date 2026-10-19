@@ -6,6 +6,8 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- O app do Mac passa a ter assinatura fixa: depois de conceder Acessibilidade e Monitoramento de Entrada uma última vez, as atualizações não pedem mais as permissões.
+
 ## 0.1.3
 
 - O instalador do Windows oferece instalar o VB-CABLE (VB-Audio, donationware), necessário para o microfone do Mac no PC.

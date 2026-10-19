@@ -54,6 +54,7 @@ jobs:
     runs-on: macos-latest
     env:
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -69,10 +70,11 @@ jobs:
         with:
           shared-key: release-mac-${{ matrix.target }}
       - run: pnpm install --frozen-lockfile
-      # Secret vazio no env faz o tauri tentar importar um certificado inexistente e falhar;
-      # por isso há dois steps: com Developer ID (se APPLE_CERTIFICATE existir) e ad-hoc ("-").
-      - name: build assinado (Developer ID)
-        if: env.HAS_APPLE_CERT == 'true'
+      # Secret vazio no env faz o tauri tentar importar certificado ou notarizar e falhar; por isso
+      # um step por caso: Developer ID + notarização (APPLE_ID), certificado próprio sem notarização
+      # (hoje: "Relay Self-Signed", que mantém as permissões do macOS entre versões) e ad-hoc ("-").
+      - name: build assinado e notarizado (Developer ID)
+        if: env.HAS_APPLE_CERT == 'true' && env.HAS_APPLE_ID == 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -94,7 +96,27 @@ jobs:
           releaseBody: ${{ needs.create-release.outputs.notes }}
           releaseDraft: false
           includeUpdaterJson: true
-      - name: build sem Developer ID (assinatura ad-hoc)
+      - name: build assinado com certificado próprio (sem notarização)
+        if: env.HAS_APPLE_CERT == 'true' && env.HAS_APPLE_ID != 'true'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        with:
+          projectPath: apps/mac
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: ${{ github.ref_name }}
+          releaseName: Relay ${{ github.ref_name }}
+          releaseBody: ${{ needs.create-release.outputs.notes }}
+          releaseDraft: false
+          includeUpdaterJson: true
+      - name: build sem certificado (assinatura ad-hoc)
         if: env.HAS_APPLE_CERT != 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
         env:

@@ -31,6 +31,17 @@ runtime e o `Entitlements.plist`, envia à notarização e grampeia o ticket. Co
     spctl --assess --type execute --verbose Relay.app
     xcrun stapler validate Relay.dmg
 
+### Certificado próprio (em uso)
+
+Sem conta Apple Developer, a release assina com o certificado autoassinado "Relay Self-Signed"
+(`~/.tauri/relay-codesign.{p12,password,crt,key}`, fora do repo; secrets `APPLE_CERTIFICATE`,
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, sem `APPLE_ID`, então não há notarização).
+O ponto é o designated requirement: em ad-hoc ele é o `cdhash`, que muda a cada build, e o macOS esquece
+Acessibilidade e Monitoramento de Entrada a cada versão. Com o certificado ele vira
+`identifier "com.joaocamargo.relay" and certificate leaf = H"bb9d7e96…"`, estável entre versões. Conferir com
+`codesign -d -r- /Applications/Relay.app`. Perder o `.p12` muda o DR e todos concedem de novo; não
+regenerar. O Gatekeeper continua pedindo "Abrir mesmo assim" no primeiro download (sem notarização).
+
 ## Updater
 
 Endpoint (D32): `https://github.com/Jpecamargo/relay/releases/latest/download/latest.json`.
