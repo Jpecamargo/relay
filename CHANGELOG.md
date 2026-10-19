@@ -6,6 +6,8 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- Volta do PC para o Mac corrigida: o cursor não volta mais sozinho para o PC logo depois de chegar ao Mac, e um movimento suave no trackpad já atravessa a borda (antes era preciso arrastar com força).
+
 - O aviso de "PC na rede mas não responde" aponta a causa mais comum: o roteador isolando o Wi-Fi do cabo.
 
 ## 0.1.6
