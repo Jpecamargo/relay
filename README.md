@@ -70,8 +70,7 @@ que mudou e só instala quando você clica em **Atualizar e reiniciar**.
 4. Em **Telas**, posicione os monitores do PC em volta do MacBook como estão na sua mesa.
 5. Leve o cursor até a borda. Para voltar ao Mac a qualquer momento: **⌃⌥1**.
 
-Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência) e, no
-Windows, a rede marcada como **Privada**. O microfone do Mac no PC usa o
+Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência). O microfone do Mac no PC usa o
 [VB-CABLE](https://vb-audio.com/Cable/), driver da VB-Audio distribuído como donationware: o instalador do
 Relay Agent oferece instalá-lo (o som do PC no Mac não precisa de nada).
 
@@ -106,8 +105,7 @@ Teclado. Atalhos do Relay: ⌃⌥1/2/3 pulam para uma tela, ⌃⌥L trava o curs
   Feche o Relay, rode
   `tccutil reset Accessibility com.joaocamargo.relay && tccutil reset ListenEvent com.joaocamargo.relay`
   e conceda de novo.
-- **O Mac não encontra o PC:** confira a rede Privada no Windows, o acesso à rede local no Mac e se a
-  rede não isola clientes (Wi-Fi de visitantes). Use o IP manual como plano B.
+- **O Mac não encontra o PC:** confira o acesso à rede local no Mac e se a rede não isola clientes (Wi-Fi de visitantes). Use o IP manual como plano B.
 - **Logs:** `~/Library/Logs/Relay/relay.log` (Mac) e `%LOCALAPPDATA%\Relay\logs\agent.log` (Windows).
 </details>
 

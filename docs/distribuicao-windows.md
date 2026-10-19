@@ -34,7 +34,9 @@ Saída: `target/release/bundle/nsis/`.
   driver. Quando a VB-Audio trocar o pacote, o build falha no SHA-256: atualize `URL` e `SHA256` no script.
 
 - Pós-instalação: `relay-service.exe install` (cria e inicia `RelayService`) e regras de entrada
-  `Relay` no firewall, só no perfil **private**: TCP 47800 e 47804, UDP 47801-47803.
+  `Relay` no firewall, em qualquer perfil mas só da sub-rede local (`remoteip=localsubnet`): TCP 47800 e
+  47804, UDP 47801-47803. Antes da 0.1.5 eram só do perfil Privado, e Ethernet marcada como Pública
+  (padrão do Windows para rede nova) bloqueava o Relay.
 - Pré-desinstalação: `sc stop RelayService`, `relay-service.exe uninstall` e remoção das regras.
 - WebView2: `embedBootstrapper` (baixa o bootstrapper embutido se faltar).
 
@@ -74,7 +76,7 @@ item "Atualização X disponível", que abre a janela com o modal.
 Get-Service RelayService                      # Status: Running, StartType: Automatic
 sc.exe qc RelayService                        # conta LocalSystem
 Get-NetFirewallRule -DisplayName Relay | Get-NetFirewallPortFilter   # 47800/47804 TCP, 47801-47803 UDP
-Get-NetFirewallRule -DisplayName Relay | Select Profile              # Private
+Get-NetFirewallRule -DisplayName Relay | Select Profile              # Any
 Get-Content "$env:ProgramData\Relay\logs\service.log" -Tail 50
 ```
 

@@ -12,7 +12,8 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Serviço RelayService (SYSTEM) + regras de firewall do Relay (somente perfil privado).
+  ; Serviço RelayService (SYSTEM) + regras de firewall do Relay. Valem em qualquer perfil (o Windows
+  ; costuma marcar Ethernet nova como Pública), mas só para a sub-rede local.
   nsExec::ExecToLog '"$INSTDIR\relay-service.exe" install'
   Pop $0
   ; Rede de segurança: garante o início mesmo se o install não conseguiu (já rodando = ok).
@@ -20,9 +21,9 @@
   Pop $0
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Relay"'
   Pop $0
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Relay" dir=in action=allow protocol=TCP localport=47800,47804 profile=private'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Relay" dir=in action=allow protocol=TCP localport=47800,47804 profile=any remoteip=localsubnet'
   Pop $0
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Relay" dir=in action=allow protocol=UDP localport=47801-47803 profile=private'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Relay" dir=in action=allow protocol=UDP localport=47801-47803 profile=any remoteip=localsubnet'
   Pop $0
 
   ; VB-CABLE (microfone do Mac no PC): pacote oficial da VB-Audio, oferecido só se ainda não estiver
