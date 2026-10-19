@@ -341,6 +341,31 @@ fn system_mode_without_virtual_output_captures_the_default_output_without_switch
 }
 
 #[test]
+fn system_mode_leaves_cable_input_as_default_before_capturing_and_restores() {
+    // O instalador do VB-CABLE deixa o "CABLE Input" como padrão: o loopback dele traria o mic do Mac.
+    let (mut o, i) = speakers_and_cables();
+    o[0].is_default = false;
+    o[1].is_default = true;
+    let host = MockHost::new(o, i);
+    let mut r = rig(
+        host.clone(),
+        audio_cfg(PcAudioMode::System, None),
+        no_captures(),
+    );
+    r.media.link_changed(Some(agent_link()));
+    r.feed(Message::AudioControl {
+        pc_to_mac: true,
+        mac_to_pc: false,
+    });
+    wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
+    assert_eq!(host.events(), ["switch:spk", "capture:endpoint:spk"]);
+    r.media.link_changed(None);
+    wait("restaurado", || {
+        (host.events().last().unwrap() == "restore").then_some(())
+    });
+}
+
+#[test]
 fn system_mode_with_a_missing_virtual_output_is_virtual_output_missing() {
     let (o, i) = speakers_and_cables();
     let host = MockHost::new(o, i);

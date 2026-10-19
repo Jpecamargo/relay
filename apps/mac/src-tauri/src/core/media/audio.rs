@@ -31,6 +31,7 @@ const CHUNK_FRAMES: usize = 120;
 /// Quanto o ring de reprodução guarda à frente do dispositivo (em chunks).
 const RING_CHUNKS: usize = 4;
 const STATS_EVERY: Duration = Duration::from_secs(1);
+const LOG_EVERY: Duration = Duration::from_secs(5);
 const CAPTURE_RING: usize = 64;
 
 /// Os dois sentidos de áudio de uma sessão; cada um liga e desliga sozinho.
@@ -247,6 +248,7 @@ fn start_playback(
         .set_read_timeout(Some(READ_TIMEOUT))
         .map_err(|e| e.to_string())?;
     let addr = socket.local_addr().map_err(|e| e.to_string())?;
+    tracing::info!(%addr, "áudio PC→Mac: escutando");
     let (producer, consumer) = rtrb::RingBuffer::new(CHUNK_FRAMES * CHANNELS * RING_CHUNKS * 2);
     let mut device = sh.platform.playback();
     device.set_volume(cfg.stream_volume.clamp(0.0, 1.0));
@@ -265,17 +267,30 @@ fn start_playback(
     stopper.spawn("relay-audio-rx", move || {
         let mut buf = [0u8; 2048];
         let mut plain = Vec::with_capacity(PLAIN_LEN + TAG_LEN);
+        let (mut ok, mut foreign, mut bad, mut last) = (0u64, 0u64, 0u64, Instant::now());
         while !flag.load(Ordering::Relaxed) {
+            if last.elapsed() >= LOG_EVERY {
+                last = Instant::now();
+                // Tudo zerado: nada chegou na porta (firewall do Mac ou o PC não envia).
+                tracing::info!(ok, foreign, bad, %addr, "áudio PC→Mac recebido");
+                (ok, foreign, bad) = (0, 0, 0);
+            }
             let Ok((n, from)) = socket.recv_from(&mut buf) else {
                 continue;
             };
             if from.ip() != peer_ip {
+                if foreign == 0 {
+                    tracing::warn!(%from, %peer_ip, "áudio de origem diferente do PC descartado");
+                }
+                foreign += 1;
                 continue;
             }
             let Some((seq, payload)) = open_datagram(&mut aead, &buf[..n], STREAM_PC, &mut plain)
             else {
+                bad += 1;
                 continue;
             };
+            ok += 1;
             jb.lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push_payload(seq, payload)
@@ -313,6 +328,7 @@ fn play_loop(
     let mut input = vec![0f32; pcm.len()];
     let mut out = vec![0f32; chunk_samples];
     let mut last_stats = Instant::now();
+    let mut last_log = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         let filled = capacity - ring.slots();
         if filled >= RING_CHUNKS * chunk_samples {
@@ -347,6 +363,17 @@ fn play_loop(
         if last_stats.elapsed() >= STATS_EVERY {
             last_stats = Instant::now();
             let s = jitter.lock().unwrap_or_else(|e| e.into_inner()).stats();
+            if last_log.elapsed() >= LOG_EVERY {
+                last_log = Instant::now();
+                tracing::info!(
+                    received = s.received,
+                    played = s.played,
+                    lost = s.lost,
+                    underruns = s.underruns,
+                    level_ms = s.level_ms,
+                    "áudio PC→Mac jitter"
+                );
+            }
             let ring_ms = (capacity - ring.slots()) as f32 / CHANNELS as f32 / 48.0;
             events.audio_stats(&AudioStats {
                 buffer_ms: s.level_ms,

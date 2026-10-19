@@ -515,10 +515,17 @@ mod imp {
                 match cap.get_next_packet_size() {
                     Ok(Some(n)) if n > 0 => {}
                     Ok(_) => break,
-                    Err(_) => break 'outer,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "captura de áudio parou (pacote)");
+                        break 'outer;
+                    }
                 }
-                let Ok((frames, info)) = cap.read_from_device(&mut bytes) else {
-                    break 'outer;
+                let (frames, info) = match cap.read_from_device(&mut bytes) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "captura de áudio parou (leitura)");
+                        break 'outer;
+                    }
                 };
                 let len = frames as usize * s.channels * 4;
                 if info.flags.silent {
