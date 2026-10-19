@@ -15,14 +15,15 @@ const MEDIA: ReadonlyArray<{ action: MediaAction; label: string; icon: IconName 
 export function VolumeBlock({ act, online }: { act: Act; online: boolean }) {
   const [volume, setVolume] = useState(0.5);
   const [muted, setMuted] = useState(false);
-  // Volume e mudo reais do PC chegam nas métricas: inicializam o controle uma vez.
+  // O PC é a fonte da verdade (a troca de saída muda volume e mudo sem passar por aqui): segue as
+  // métricas, mas só quando o valor do PC muda, para um tick repetido não desfazer o arraste do slider.
   const metrics = useRelayEvent("relay:metrics");
-  const seeded = useRef(false);
+  const last = useRef<{ volume?: number | null; muted?: boolean | null }>({});
   useEffect(() => {
-    if (seeded.current || !metrics) return;
-    if (metrics.volume != null) setVolume(metrics.volume);
-    if (metrics.muted != null) setMuted(metrics.muted);
-    if (metrics.volume != null || metrics.muted != null) seeded.current = true;
+    if (!metrics) return;
+    if (metrics.volume != null && metrics.volume !== last.current.volume) setVolume(metrics.volume);
+    if (metrics.muted != null && metrics.muted !== last.current.muted) setMuted(metrics.muted);
+    last.current = { volume: metrics.volume, muted: metrics.muted };
   }, [metrics]);
 
   const icon: IconName = muted || volume === 0 ? "volumeMute" : volume < 0.5 ? "volumeLow" : "volume";
