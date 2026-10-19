@@ -56,6 +56,7 @@ struct Link {
 struct PushState {
     link: usize,
     start: Instant,
+    last: Instant,
     pressure: f32,
 }
 
@@ -63,6 +64,12 @@ type Push = Option<PushState>;
 
 /// Afastamento (px) do ponto de pouso a partir do qual a borda volta a acumular pressão.
 const REARM_PX: i32 = 4;
+
+/// Pausa (sem empurrar) a partir da qual a pressão acumulada é descartada.
+const PUSH_PAUSE: Duration = Duration::from_millis(200);
+
+/// Movimento oposto à borda (pt) a partir do qual a pressão zera; -1 é só ruído do trackpad.
+const AWAY_PT: i32 = 2;
 
 /// Pouso em andamento: enquanto o cursor não se afastar `REARM_PX` de `origin`, a borda não conta.
 type Landing = Option<(i32, i32)>;
@@ -95,23 +102,43 @@ fn horizontal(side: Side) -> bool {
     matches!(side, Side::Left | Side::Right)
 }
 
-/// Soma `out` (pt empurrados para fora da borda) à pressão do empurrão em `link` e diz se a
-/// troca de máquina vale agora: pressão >= `edge_resistance_pt` (0 = qualquer empurrão) ou, se
-/// `dwell_ms` > 0, empurrão que já dura esse tempo (teto para quem empurra devagar).
+/// Componente de `delta` (pt do Mac) para fora da borda `side`: positivo empurra, negativo afasta.
+fn edge_out(side: Side, delta: (i32, i32)) -> i32 {
+    match side {
+        Side::Right => delta.0,
+        Side::Left => -delta.0,
+        Side::Bottom => delta.1,
+        Side::Top => -delta.1,
+    }
+}
+
+/// Soma `out` (pt empurrados para fora da borda; negativo = afastando) à pressão do empurrão em
+/// `link` e diz se a troca de máquina vale agora: pressão >= `edge_resistance_pt` (0 = qualquer
+/// empurrão) ou, se `dwell_ms` > 0, empurrão que já dura esse tempo (teto para quem empurra
+/// devagar). Evento sem componente para fora (dx 0, só perpendicular, -1 de ruído) não zera;
+/// zera afastar >= `AWAY_PT` ou uma pausa de `PUSH_PAUSE`.
 fn push_done(push: &mut Push, link: usize, now: Instant, out: i32, cfg: &TransitionConfig) -> bool {
     let mut st = match *push {
-        Some(p) if p.link == link => p,
+        Some(p) if p.link == link && now.saturating_duration_since(p.last) < PUSH_PAUSE => p,
         _ => PushState {
             link,
             start: now,
+            last: now,
             pressure: 0.0,
         },
     };
-    st.pressure += out.unsigned_abs() as f32;
+    if out <= -AWAY_PT {
+        *push = None;
+        return false;
+    }
+    if out > 0 {
+        st.pressure += out as f32;
+        st.last = now;
+    }
     let timed_out = cfg.dwell_ms > 0
         && now.saturating_duration_since(st.start)
             >= Duration::from_millis(u64::from(cfg.dwell_ms));
-    if timed_out || st.pressure >= cfg.edge_resistance_pt {
+    if out > 0 && (timed_out || st.pressure >= cfg.edge_resistance_pt) {
         *push = None;
         true
     } else {
@@ -248,23 +275,27 @@ impl TransitionEngine {
             return LocalDecision::Stay;
         }
         let d = &self.disps[from];
-        let (nx, ny) = (pos_px.0 + delta.0, pos_px.1 + delta.1);
         let (x1, y1) = (d.origin.0 + d.size.0, d.origin.1 + d.size.1);
         let mut hit = None;
         for (i, l) in self.links.iter().enumerate() {
             if l.from != from {
                 continue;
             }
-            let exits = match l.side {
-                Side::Right => delta.0 > 0 && nx >= x1,
-                Side::Left => delta.0 < 0 && nx < d.origin.0,
-                Side::Bottom => delta.1 > 0 && ny >= y1,
-                Side::Top => delta.1 < 0 && ny < d.origin.1,
+            let touching = match l.side {
+                Side::Right => pos_px.0 >= x1 - 1,
+                Side::Left => pos_px.0 <= d.origin.0,
+                Side::Bottom => pos_px.1 >= y1 - 1,
+                Side::Top => pos_px.1 <= d.origin.1,
             };
             let along = Self::along_mm(d, l.side, pos_px);
-            if exits && along >= l.seg.0 && along <= l.seg.1 {
-                hit = Some((i, along));
-                break;
+            if touching && along >= l.seg.0 && along <= l.seg.1 {
+                let better = hit.is_none() || edge_out(l.side, delta) > 0;
+                if better {
+                    hit = Some((i, along));
+                }
+                if edge_out(l.side, delta) > 0 {
+                    break;
+                }
             }
         }
         let Some((li, along)) = hit else {
@@ -280,7 +311,7 @@ impl TransitionEngine {
             self.local_push = None;
             return LocalDecision::Stay;
         }
-        let out = if horizontal(side) { delta.0 } else { delta.1 };
+        let out = edge_out(side, delta);
         if !push_done(&mut self.local_push, li, now, out, &self.config) {
             return LocalDecision::Stay;
         }
@@ -321,15 +352,20 @@ impl TransitionEngine {
             // Posição sobre a borda E empurrão para fora: entrar colado na borda e descer ao
             // longo dela não devolve o foco.
             let at_edge = match l.side {
-                Side::Right => pos_px.0 >= x1 - 1 && delta.0 > 0,
-                Side::Left => pos_px.0 <= x0 && delta.0 < 0,
-                Side::Bottom => pos_px.1 >= y1 - 1 && delta.1 > 0,
-                Side::Top => pos_px.1 <= y0 && delta.1 < 0,
+                Side::Right => pos_px.0 >= x1 - 1,
+                Side::Left => pos_px.0 <= x0,
+                Side::Bottom => pos_px.1 >= y1 - 1,
+                Side::Top => pos_px.1 <= y0,
             };
             let along = Self::along_mm(d, l.side, pos_px);
             if at_edge && along >= l.seg.0 && along <= l.seg.1 {
-                hit = Some((i, along));
-                break;
+                let pushing = edge_out(l.side, delta) > 0;
+                if hit.is_none() || pushing {
+                    hit = Some((i, along));
+                }
+                if pushing {
+                    break;
+                }
             }
         }
         let Some((li, along)) = hit else {
@@ -341,7 +377,7 @@ impl TransitionEngine {
             self.remote_push = None;
             return RemoteDecision::Stay;
         }
-        let out = if horizontal(l.side) { delta.0 } else { delta.1 };
+        let out = edge_out(l.side, delta);
         if !push_done(&mut self.remote_push, li, now, out, &self.config) {
             return RemoteDecision::Stay;
         }
@@ -709,6 +745,118 @@ mod tests {
         assert_eq!(push_right(&mut e, 880, &[], t), LocalDecision::Stay);
         assert!(matches!(
             push_right(&mut e, 60, &[], t),
+            LocalDecision::Enter { .. }
+        ));
+    }
+
+    /// Trackpad suave: deltas minúsculos, muitos com dx = 0 na direção da borda.
+    const SUAVE: [(i32, i32); 8] = [
+        (-1, 0),
+        (0, 1),
+        (-1, 0),
+        (0, 0),
+        (-2, 1),
+        (0, 0),
+        (-1, 0),
+        (-1, 1),
+    ];
+
+    #[test]
+    fn retorno_no_receptor_com_trackpad_suave_acumula_pressao() {
+        let mut e = engine_with(pressao(), -100.0, 336.0);
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        let voltou_em = SUAVE
+            .iter()
+            .cycle()
+            .take(40)
+            .enumerate()
+            .position(|(i, d)| {
+                matches!(
+                    e.on_remote_cursor((0, 836), *d, t + ms(8 * i as u64)),
+                    RemoteDecision::Return { .. }
+                )
+            });
+        assert!(voltou_em.is_some_and(|i| i < 16), "{voltou_em:?}");
+    }
+
+    #[test]
+    fn ida_para_o_pc_com_trackpad_suave_acumula_pressao() {
+        let mut e = engine_with(pressao(), -100.0, 336.0);
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        let entrou_em = SUAVE
+            .iter()
+            .cycle()
+            .take(40)
+            .enumerate()
+            .position(|(i, d)| {
+                let d = (-d.0, d.1);
+                matches!(
+                    e.on_local_move(MAC, (1439, 450), d, &[], t + ms(8 * i as u64)),
+                    LocalDecision::Enter { .. }
+                )
+            });
+        assert!(entrou_em.is_some_and(|i| i < 16), "{entrou_em:?}");
+    }
+
+    #[test]
+    fn pressao_zera_ao_afastar_da_borda_ou_apos_pausa() {
+        let mut e = engine_with(pressao(), -100.0, 336.0);
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        let r = |e: &mut TransitionEngine, x, d, at| e.on_remote_cursor((x, 836), d, t + ms(at));
+        assert_eq!(r(&mut e, 0, (-5, 0), 0), RemoteDecision::Stay);
+        // afastar além do limiar zera
+        assert_eq!(r(&mut e, 0, (3, 0), 10), RemoteDecision::Stay);
+        assert_eq!(r(&mut e, 0, (-5, 0), 20), RemoteDecision::Stay);
+        // pausa longa zera
+        assert_eq!(r(&mut e, 0, (-5, 0), 20 + 400), RemoteDecision::Stay);
+        assert!(matches!(
+            r(&mut e, 0, (-5, 0), 430),
+            RemoteDecision::Return { .. }
+        ));
+    }
+
+    /// Log real: PC acima do Mac, pouso em y = 0 e, 3 ms depois, o Mac voltava ao PC com o cursor
+    /// em y = 5. `pos` do evento já é a posição pós-movimento; somar o delta de novo previa uma
+    /// saída que o cursor não faz.
+    #[test]
+    fn pc_acima_apos_pouso_nao_volta_sem_empurrao_real_na_borda() {
+        let displays = vec![
+            display(MAC, Machine::Mac, (1440, 900), (300.0, 190.0), true),
+            display(DELL, Machine::Windows, (2560, 1440), (597.0, 336.0), false),
+        ];
+        let placed = |id: &str, machine, x, y, w, h| PlacedDisplay {
+            display_id: id.into(),
+            machine,
+            rect_mm: RectMm { x, y, w, h },
+            sensitivity: 1.0,
+            rotation: None,
+        };
+        let profile = LayoutProfile {
+            key: ProfileKey::default(),
+            name: "t".into(),
+            displays: vec![
+                placed(MAC, Machine::Mac, 0.0, 0.0, 300.0, 190.0),
+                placed(DELL, Machine::Windows, -100.0, -336.0, 597.0, 336.0),
+            ],
+            windows_detached: false,
+        };
+        let mut e = TransitionEngine::new(pressao(), profile, displays);
+        let t = Instant::now();
+        let ms = Duration::from_millis;
+        e.landed_local((428, 0));
+        assert_eq!(
+            e.on_local_move(MAC, (429, 5), (0, -9), &[], t + ms(3)),
+            LocalDecision::Stay
+        );
+        assert_eq!(
+            e.on_local_move(MAC, (429, 0), (0, -5), &[], t + ms(10)),
+            LocalDecision::Stay
+        );
+        assert!(matches!(
+            e.on_local_move(MAC, (429, 0), (0, -5), &[], t + ms(18)),
             LocalDecision::Enter { .. }
         ));
     }
