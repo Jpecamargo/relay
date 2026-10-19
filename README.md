@@ -71,8 +71,9 @@ que mudou e só instala quando você clica em **Atualizar e reiniciar**.
 5. Leve o cursor até a borda. Para voltar ao Mac a qualquer momento: **⌃⌥1**.
 
 Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência) e, no
-Windows, a rede marcada como **Privada**. Para usar o microfone do Mac no PC, instale o
-[VB-CABLE](https://vb-audio.com/Cable/) no Windows (o som do PC no Mac não precisa de nada).
+Windows, a rede marcada como **Privada**. O microfone do Mac no PC usa o
+[VB-CABLE](https://vb-audio.com/Cable/), driver da VB-Audio distribuído como donationware: o instalador do
+Relay Agent oferece instalá-lo (o som do PC no Mac não precisa de nada).
 
 <details>
 <summary><strong>Atalhos do Mac no Windows</strong></summary>

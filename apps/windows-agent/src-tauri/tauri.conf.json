@@ -40,6 +40,9 @@
     "externalBin": [
       "binaries/relay-service"
     ],
+    "resources": {
+      "vbcable/": "vbcable/"
+    },
     "windows": {
       "certificateThumbprint": null,
       "webviewInstallMode": {

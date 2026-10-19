@@ -24,6 +24,21 @@
   Pop $0
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Relay" dir=in action=allow protocol=UDP localport=47801-47803 profile=private'
   Pop $0
+
+  ; VB-CABLE (microfone do Mac no PC): pacote oficial da VB-Audio, oferecido só se ainda não estiver
+  ; instalado e o usuário não tiver recusado antes (a pergunta voltaria a cada atualização).
+  IfFileExists "$INSTDIR\vbcable\VBCABLE_Setup_x64.exe" 0 relay_vbcable_done
+  ReadRegDWORD $0 HKLM "Software\Relay" "VbCableDeclined"
+  StrCmp $0 "1" relay_vbcable_done
+  nsExec::Exec `powershell.exe -NoProfile -NonInteractive -Command "if (Get-PnpDevice -FriendlyName '*VB-Audio Virtual Cable*' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"`
+  Pop $0
+  StrCmp $0 "0" relay_vbcable_done
+  MessageBox MB_YESNO|MB_ICONQUESTION "Instalar o VB-CABLE para usar o microfone do Mac neste PC?$\r$\n$\r$\nO VB-CABLE é um driver de áudio da VB-Audio (vb-cable.com), distribuído como donationware: se ele for útil, considere doar ao autor.$\r$\n$\r$\nO Windows vai pedir para confirmar a instalação do driver. Reinicie o PC no fim." /SD IDNO IDYES relay_vbcable_install
+  WriteRegDWORD HKLM "Software\Relay" "VbCableDeclined" 1
+  Goto relay_vbcable_done
+  relay_vbcable_install:
+  ExecWait '"$INSTDIR\vbcable\VBCABLE_Setup_x64.exe" -i -h'
+  relay_vbcable_done:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

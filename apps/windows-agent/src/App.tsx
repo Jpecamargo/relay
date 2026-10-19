@@ -141,7 +141,11 @@ export function App() {
               <StatusDot tone={vbcable ? "ok" : "warn"} label={vbcable ? "Detectado" : "Não detectado"} />
               <span>{vbcable ? "VB-CABLE detectado" : "VB-CABLE não detectado"}</span>
             </div>
-            {!vbcable ? <p className="muted">Instale o VB-CABLE para usar o microfone do Mac neste PC.</p> : null}
+            <p className="muted">
+              {vbcable
+                ? "Microfone do Mac neste PC via VB-CABLE, da VB-Audio (donationware): vb-cable.com."
+                : "Para usar o microfone do Mac neste PC, reinstale o Relay Agent e aceite o VB-CABLE, ou instale-o por vb-cable.com."}
+            </p>
             <Toggle
               label="Sincronizar área de transferência"
               checked={config.clipboard.enabled}

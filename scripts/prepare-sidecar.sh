@@ -22,6 +22,7 @@ if [ "${1:-}" = "--stub" ]; then
     f="$DEST/$(sidecar_name "$t")"
     [ -e "$f" ] || : > "$f"
   done
+  bash "$ROOT/scripts/prepare-vbcable.sh" --stub
   exit 0
 fi
 
@@ -32,3 +33,4 @@ out="${CARGO_TARGET_DIR:-$ROOT/target}/$triple/release"
 case "$triple" in *windows*) bin="$out/relay-service.exe" ;; *) bin="$out/relay-service" ;; esac
 cp "$bin" "$DEST/$(sidecar_name "$triple")"
 echo "sidecar pronto: $DEST/$(sidecar_name "$triple")"
+bash "$ROOT/scripts/prepare-vbcable.sh"

@@ -27,6 +27,12 @@ Saída: `target/release/bundle/nsis/`.
 
 ## O que o instalador faz (`installer-hooks.nsh`)
 
+- VB-CABLE: o `prepare-sidecar.sh` chama `prepare-vbcable.sh`, que baixa o pacote oficial da VB-Audio,
+  confere o SHA-256 fixado e o extrai em `src-tauri/vbcable/` (não versionada; `--stub` só cria a pasta).
+  Na pós-instalação, se o cabo não existe e o usuário não recusou antes (`HKLM\Software\Relay\VbCableDeclined`),
+  o instalador pergunta e roda `VBCABLE_Setup_x64.exe -i -h`; o Windows ainda pede a confirmação do
+  driver. Quando a VB-Audio trocar o pacote, o build falha no SHA-256: atualize `URL` e `SHA256` no script.
+
 - Pós-instalação: `relay-service.exe install` (cria e inicia `RelayService`) e regras de entrada
   `Relay` no firewall, só no perfil **private**: TCP 47800 e 47804, UDP 47801-47803.
 - Pré-desinstalação: `sc stop RelayService`, `relay-service.exe uninstall` e remoção das regras.
