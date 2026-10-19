@@ -158,6 +158,16 @@ test("slider de volume do Windows envia SetVolume depois de 50 ms", async () => 
   }
 });
 
+test("volume exibido acompanha cada troca de saída do PC, não só a primeira", async () => {
+  await ready();
+  const metrics = (volume: number) => ({ cpu_pct: 0, mem_pct: 0, volume, muted: false });
+  const shown = () => Number((screen.getByLabelText("Volume do Windows") as HTMLInputElement).value);
+  for (const v of [0.8, 0.2]) {
+    await emit("relay:metrics", metrics(v));
+    expect(shown()).toBeCloseTo(v);
+  }
+});
+
 test("banner de reconexão tem 'Tentar de novo' que chama reconnect", async () => {
   await ready();
   emit("relay:status", { ...STATUS, status: "Reconnecting" });
