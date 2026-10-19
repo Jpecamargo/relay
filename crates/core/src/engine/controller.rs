@@ -683,6 +683,8 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
                 if self.focus == Focus::Remote && !self.locked {
                     self.leave_remote(display_id, point_px, now);
                     self.transition.landed_local(point_px);
+                } else {
+                    tracing::info!(point = ?point_px, remote = self.focus == Focus::Remote, locked = self.locked, "FocusReturn ignorado");
                 }
             }
             Message::ForegroundApp { exe } => self.foreground = Some(exe),
@@ -719,6 +721,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             display_id,
             entry_px,
         });
+        tracing::info!(entry = ?entry_px, from = ?self.last_pos, "foco: Mac -> PC");
         self.capture.set_swallow(true);
         let _ = self.cursor.hide();
         let _ = self.cursor.associate(false);
@@ -741,6 +744,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             );
         }
         self.translator = KeymapTranslator::new(self.keymap_cfg.clone());
+        tracing::info!(point = ?point, from = ?self.last_pos, paused = self.paused, "foco: PC -> Mac");
         // Confirma ao receptor (que também para a repetição de tecla).
         self.send_control(Message::FocusReturn {
             display_id: mac_display,
@@ -1142,6 +1146,38 @@ mod tests {
         assert!(!r.ctl.is_paused());
         r.mv(5, 0, (1439.0, 450.0));
         assert!(r.ctl.is_remote());
+    }
+
+    #[test]
+    fn volta_com_reenvio_do_focus_return_troca_o_foco_uma_vez() {
+        let mut r = rig();
+        r.enter_dell();
+        r.events.lock().unwrap().clear();
+        let ret = || Message::FocusReturn {
+            display_id: MAC.into(),
+            point_px: (1439, 450),
+        };
+        r.ctl.on_message(ret(), r.t0);
+        r.drain_control();
+        r.log.lock().unwrap().clear();
+        // reenvios do PC (a cada 250 ms) e movimento com o ponto de pouso ainda na borda
+        for i in 1..=3 {
+            r.ctl
+                .on_message(ret(), r.t0 + Duration::from_millis(250 * i));
+        }
+        r.mv(-1, 0, (1439.0, 450.0));
+        r.mv(1, 0, (1439.0, 450.0));
+        assert!(!r.ctl.is_remote());
+        assert!(calls(&r.log).is_empty());
+        assert!(r.drain_control().is_empty() && r.drain_fast().is_empty());
+        let focus = r
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, EngineEvent::FocusChanged { .. }))
+            .count();
+        assert_eq!(focus, 1, "uma única troca de foco na volta");
     }
 
     #[test]

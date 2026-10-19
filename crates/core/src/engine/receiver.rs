@@ -204,6 +204,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
     }
 
     fn on_focus_enter(&mut self, entry_px: (i32, i32)) {
+        tracing::info!(entry = ?entry_px, active = self.active, "receptor: FocusEnter");
         if self.active {
             // Pulo entre telas do Windows: só reposiciona.
             let _ = self.cursor.warp(entry_px.0, entry_px.1);
@@ -230,6 +231,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             });
         }
         if self.active {
+            tracing::info!(pos = ?self.last_pos, "receptor: foco devolvido (confirmação do Mac)");
             self.active = false;
             self.focus_changed(false);
         }
@@ -300,6 +302,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
                 point_px,
             } => {
                 // Continua ativo até o Mac confirmar com `FocusReturn` (ele pode estar travado).
+                tracing::info!(pos = ?pos, point = ?point_px, retry = self.return_sent.is_some(), "receptor: borda de retorno, FocusReturn enviado");
                 self.return_sent = Some(now);
                 vec![Message::FocusReturn {
                     display_id: mac_display,
