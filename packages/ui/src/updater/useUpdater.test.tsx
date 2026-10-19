@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { useUpdater } from "./useUpdater";
+import { CHECK_ERROR, INSTALL_ERROR, useUpdater } from "./useUpdater";
 
 const m = vi.hoisted(() => ({
   isTauri: vi.fn(),
@@ -107,10 +107,16 @@ test("checagem manual mostra atualizado e mostra o erro", async () => {
 
   m.check.mockRejectedValue(new Error("offline"));
   await act(() => result.current.verify(true));
-  expect(result.current.state).toEqual({
-    status: "erro",
-    mensagem: "Não foi possível procurar atualizações: offline",
-  });
+  expect(result.current.state).toEqual({ status: "erro", mensagem: CHECK_ERROR });
+});
+
+test("latest.json ainda sem a plataforma conta como sem atualização, sem erro técnico", async () => {
+  m.check.mockRejectedValue(
+    new Error('None of the fallback platforms `["windows-x86_64-nsis", "windows-x86_64"]` were found in the response `platforms` object'),
+  );
+  const { result } = renderHook(() => useUpdater());
+  await act(() => result.current.verify(true));
+  expect(result.current.state).toEqual({ status: "atualizado" });
 });
 
 test("instalar baixa com progresso e reinicia", async () => {
@@ -144,5 +150,5 @@ test("falha na instalação vira erro e guarda a atualização para tentar de no
   const { result } = renderHook(() => useUpdater());
   await act(() => result.current.install(update as never));
   expect(m.relaunch).not.toHaveBeenCalled();
-  expect(result.current.state).toEqual({ status: "erro", mensagem: "A atualização falhou: assinatura inválida", update });
+  expect(result.current.state).toEqual({ status: "erro", mensagem: INSTALL_ERROR, update });
 });

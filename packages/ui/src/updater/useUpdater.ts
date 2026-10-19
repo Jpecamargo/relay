@@ -23,6 +23,12 @@ export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
+/** `latest.json` ainda sem esta plataforma (release sendo publicada): para o usuário, não há versão nova. */
+const platformMissing = (cause: unknown) => /platforms/i.test(messageOf(cause));
+
+export const CHECK_ERROR = "Não foi possível procurar atualizações agora. Confira a internet e tente de novo.";
+export const INSTALL_ERROR = "A atualização não foi concluída. Tente de novo em alguns minutos.";
+
 /**
  * Só o app instalado (build de produção dentro do Tauri) procura atualizações: no
  * `pnpm tauri dev`, no navegador e nos testes o updater fica `nao-suportado`.
@@ -62,10 +68,15 @@ export function useUpdater({ schedule = true }: UseUpdaterOptions = {}) {
         setState(update ? { status: "disponivel", update } : { status: manual ? "atualizado" : "ocioso" });
         return update ? { resultado: "disponivel", versao: update.version } : { resultado: "atualizado" };
       } catch (cause) {
-        const mensagem = `Não foi possível procurar atualizações: ${messageOf(cause)}`;
+        console.warn("updater: check", messageOf(cause));
+        if (platformMissing(cause)) {
+          setLastCheck(Date.now());
+          setState({ status: manual ? "atualizado" : "ocioso" });
+          return { resultado: "atualizado" };
+        }
         // Checagem automática falhando (offline, GitHub fora) não incomoda; só a manual mostra o erro.
-        if (manual) setState({ status: "erro", mensagem });
-        return { resultado: "erro", mensagem };
+        if (manual) setState({ status: "erro", mensagem: CHECK_ERROR });
+        return { resultado: "erro", mensagem: CHECK_ERROR };
       } finally {
         busy.current = false;
       }
@@ -88,7 +99,8 @@ export function useUpdater({ schedule = true }: UseUpdaterOptions = {}) {
       setState({ status: "reiniciando", update });
       await relaunch();
     } catch (cause) {
-      setState({ status: "erro", mensagem: `A atualização falhou: ${messageOf(cause)}`, update });
+      console.warn("updater: install", messageOf(cause));
+      setState({ status: "erro", mensagem: INSTALL_ERROR, update });
     } finally {
       busy.current = false;
     }

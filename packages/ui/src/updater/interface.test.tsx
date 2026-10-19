@@ -79,7 +79,7 @@ test("Depois fecha o modal; erro na instalação oferece tentar de novo", async 
   await act(async () => {});
   fireEvent.click(screen.getByRole("button", { name: "Ver atualização" }));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar e reiniciar" })));
-  expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toContain("A atualização falhou: falhou");
+  expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toContain("A atualização não foi concluída");
   expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Depois" }));
   expect(screen.queryByRole("dialog")).toBeNull();

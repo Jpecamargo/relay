@@ -6,9 +6,12 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
-- A release só fica visível ao atualizador quando Mac e Windows estão prontos (antes, o Windows podia ver "None of the fallback platforms…" durante a publicação).
+## 0.1.6
 
 - Primeiro uso mais simples: sem PC pareado, o Mac abre direto numa tela "Conecte seu PC" com o código de 6 dígitos em caixas grandes (digite ou cole; envia sozinho ao completar). No Windows, o código aparece grande, com a contagem de expiração, no topo do agente.
+- O serviço do Relay no Windows confere e recria as regras de firewall a cada início, então elas não somem mais.
+- Quando o PC está na rede mas não responde, o menu do Mac explica e sugere atualizar o Relay Agent, em vez de ficar parado em "Conectando".
+- Atualizador sem texto técnico: durante a publicação de uma versão, "Procurar atualizações" diz que não há versão nova em vez de mostrar erro, e a release só fica visível quando Mac e Windows estão prontos.
 
 ## 0.1.5
 
