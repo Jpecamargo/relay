@@ -96,6 +96,11 @@ jobs:
           releaseBody: ${{ needs.create-release.outputs.notes }}
           releaseDraft: false
           includeUpdaterJson: true
+      # O tauri só resolve identidades válidas (find-identity -v): o certificado autoassinado precisa
+      # ser confiável para assinatura de código no runner. Só a parte pública está no repo.
+      - name: confiar no certificado próprio
+        if: env.HAS_APPLE_CERT == 'true' && env.HAS_APPLE_ID != 'true'
+        run: sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain apps/mac/src-tauri/relay-codesign.crt
       - name: build assinado com certificado próprio (sem notarização)
         if: env.HAS_APPLE_CERT == 'true' && env.HAS_APPLE_ID != 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
