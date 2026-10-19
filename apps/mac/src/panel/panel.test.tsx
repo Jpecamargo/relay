@@ -180,7 +180,7 @@ test("PC visto mas sem resposta explica o firewall; sem o flag, nada", async () 
   emit("relay:status", { ...STATUS, status: "Connecting" });
   expect(screen.queryByText(/firewall do Windows/)).toBeNull();
   emit("relay:status", { ...STATUS, status: "Connecting", pc_unreachable: true });
-  expect((await screen.findByText(/O PC está na rede mas não responde/)).textContent).toContain("atualize o Relay Agent");
+  expect((await screen.findByText(/O PC está na rede mas não responde/)).textContent).toContain("isolando o Wi-Fi do cabo");
 });
 
 test("relay:command-result de áudio mostra toast e desliga o toggle", async () => {

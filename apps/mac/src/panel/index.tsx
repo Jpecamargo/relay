@@ -141,7 +141,7 @@ export function Panel() {
             </Banner>
           ))}
           {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
-          {status.pc_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O firewall do Windows pode estar bloqueando o Relay: atualize o Relay Agent.</Banner> : null}
+          {status.pc_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O roteador pode estar isolando o Wi-Fi do cabo: tente a outra banda do Wi-Fi (2.4/5 GHz) ou ligue o Mac por cabo.</Banner> : null}
           {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
         </div>
       ) : null}

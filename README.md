@@ -105,6 +105,9 @@ Teclado. Atalhos do Relay: ⌃⌥1/2/3 pulam para uma tela, ⌃⌥L trava o curs
   Feche o Relay, rode
   `tccutil reset Accessibility com.joaocamargo.relay && tccutil reset ListenEvent com.joaocamargo.relay`
   e conceda de novo.
+- **O PC aparece mas fica em "Conectando":** o roteador está isolando os aparelhos do Wi-Fi dos do cabo
+  (comum na rede de 5 GHz ou de convidados de modems de fibra). Desligue "AP Isolation"/"Isolamento" nas
+  configurações do Wi-Fi do roteador, use a outra banda ou ligue o Mac por cabo.
 - **O Mac não encontra o PC:** confira o acesso à rede local no Mac e se a rede não isola clientes (Wi-Fi de visitantes). Use o IP manual como plano B.
 - **Logs:** `~/Library/Logs/Relay/relay.log` (Mac) e `%LOCALAPPDATA%\Relay\logs\agent.log` (Windows).
 </details>
