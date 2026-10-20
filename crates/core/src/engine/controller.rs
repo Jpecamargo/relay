@@ -218,6 +218,12 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         self.focus == Focus::Remote
     }
 
+    /// O cursor foi movido por fora do Controller (o Mac foi controlado pelo PC): descarta pouso
+    /// e pressão da borda para que o próximo empurrão conte.
+    pub fn rearm_edge(&mut self) {
+        self.transition.rearm_local();
+    }
+
     pub fn is_locked(&self) -> bool {
         self.locked
     }
@@ -898,6 +904,26 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn rearm_edge_descarta_o_pouso_de_um_retorno_anterior() {
+        let mut r = rig();
+        r.enter_dell();
+        r.ctl.on_message(
+            Message::FocusReturn {
+                display_id: MAC.into(),
+                point_px: (1439, 450),
+            },
+            r.t0,
+        );
+        // Colado no ponto de pouso o empurrão não conta...
+        r.mv(5, 0, (1439.0, 450.0));
+        assert!(!r.ctl.is_remote());
+        // ...até o cursor ser movido por fora (sessão reversa) e a borda ser re-armada.
+        r.ctl.rearm_edge();
+        r.mv(5, 0, (1439.0, 450.0));
+        assert!(r.ctl.is_remote());
     }
 
     #[test]

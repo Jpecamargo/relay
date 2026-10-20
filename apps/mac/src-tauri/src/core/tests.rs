@@ -119,6 +119,8 @@ pub(super) struct MockPlatform {
     swallow: Arc<AtomicBool>,
     deny: Arc<AtomicBool>,
     cursor_log: Arc<Mutex<Vec<String>>>,
+    /// Posição do cursor do Mac, compartilhada com o injetor (que a desloca nos `MouseMove`).
+    cursor_pos: Arc<Mutex<(i32, i32)>>,
     /// Eventos que o injetor do Mac recebeu (sentido inverso, R1).
     injected: Arc<Mutex<Vec<InputEvent>>>,
     changed: Arc<Mutex<Option<ChangeCallback>>>,
@@ -143,6 +145,7 @@ impl MockPlatform {
             swallow: Arc::default(),
             deny: Arc::default(),
             cursor_log: Arc::default(),
+            cursor_pos: Arc::default(),
             injected: Arc::default(),
             changed: Arc::default(),
             displays: Arc::new(Mutex::new(vec![mac_display()])),
@@ -190,10 +193,14 @@ impl Platform for MockPlatform {
         }
     }
     fn new_cursor(&self) -> MockCursor {
-        MockCursor::new(&self.cursor_log)
+        MockCursor {
+            log: self.cursor_log.clone(),
+            pos: self.cursor_pos.clone(),
+        }
     }
     fn new_injector(&self) -> MockInjector {
         MockInjector::recording(self.injected.clone())
+            .moving(self.cursor_pos.clone(), (0, 0, 1440, 900))
     }
     fn new_displays(&self) -> MockDisplays {
         MockDisplays {

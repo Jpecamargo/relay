@@ -84,6 +84,16 @@ fn still_landed(landing: &mut Landing, pos: (i32, i32)) -> bool {
     true
 }
 
+/// Por que um empurrão contra a borda de retorno não devolveu o foco (só para diagnóstico).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StayWhy {
+    /// A borda ainda está desarmada pelo pouso (`REARM_PX`).
+    Landed,
+    DeadZone,
+    /// Empurrando, mas a pressão/dwell ainda não bastou.
+    Pressure,
+}
+
 #[derive(Debug)]
 pub struct TransitionEngine {
     config: TransitionConfig,
@@ -94,6 +104,7 @@ pub struct TransitionEngine {
     remote_push: Push,
     local_landing: Landing,
     remote_landing: Landing,
+    remote_why: Option<StayWhy>,
     /// Máquina que captura e controla (Mac; Windows no sentido inverso, D24).
     local: Machine,
 }
@@ -188,6 +199,7 @@ impl TransitionEngine {
             remote_push: None,
             local_landing: None,
             remote_landing: None,
+            remote_why: None,
             local: Machine::Mac,
         }
     }
@@ -204,6 +216,19 @@ impl TransitionEngine {
     pub fn landed_local(&mut self, point: (i32, i32)) {
         self.local_push = None;
         self.local_landing = Some(point);
+    }
+
+    /// Re-arma a borda do lado local sem esperar afastamento: o cursor foi movido por outro
+    /// caminho (sessão reversa) e o pouso anterior não vale mais.
+    pub fn rearm_local(&mut self) {
+        self.local_push = None;
+        self.local_landing = None;
+    }
+
+    /// Motivo do último `Stay` do receptor com o cursor sobre uma borda de retorno; `None` se
+    /// o cursor não estava numa.
+    pub fn remote_stay_why(&self) -> Option<StayWhy> {
+        self.remote_why
     }
 
     /// Idem no receptor: o cursor entrou em `point` por um `FocusEnter`.
@@ -330,14 +355,12 @@ impl TransitionEngine {
         delta: (i32, i32),
         now: Instant,
     ) -> RemoteDecision {
+        self.remote_why = None;
         if self.locked {
             self.remote_push = None;
             return RemoteDecision::Stay;
         }
-        if still_landed(&mut self.remote_landing, pos_px) {
-            self.remote_push = None;
-            return RemoteDecision::Stay;
-        }
+        let landed = still_landed(&mut self.remote_landing, pos_px);
         let mut hit = None;
         for (i, l) in self.links.iter().enumerate() {
             let d = &self.disps[l.from];
@@ -373,12 +396,19 @@ impl TransitionEngine {
             return RemoteDecision::Stay;
         };
         let l = &self.links[li];
+        if landed {
+            self.remote_push = None;
+            self.remote_why = Some(StayWhy::Landed);
+            return RemoteDecision::Stay;
+        }
         if self.in_dead_zone(&self.disps[l.from], l.side, pos_px) {
             self.remote_push = None;
+            self.remote_why = Some(StayWhy::DeadZone);
             return RemoteDecision::Stay;
         }
         let out = edge_out(l.side, delta);
         if !push_done(&mut self.remote_push, li, now, out, &self.config) {
+            self.remote_why = Some(StayWhy::Pressure);
             return RemoteDecision::Stay;
         }
         let to = &self.disps[l.to];

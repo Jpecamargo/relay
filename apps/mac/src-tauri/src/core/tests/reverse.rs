@@ -368,3 +368,81 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     assert_eq!(core.status().focus, Machine::Windows);
     core.shutdown();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sessao_reversa_pela_borda_e_depois_o_mac_ainda_cruza_para_o_pc() {
+    let pc = PcAgent::start("123456");
+    let cfg = pc.config();
+    let platform = MockPlatform::new(&cfg);
+    let core = AppCore::start(
+        platform.clone(),
+        Arc::new(Rec::default()),
+        Arc::new(CountSwitch::default()),
+        options(),
+        Handle::current(),
+    );
+    let addr = format!("127.0.0.1:{}", pc.control_port);
+    core.pair_with_code("123456".into(), Some(addr))
+        .await
+        .unwrap();
+    wait_until("conectado", 8000, || {
+        core.status().status == ConnectionStatus::Connected
+    })
+    .await;
+    wait_until("layout no PC", 5000, || {
+        pc.saw(|m| matches!(m, Message::LayoutSync(p) if p.displays.len() == 2))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    pc.push_left_edge();
+    wait_until("PC assumiu", 3000, || pc.remote.load(Ordering::SeqCst)).await;
+    wait_until("cursor posicionado no Mac", 3000, || {
+        platform
+            .cursor_log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.starts_with("warp(1439,"))
+    })
+    .await;
+
+    // Afasta da borda e empurra de volta: o Receiver do Mac devolve o foco pela posição do cursor.
+    for dx in [-20, 40] {
+        let t = Instant::now();
+        let moves = platform.injected.lock().unwrap().len();
+        pc.feed(CapturedEvent::MouseMove {
+            dx,
+            dy: 0,
+            pos: (0.0, 100.0),
+        });
+        while platform.injected.lock().unwrap().len() == moves
+            && t.elapsed() < Duration::from_secs(2)
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    wait_until("PC devolvido pela borda", 3000, || {
+        !pc.remote.load(Ordering::SeqCst)
+    })
+    .await;
+
+    // O teclado do PC deixou de ir ao Mac.
+    let keys = platform.injected.lock().unwrap().len();
+    pc.key(KEY_C, true);
+    pc.key(KEY_C, false);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(platform.injected.lock().unwrap().len(), keys);
+
+    // Travessia normal Mac -> PC depois da sessão reversa.
+    move_to_edge(&platform, 400);
+    wait_until("Mac assumiu o PC", 3000, || {
+        pc.saw(|m| matches!(m, Message::FocusEnter { .. }))
+    })
+    .await;
+    wait_until("foco no Windows", 2000, || {
+        core.status().focus == Machine::Windows
+    })
+    .await;
+    core.shutdown();
+}

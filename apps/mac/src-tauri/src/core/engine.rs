@@ -211,6 +211,12 @@ impl<P: Platform> Core<P> {
                 }
             }
 
+            // A pausa do Controller segue o Receiver reverso por qualquer caminho que o ativou ou
+            // desativou, não só pelas mensagens tratadas em `on_peer`.
+            if self.rev.is_active() != self.rev_active {
+                self.sync_pause();
+            }
+
             // Fila de controle do Controller → bomba da sessão.
             while let Ok(m) = self.ctl_out.pop() {
                 active = true;
@@ -448,7 +454,14 @@ impl<P: Platform> Core<P> {
     /// Pausa efetiva = pausa do usuário, sem PC conectado (nunca engolir input sem destino) ou o
     /// PC controlando o Mac (D24: só um lado controla por vez).
     fn sync_pause(&mut self) {
+        let was_active = self.rev_active;
         self.rev_active = self.rev.is_active();
+        if was_active
+            && !self.rev_active
+            && let Some(c) = self.ctl.as_mut()
+        {
+            c.rearm_edge();
+        }
         let effective = self.user_paused || !self.link || self.rev_active;
         if let Some(c) = self.ctl.as_mut()
             && c.is_paused() != effective

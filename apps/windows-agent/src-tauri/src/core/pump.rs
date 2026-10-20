@@ -449,7 +449,9 @@ impl Pump {
             match &msg {
                 Message::Displays(_) => rev.send(msg.clone()),
                 Message::LayoutSync(p) => rev.set_profile(p.clone()),
-                Message::FocusReturn { .. } if rev.is_remote() => {
+                // `is_remote` é um espelho que atrasa uma volta do laço reverso: sem o Mac
+                // controlando o PC (`rx` inativo) o `FocusReturn` só pode ser do sentido inverso.
+                Message::FocusReturn { .. } if rev.is_remote() || !self.rx.is_active() => {
                     rev.send(msg.clone());
                     to_controller = true;
                 }

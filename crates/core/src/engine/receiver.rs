@@ -45,6 +45,8 @@ pub struct Receiver<Inj, Cur> {
     tracker: PressedTracker,
     repeat: Option<Repeat>,
     return_sent: Option<Instant>,
+    /// Última linha de diagnóstico "borda não devolveu" (no máximo 1 por segundo).
+    why_logged: Option<Instant>,
     clipboard: ClipboardConfig,
     on_event: Option<EventHandler>,
     /// Máquina em que o Receiver roda (Windows; Mac no sentido inverso, D24).
@@ -77,6 +79,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             tracker: PressedTracker::default(),
             repeat: None,
             return_sent: None,
+            why_logged: None,
             clipboard: config.clipboard.clone(),
             on_event: None,
             machine: Machine::Windows,
@@ -296,7 +299,10 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             .transition
             .on_remote_cursor(pos, (i32::from(dx), i32::from(dy)), now)
         {
-            RemoteDecision::Stay => Vec::new(),
+            RemoteDecision::Stay => {
+                self.log_stay(pos, (i32::from(dx), i32::from(dy)), now);
+                Vec::new()
+            }
             RemoteDecision::Return {
                 mac_display,
                 point_px,
@@ -310,6 +316,21 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
                 }]
             }
         }
+    }
+
+    /// Diz por que o cursor sobre a borda de retorno não devolveu o foco.
+    fn log_stay(&mut self, pos: (i32, i32), delta: (i32, i32), now: Instant) {
+        let Some(why) = self.transition.remote_stay_why() else {
+            return;
+        };
+        if self
+            .why_logged
+            .is_some_and(|t| now.saturating_duration_since(t) < Duration::from_secs(1))
+        {
+            return;
+        }
+        self.why_logged = Some(now);
+        tracing::info!(?why, pos = ?pos, delta = ?delta, "receptor: na borda de retorno, foco não devolvido");
     }
 
     fn on_key(&mut self, scan: u16, down: bool, now: Instant) {
@@ -418,6 +439,25 @@ mod tests {
             .iter()
             .filter(|e| **e == InputEvent::Key { scan, down: true })
             .count()
+    }
+
+    #[test]
+    fn borda_desarmada_pelo_pouso_nao_devolve_e_informa_o_motivo() {
+        let mut r = rig(1.0);
+        *r.cursor.lock().unwrap() = (0, 830);
+        // Entrou na borda de retorno e empurra sem sair do lugar: desarmada pelo pouso.
+        let back = r.rx.on_input(InputEvent::MouseMove { dx: -3, dy: 0 }, r.t0);
+        assert!(back.is_empty());
+        assert_eq!(
+            r.rx.transition.remote_stay_why(),
+            Some(crate::transition::StayWhy::Landed)
+        );
+        // Afastou e voltou: devolve.
+        *r.cursor.lock().unwrap() = (20, 830);
+        r.rx.on_input(InputEvent::MouseMove { dx: 5, dy: 0 }, r.t0);
+        *r.cursor.lock().unwrap() = (0, 830);
+        let back = r.rx.on_input(InputEvent::MouseMove { dx: -3, dy: 0 }, r.t0);
+        assert!(matches!(back.as_slice(), [Message::FocusReturn { .. }]));
     }
 
     #[test]
