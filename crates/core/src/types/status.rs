@@ -22,6 +22,21 @@ pub enum ConnectionStatus {
     },
 }
 
+/// Como a versão deste app se compara à do par (ver `version::version_sync`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum VersionSync {
+    /// Iguais, ou o par não informa uma versão que se entenda.
+    #[default]
+    InSync,
+    /// Este app é o mais antigo: precisa se atualizar.
+    LocalBehind,
+    /// O par é o mais antigo e já sabe receber o pedido de atualização.
+    PeerBehind,
+    /// O par é o mais antigo mas é velho demais para receber o pedido: a pessoa atualiza lá.
+    PeerBehindManual,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AudioState {
@@ -44,6 +59,9 @@ pub struct StatusSnapshot {
     pub pc_unreachable: bool,
     pub clipboard_sync: bool,
     pub audio: AudioState,
+    /// Versão do app do par, só com a sessão de pé e se ele a informou.
+    pub peer_version: Option<String>,
+    pub version_sync: VersionSync,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]

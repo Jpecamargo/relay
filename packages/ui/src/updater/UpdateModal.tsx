@@ -15,7 +15,7 @@ function publishedOn(date?: string): string | null {
 
 /** Nova versão: o que mudou, aviso de reinício e o andamento do download. */
 export function UpdateModal() {
-  const { state, version, install, closeModal } = useUpdate();
+  const { state, version, install, closeModal, matchPeer } = useUpdate();
   const titleId = useId();
   const update = updateOf(state);
   if (!update) return null;
@@ -33,6 +33,11 @@ export function UpdateModal() {
           <strong>{update.version}</strong>
           {published ? ` · publicada em ${published}` : ""}
         </p>
+        {matchPeer ? (
+          <p className={styles.sub}>
+            O {matchPeer.name} já está na versão <strong>{matchPeer.version}</strong>. Atualize para os dois ficarem na mesma versão.
+          </p>
+        ) : null}
 
         {notes ? (
           <section>

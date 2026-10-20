@@ -9,8 +9,14 @@ nunca ficar incompleto; notas = seção da versão no `CHANGELOG.md`) com:
 - `latest.json` com `darwin-aarch64`, `darwin-x86_64` e `windows-x86_64`. É o endpoint dos dois apps:
   `https://github.com/Jpecamargo/relay/releases/latest/download/latest.json`.
 
-Jobs: `create-release` (cria o release) -> `mac` (matrix aarch64 e x86_64, em sequência) -> `windows`.
+Jobs: `create-release` (cria o release) -> `mac` (matrix aarch64 e x86_64, em sequência) -> `windows` ->
+`verify-latest` -> `publish`.
 Em sequência de propósito: cada build regrava o `latest.json`, e em paralelo um apagaria a entrada do outro.
+
+`verify-latest` baixa o `latest.json` do **rascunho** pela API autenticada (o download público não enxerga
+rascunho) e roda `scripts/check-latest-json.sh vX.Y.Z <arquivo>`: falha se faltar `darwin-aarch64`,
+`darwin-x86_64` ou `windows-x86_64` (com url e assinatura) ou se a versão não for a da tag. Sem isso, um
+lado poderia se atualizar e o outro não achar a versão nova, e Mac e PC ficariam diferentes.
 
 ## Notas da versão
 
@@ -33,6 +39,27 @@ release e a tag (`gh release delete vX.Y.Z --cleanup-tag`), corrija e refaça.
 
 A versão de protocolo (`PROTOCOL_VERSION` no core) é independente: versões diferentes do app continuam
 se falando, e protocolo incompatível é avisado pelo core na conexão.
+
+## Mac e PC na mesma versão
+
+Cada lado manda a versão do app no `Hello` (`app_version`, já existia: sem mudar o `PROTOCOL_VERSION`) e
+o core a expõe como `peer_version` no `StatusSnapshot`, junto de `version_sync` (decisão em `relay_core::version`,
+comparando semver). Quem está atrás se atualiza, só com a sessão de pé:
+
+- **Mac mais antigo** (`LocalBehind`): o painel confere a atualização na hora e abre o modal da janela principal,
+  que diz "O PC já está na versão X. Atualize para os dois ficarem na mesma versão.".
+- **PC mais antigo** (`PeerBehind`): ao conectar, o Mac manda `Message::RequestUpdate { version }`. O agente só
+  age se o Mac está mesmo numa versão mais nova: traz a janela à frente, procura a atualização e abre o modal
+  "Atualizar e reiniciar". O painel do Mac mostra "Atualizando o PC para a versão X…".
+- **PC velho demais** (`PeerBehindManual`, anterior a `UPDATE_REQUEST_MIN_PEER`): variante desconhecida derruba a
+  sessão de quem a recebe, então o Mac nem envia; o painel pede "Atualize o Relay Agent no PC para X.".
+- Versão igual, ausente ou ilegível (`peer_version` vazio): nada muda.
+
+O agente **não** instala sem clique: o instalador é `perMachine` e o NSIS pede UAC; o pedido do Mac só abre o
+modal, e a pessoa confirma (e aceita o UAC) no PC. Depois que o lado mais antigo reinicia, a sessão reconecta
+sozinha (o dialer do Mac refaz a conexão).
+
+`UPDATE_REQUEST_MIN_PEER` (hoje `0.1.8`) tem de ser a versão da primeira release que traz o `RequestUpdate`: confira ao cortá-la.
 
 ## Secrets (Settings > Secrets and variables > Actions)
 

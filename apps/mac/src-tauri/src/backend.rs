@@ -160,6 +160,8 @@ impl Default for MockBackend {
                     paused: false,
                     secure_input: false,
                     pc_unreachable: false,
+                    peer_version: None,
+                    version_sync: Default::default(),
                     clipboard_sync: true,
                     audio: AudioState {
                         pc_to_mac: false,

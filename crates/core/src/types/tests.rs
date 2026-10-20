@@ -75,6 +75,7 @@ fn variant_name(m: &Message) -> &'static str {
         Message::TakeControl => "TakeControl",
         Message::Unpair => "Unpair",
         Message::Bye => "Bye",
+        Message::RequestUpdate { .. } => "RequestUpdate",
     }
 }
 
@@ -172,6 +173,9 @@ fn all_messages() -> Vec<Message> {
         Message::TakeControl,
         Message::Unpair,
         Message::Bye,
+        Message::RequestUpdate {
+            version: "0.2.0".into(),
+        },
     ]
 }
 
@@ -186,7 +190,7 @@ fn message_variants_roundtrip_bincode() {
         all.len(),
         "uma amostra por variante, sem repetição"
     );
-    assert_eq!(all.len(), 22);
+    assert_eq!(all.len(), 23);
     for m in &all {
         bincode_roundtrip(m);
     }

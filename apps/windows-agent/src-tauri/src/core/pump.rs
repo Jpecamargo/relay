@@ -11,7 +11,9 @@ use relay_core::net::{SessionEvent, SessionListener};
 use relay_core::platform::{DisplaySource, KeyStore};
 use relay_core::types::{
     ConnectionStatus, Machine, Message, PairedPeer, PairingEvent, PairingState, StatusSnapshot,
+    VersionSync,
 };
+use relay_core::version::{APP_VERSION, version_sync};
 use tokio::sync::{mpsc, watch};
 
 use tokio::time::{Interval, MissedTickBehavior, interval};
@@ -298,6 +300,7 @@ impl Pump {
 
     fn publish(&mut self) {
         let status = *self.status_rx.borrow();
+        let peer_version = self.listener.peer_version();
         let snap = StatusSnapshot {
             status: if status != ConnectionStatus::Connected && self.pairing_until.is_some() {
                 ConnectionStatus::Pairing
@@ -315,6 +318,8 @@ impl Pump {
             secure_input: false,
             pc_unreachable: false,
             clipboard_sync: self.shared.config().clipboard.enabled,
+            peer_version: peer_version.clone(),
+            version_sync: version_sync(APP_VERSION, peer_version.as_deref()),
             audio: self
                 .media
                 .as_ref()
@@ -439,6 +444,12 @@ impl Pump {
                 self.forget_peer();
                 self.rx.focus_lost();
                 self.publish();
+            }
+            // O pedido só vale se o Mac está de fato numa versão mais nova que esta.
+            Message::RequestUpdate { version }
+                if version_sync(APP_VERSION, Some(version)) == VersionSync::LocalBehind =>
+            {
+                self.events.update_requested(version);
             }
             _ => {}
         }

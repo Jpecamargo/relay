@@ -294,6 +294,10 @@ struct Agent {
 
 impl Agent {
     fn start(code: &str) -> Self {
+        Self::start_versioned(code, relay_core::version::APP_VERSION)
+    }
+
+    fn start_versioned(code: &str, app_version: &str) -> Self {
         let received: Arc<Mutex<Vec<Message>>> = Arc::default();
         let injected: Arc<Mutex<Vec<InputEvent>>> = Arc::default();
         let active = Arc::new(AtomicBool::new(false));
@@ -301,7 +305,7 @@ impl Agent {
         let (ports_tx, ports_rx) = std::sync::mpsc::channel();
         let next_code: Arc<Mutex<Option<String>>> = Arc::default();
         let mute = Arc::new(AtomicBool::new(false));
-        let (r, i, a, s, n, m, code) = (
+        let (r, i, a, s, n, m, code, v) = (
             received.clone(),
             injected.clone(),
             active.clone(),
@@ -309,10 +313,11 @@ impl Agent {
             next_code.clone(),
             mute.clone(),
             code.to_owned(),
+            app_version.to_owned(),
         );
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(agent_main(code, ports_tx, r, i, a, n, m, s));
+            rt.block_on(agent_main(code, v, ports_tx, r, i, a, n, m, s));
         });
         let (control_port, input_port) = ports_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         Self {
@@ -358,6 +363,7 @@ type AgentReceiver = Receiver<MockInjector, MockCursor>;
 #[allow(clippy::too_many_arguments)]
 async fn agent_main(
     code: String,
+    app_version: String,
     ports_tx: std::sync::mpsc::Sender<(u16, u16)>,
     received: Arc<Mutex<Vec<Message>>>,
     injected: Arc<Mutex<Vec<InputEvent>>>,
@@ -392,6 +398,7 @@ async fn agent_main(
         },
     );
     cfg.bind_ip = LO;
+    cfg.app_version = app_version;
     let mut listener = SessionListener::start(
         cfg,
         Box::new(move |e| {
@@ -969,4 +976,33 @@ fn pc_visto_mas_mudo_so_depois_do_limite_na_primeira_conexao() {
     assert!(pc_unreachable(Connecting, longo));
     assert!(!pc_unreachable(Reconnecting, longo));
     assert!(!pc_unreachable(Discovering, None));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_traz_a_versao_do_pc_e_quem_esta_atras() {
+    use relay_core::types::VersionSync;
+    let agent = Agent::start_versioned("111111", "99.0.0");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "111111").await;
+    let status = core.status();
+    assert_eq!(status.peer_version.as_deref(), Some("99.0.0"));
+    assert_eq!(status.version_sync, VersionSync::LocalBehind);
+    assert!(!agent.saw(|m| matches!(m, Message::RequestUpdate { .. })));
+    core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pc_antigo_demais_para_o_pedido_fica_para_atualizar_a_mao_sem_pedido() {
+    use relay_core::types::VersionSync;
+    let agent = Agent::start_versioned("111111", "0.0.1");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "111111").await;
+    let status = core.status();
+    assert_eq!(status.peer_version.as_deref(), Some("0.0.1"));
+    assert_eq!(status.version_sync, VersionSync::PeerBehindManual);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!agent.saw(|m| matches!(m, Message::RequestUpdate { .. })));
+    core.shutdown();
 }

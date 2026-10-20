@@ -314,6 +314,48 @@ async fn different_protocol_versions_end_in_incompatible_on_both_sides() {
 }
 
 #[tokio::test]
+async fn each_side_learns_the_other_app_version_and_loses_it_when_the_session_ends() {
+    let rig = Rig::new();
+    let mut lcfg = rig.listener_cfg(ephemeral());
+    lcfg.app_version = "2.0.0".into();
+    let listener = SessionListener::start(lcfg, noop()).await.unwrap();
+    let mut dcfg = rig.dialer_cfg(&listener);
+    dcfg.app_version = "1.5.0".into();
+    let dialer = SessionDialer::start(dcfg, noop()).await.unwrap();
+    assert_eq!(dialer.peer_version(), None);
+    wait_connections(&dialer, 1, 3000).await;
+    wait_connections(&listener, 1, 3000).await;
+    wait_status(&mut dialer.status(), ConnectionStatus::Connected, 1000).await;
+    wait_status(&mut listener.status(), ConnectionStatus::Connected, 1000).await;
+    assert_eq!(dialer.peer_version().as_deref(), Some("2.0.0"));
+    assert_eq!(listener.peer_version().as_deref(), Some("1.5.0"));
+    listener.shutdown().await;
+    wait_status(&mut dialer.status(), ConnectionStatus::Reconnecting, 1000).await;
+    assert_eq!(dialer.peer_version(), None);
+    dialer.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_peer_that_reports_no_version_still_connects_with_no_peer_version() {
+    let rig = Rig::new();
+    let listener = SessionListener::start(rig.listener_cfg(ephemeral()), noop())
+        .await
+        .unwrap();
+    let mut dcfg = rig.dialer_cfg(&listener);
+    dcfg.app_version = String::new();
+    let dialer = SessionDialer::start(dcfg, noop()).await.unwrap();
+    wait_connections(&listener, 1, 3000).await;
+    wait_status(&mut listener.status(), ConnectionStatus::Connected, 1000).await;
+    assert_eq!(listener.peer_version(), None);
+    assert_eq!(
+        dialer.peer_version().as_deref(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    dialer.shutdown().await;
+    listener.shutdown().await;
+}
+
+#[tokio::test]
 async fn dialer_reconnects_in_under_3s_after_the_listener_restarts() {
     let rig = Rig::new();
     let listener = SessionListener::start(rig.listener_cfg(ephemeral()), noop())

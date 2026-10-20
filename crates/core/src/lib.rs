@@ -17,6 +17,7 @@ pub mod protocol;
 pub mod transfer;
 pub mod transition;
 pub mod types;
+pub mod version;
 pub mod wol;
 
 #[cfg(test)]

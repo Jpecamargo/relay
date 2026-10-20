@@ -2,6 +2,7 @@
 import type { AudioState } from "./AudioState";
 import type { ConnectionStatus } from "./ConnectionStatus";
 import type { Machine } from "./Machine";
+import type { VersionSync } from "./VersionSync";
 
 export type StatusSnapshot = { status: ConnectionStatus, peer_name: string | null, 
 /**
@@ -12,4 +13,8 @@ focus: Machine, locked: boolean, paused: boolean, secure_input: boolean,
  * O PC é conhecido (mDNS ou endereço manual) mas o TCP de controle não responde há tempo
  * demais: no Windows, em geral o firewall.
  */
-pc_unreachable: boolean, clipboard_sync: boolean, audio: AudioState, };
+pc_unreachable: boolean, clipboard_sync: boolean, audio: AudioState, 
+/**
+ * Versão do app do par, só com a sessão de pé e se ele a informou.
+ */
+peer_version: string | null, version_sync: VersionSync, };
