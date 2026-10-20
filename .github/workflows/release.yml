@@ -39,9 +39,16 @@ jobs:
             notes_arg=(--generate-notes)
           fi
           gh release create "$TAG" --verify-tag --title "Relay $TAG" "${notes_arg[@]}" --draft
-          # releases/tags/<tag> não enxerga rascunhos: procura na lista.
-          rel=$(gh api "repos/${{ github.repository }}/releases" --jq "[.[] | select(.tag_name == \"$TAG\")][0]")
-          id=$(jq -r .id <<< "$rel")
+          # releases/tags/<tag> não enxerga rascunhos e a lista demora alguns segundos para mostrar o
+          # rascunho recém-criado: procura com novas tentativas e falha se não achar.
+          id=""
+          for _ in $(seq 1 15); do
+            rel=$(gh api "repos/${{ github.repository }}/releases" --jq "[.[] | select(.tag_name == \"$TAG\")][0] // empty")
+            id=$(jq -r '.id // empty' <<< "$rel")
+            [ -n "$id" ] && break
+            sleep 2
+          done
+          [ -n "$id" ] || { echo "::error::rascunho de $TAG não apareceu na API"; exit 1; }
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
           body=$(jq -r .body <<< "$rel")
           { echo "notes<<RELAY_NOTES_EOF"; echo "$body"; echo "RELAY_NOTES_EOF"; } >> "$GITHUB_OUTPUT"
