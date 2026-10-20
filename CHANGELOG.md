@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.8
+
+- Controle reverso (mouse do PC no Mac): ao voltar ao PC, o teclado volta junto; depois de usar o mouse do PC, o trackpad do Mac volta a atravessar para o PC.
+- O PC registra no log por que uma borda não devolveu o mouse ao Mac, para diagnosticar travas.
 - Mac e PC sempre na mesma versão: se um dos lados está mais atrás, ele se atualiza. Se o Mac está mais velho, o menu abre o aviso de atualização na hora, dizendo que é para ficar igual ao PC. Se o PC está mais velho, o Mac pede e o Relay Agent mostra o próprio "Atualizar e reiniciar" na tela do PC; o menu do Mac avisa "Atualizando o PC para a versão X…". Em ambos os casos a conexão volta sozinha depois que o app reinicia.
 - A release só é publicada se o `latest.json` tiver Mac (Apple Silicon e Intel) e Windows na versão da tag.
 
