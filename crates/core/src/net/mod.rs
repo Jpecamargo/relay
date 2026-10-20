@@ -195,6 +195,18 @@ impl Session {
             .clone()
     }
 
+    /// Versão do app do par na sessão atual (`None` fora de `Connected` ou se ele não a informou).
+    pub fn peer_version(&self) -> Option<String> {
+        if *self.shared.status.borrow() != ConnectionStatus::Connected {
+            return None;
+        }
+        self.shared
+            .peer_version
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Sessões estabelecidas desde o início (sobe a cada reconexão).
     pub fn connections(&self) -> u64 {
         self.shared.connections.load(Ordering::Relaxed)

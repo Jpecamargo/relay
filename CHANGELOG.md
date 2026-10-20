@@ -6,6 +6,9 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- Mac e PC sempre na mesma versão: se um dos lados está mais atrás, ele se atualiza. Se o Mac está mais velho, o menu abre o aviso de atualização na hora, dizendo que é para ficar igual ao PC. Se o PC está mais velho, o Mac pede e o Relay Agent mostra o próprio "Atualizar e reiniciar" na tela do PC; o menu do Mac avisa "Atualizando o PC para a versão X…". Em ambos os casos a conexão volta sozinha depois que o app reinicia.
+- A release só é publicada se o `latest.json` tiver Mac (Apple Silicon e Intel) e Windows na versão da tag.
+
 ## 0.1.7
 
 - Volta do PC para o Mac corrigida: o cursor não volta mais sozinho para o PC logo depois de chegar ao Mac, e um movimento suave no trackpad já atravessa a borda (antes era preciso arrastar com força).

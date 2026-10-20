@@ -65,6 +65,8 @@ mod mock {
                         paused: false,
                         secure_input: false,
                         pc_unreachable: false,
+                        peer_version: None,
+                        version_sync: Default::default(),
                         clipboard_sync: true,
                         audio: Default::default(),
                     },

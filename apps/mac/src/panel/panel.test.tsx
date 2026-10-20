@@ -17,9 +17,12 @@ vi.mock("@relay/protocol-types", () => ({
   invokeCommand: bridge.invoke,
 }));
 
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.2.0" }));
+
 const STATUS: StatusSnapshot = {
   status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false,
   secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
+  peer_version: null, version_sync: "InSync",
 };
 
 let sendResult: unknown;
@@ -181,6 +184,18 @@ test("PC visto mas sem resposta explica o firewall; sem o flag, nada", async () 
   expect(screen.queryByText(/firewall do Windows/)).toBeNull();
   emit("relay:status", { ...STATUS, status: "Connecting", pc_unreachable: true });
   expect((await screen.findByText(/O PC está na rede mas não responde/)).textContent).toContain("isolando o Wi-Fi do cabo");
+});
+
+test("PC mais antigo: o painel diz que o PC está atualizando, ou pede a atualização manual se ele é velho demais", async () => {
+  await ready();
+  expect(screen.queryByText(/Atualizando o PC/)).toBeNull();
+  emit("relay:status", { ...STATUS, peer_version: "0.1.8", version_sync: "PeerBehind" });
+  expect(await screen.findByText("Atualizando o PC para a versão 0.2.0…")).toBeTruthy();
+  emit("relay:status", { ...STATUS, peer_version: "0.1.0", version_sync: "PeerBehindManual" });
+  expect(await screen.findByText("Atualize o Relay Agent no PC para 0.2.0.")).toBeTruthy();
+  expect(screen.queryByText(/Atualizando o PC/)).toBeNull();
+  emit("relay:status", { ...STATUS, peer_version: "0.2.0", version_sync: "InSync" });
+  await waitFor(() => expect(screen.queryByText(/Relay Agent no PC/)).toBeNull());
 });
 
 test("relay:command-result de áudio mostra toast e desliga o toggle", async () => {

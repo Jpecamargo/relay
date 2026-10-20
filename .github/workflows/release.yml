@@ -209,8 +209,30 @@ jobs:
           releaseDraft: true
           includeUpdaterJson: true
 
-  publish:
+  # Mac e PC têm de sair juntos: o app mais antigo se atualiza ao ver o outro numa versão nova, e isso
+  # só funciona se o latest.json do rascunho já tem as três plataformas na versão da tag.
+  # releases/tags/<tag> e o download público não enxergam rascunho: API autenticada, pelo id.
+  verify-latest:
     needs: [create-release, mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: latest.json do rascunho tem as três plataformas na versão da tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          asset=$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --paginate --jq '.[] | select(.name == "latest.json") | .id')
+          if [ -z "$asset" ]; then
+            echo "::error::o rascunho não tem latest.json"
+            exit 1
+          fi
+          gh api -H "Accept: application/octet-stream" "repos/${{ github.repository }}/releases/assets/$asset" > "$RUNNER_TEMP/latest.json"
+          bash scripts/check-latest-json.sh "$TAG" "$RUNNER_TEMP/latest.json"
+
+  publish:
+    needs: [create-release, mac, windows, verify-latest]
     runs-on: ubuntu-latest
     steps:
       - name: publica o release

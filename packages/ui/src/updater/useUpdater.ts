@@ -54,8 +54,8 @@ export function useUpdater({ schedule = true }: UseUpdaterOptions = {}) {
   const busy = useRef(false);
 
   useEffect(() => {
-    if (active) getVersion().then(setVersion, () => undefined);
-  }, [active]);
+    getVersion().then(setVersion, () => undefined);
+  }, []);
 
   const verify = useCallback(
     async (manual = false): Promise<CheckResult> => {

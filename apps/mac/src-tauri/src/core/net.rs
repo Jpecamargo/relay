@@ -18,6 +18,7 @@ use relay_core::platform::KeyStore;
 use relay_core::types::{
     ConnectionStatus, DiscoveredPeer, Message, PairedPeer, PairingEvent, PairingState, Ports,
 };
+use relay_core::version::{APP_VERSION, update_request};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -483,11 +484,12 @@ async fn pump<P: Platform>(
     let stats = dialer.stats();
     let mut last_up = false;
     let mut lat = interval(Duration::from_secs(1));
-    let publish = |s: ConnectionStatus, last_up: &mut bool| {
+    let publish = |s: ConnectionStatus, peer_version: Option<String>, last_up: &mut bool| {
         let current = inner.mutate(|st| {
             let ok = st.session_gen == epoch;
             if ok {
                 st.session = Some(s);
+                st.peer_version = peer_version;
             }
             ok
         });
@@ -503,6 +505,10 @@ async fn pump<P: Platform>(
     let announce = |dialer: &SessionDialer, s: ConnectionStatus, last_up: bool| {
         if s != ConnectionStatus::Connected || last_up || inner.st().session_gen != epoch {
             return;
+        }
+        // Sessão nova com o PC mais antigo: pede que ele se atualize (uma vez por conexão).
+        if let Some(request) = update_request(APP_VERSION, dialer.peer_version().as_deref()) {
+            let _ = out_tx.send(request);
         }
         let audio_keys = dialer.audio_link().map(|l| AudioKeys {
             pc_to_mac: l.pc_to_mac,
@@ -521,7 +527,7 @@ async fn pump<P: Platform>(
     };
     let first = *status.borrow_and_update();
     announce(&dialer, first, last_up);
-    publish(first, &mut last_up);
+    publish(first, dialer.peer_version(), &mut last_up);
     let mut notify = false;
     loop {
         tokio::select! {
@@ -537,7 +543,7 @@ async fn pump<P: Platform>(
                 if r.is_err() { break; }
                 let s = *status.borrow_and_update();
                 announce(&dialer, s, last_up);
-                publish(s, &mut last_up);
+                publish(s, dialer.peer_version(), &mut last_up);
             }
             _ = lat.tick() => {
                 if last_up {

@@ -27,6 +27,7 @@ relay-platform-windows = { path = "crates/platform-windows" }
 # Async, filas, serialização
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util", "signal", "fs"] }
 rtrb = "0.4.0"
+semver = "1"
 bincode = { version = "2.0.1", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"

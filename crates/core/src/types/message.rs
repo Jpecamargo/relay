@@ -98,4 +98,10 @@ pub enum Message {
     TakeControl,
     Unpair,
     Bye,
+    /// Mac -> agente: o Mac está na `version` e pede que o agente se atualize. Peers anteriores
+    /// a esta variante não a decodificam (derruba a sessão): só se envia a quem a conhece, ver
+    /// `version::UPDATE_REQUEST_MIN_PEER`.
+    RequestUpdate {
+        version: String,
+    },
 }

@@ -68,3 +68,4 @@ export * from "./SystemMetrics";
 export * from "./TransferProgress";
 export * from "./TransitionConfig";
 export * from "./UpdateAvailable";
+export * from "./VersionSync";

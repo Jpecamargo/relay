@@ -51,6 +51,9 @@ pub trait UiEvents: Send + Sync {
     /// No máximo 2 Hz.
     fn latency(&self, stats: &LatencyStats);
     fn pairing(&self, event: &PairingEvent);
+    /// O Mac, numa versão mais nova, pede que este agente se atualize: a UI procura a atualização
+    /// e abre o modal (quem decide instalar é a pessoa).
+    fn update_requested(&self, version: &str);
 }
 
 /// Observador do app em primeiro plano (`ForegroundWatcher` no Windows).
@@ -153,6 +156,8 @@ fn initial_snapshot(config: &Config) -> StatusSnapshot {
         paused: false,
         secure_input: false,
         pc_unreachable: false,
+        peer_version: None,
+        version_sync: Default::default(),
         clipboard_sync: config.clipboard.enabled,
         audio: AudioState::default(),
     }

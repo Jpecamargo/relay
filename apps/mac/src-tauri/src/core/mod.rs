@@ -35,6 +35,7 @@ use relay_core::types::{
     LatencyStats, LayoutProfile, Machine, PairedPeer, PermissionsStatus, Ports, SaveLayoutResult,
     StatusSnapshot,
 };
+use relay_core::version::{APP_VERSION, version_sync};
 use relay_core::{crypto, layout};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -80,6 +81,8 @@ pub(crate) struct State {
     pub peer: Option<PairedPeer>,
     /// Status da sessão discando (`None`: não há sessão).
     pub session: Option<ConnectionStatus>,
+    /// Versão do app do PC, do Hello da sessão atual.
+    pub peer_version: Option<String>,
     /// Geração da sessão atual: a bomba de uma sessão velha não escreve no estado.
     pub session_gen: u64,
     /// Quando a sessão atual começou a discar (`None`: não há sessão).
@@ -127,6 +130,9 @@ impl State {
         self.status.pc_unreachable =
             pc_unreachable(self.status.status, self.dialing_since.map(|t| t.elapsed()));
         self.status.peer_name = self.peer.as_ref().map(|p| p.name.clone());
+        let connected = self.status.status == ConnectionStatus::Connected;
+        self.status.peer_version = self.peer_version.clone().filter(|_| connected);
+        self.status.version_sync = version_sync(APP_VERSION, self.status.peer_version.as_deref());
     }
 }
 
@@ -280,6 +286,8 @@ impl<P: Platform> AppCore<P> {
             paused: false,
             secure_input: false,
             pc_unreachable: false,
+            peer_version: None,
+            version_sync: Default::default(),
             clipboard_sync: config.clipboard.enabled,
             audio: AudioState::default(),
         };
@@ -295,6 +303,7 @@ impl<P: Platform> AppCore<P> {
                 config,
                 peer: None,
                 session: None,
+                peer_version: None,
                 session_gen: 0,
                 dialing_since: None,
                 pairing: false,

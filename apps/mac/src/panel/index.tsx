@@ -1,6 +1,6 @@
 // dono: U2 (redesenho: ui-redesign). Painel do menu bar: só o essencial, no estilo de menu nativo.
 import { invokeCommand, type PermissionsStatus } from "@relay/protocol-types";
-import { Banner, Button, MenuRow, OPEN_UPDATE_EVENT, StatusDot, updateOf, useRelayEvent, useUpdater } from "@relay/ui";
+import { Banner, Button, MenuRow, OPEN_UPDATE_EVENT, StatusDot, updateOf, useRelayEvent, useUpdater, type MatchPeer } from "@relay/ui";
 import { emit, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
@@ -27,9 +27,9 @@ const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
 };
 
 /** Abre a janela principal já com o modal da atualização e some com o painel. */
-function openUpdateFromPanel() {
+function openUpdateFromPanel(matchPeer?: MatchPeer) {
   void openMain()
-    .then(() => emitTo("main", OPEN_UPDATE_EVENT))
+    .then(() => emitTo("main", OPEN_UPDATE_EVENT, matchPeer))
     .then(() => getCurrentWindow().hide())
     .catch(() => undefined);
 }
@@ -54,6 +54,13 @@ export function Panel() {
   useEffect(() => {
     if (update) void emit("relay:update-available", { version: update }).catch(() => undefined);
   }, [update]);
+  // O PC já está numa versão mais nova (ele é quem manda): procura na hora e mostra o modal.
+  const behindPeer = status.version_sync === "LocalBehind" ? status.peer_version : null;
+  const verify = updater.verify;
+  useEffect(() => {
+    if (!behindPeer) return;
+    void verify().then((r) => r.resultado === "disponivel" && openUpdateFromPanel({ name: "PC", version: behindPeer }));
+  }, [behindPeer, verify]);
   const { act, show, firstTime, toast } = useActions();
   const hotkey = useHotkeys();
   const root = useRef<HTMLElement>(null);
@@ -107,6 +114,13 @@ export function Panel() {
     [["Accessibility", "Acessibilidade", permissions?.accessibility], ["InputMonitoring", "Monitoramento de entrada", permissions?.input_monitoring]] as const
   ).filter(([, , s]) => s !== undefined && s !== "Granted");
   const incompatible = typeof status.status === "object" ? status.status.IncompatibleVersion : undefined;
+  const pcUpdate = !online
+    ? null
+    : status.version_sync === "PeerBehind"
+      ? `Atualizando o PC para a versão ${updater.version || "nova"}…`
+      : status.version_sync === "PeerBehindManual"
+        ? `Atualize o Relay Agent no PC para ${updater.version || "a versão mais nova"}.`
+        : null;
 
   const retry = (
     <Button variant="ghost" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
@@ -129,7 +143,7 @@ export function Panel() {
         </div>
       </header>
 
-      {secure || missing.length > 0 || incompatible || status.pc_unreachable || key === "Reconnecting" ? (
+      {secure || missing.length > 0 || incompatible || status.pc_unreachable || key === "Reconnecting" || pcUpdate ? (
         <div className={styles.banners}>
           {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
           {missing.map(([kind, label]) => (
@@ -143,6 +157,7 @@ export function Panel() {
           {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
           {status.pc_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O roteador pode estar isolando o Wi-Fi do cabo: tente a outra banda do Wi-Fi (2.4/5 GHz) ou ligue o Mac por cabo.</Banner> : null}
           {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
+          {pcUpdate ? <Banner variant="line">{pcUpdate}</Banner> : null}
         </div>
       ) : null}
 
@@ -181,7 +196,7 @@ export function Panel() {
         <hr className={styles.sep} />
 
         <div className={styles.group}>
-          {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={openUpdateFromPanel} /> : null}
+          {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={() => openUpdateFromPanel()} /> : null}
           <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
           <SoundMenu act={act} online={online} streamToMac={audio.pc_to_mac} />
           <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />

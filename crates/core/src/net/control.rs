@@ -48,6 +48,8 @@ pub(super) struct Shared {
     pub fast: Arc<FastShared>,
     /// Endereço do par e chaves UDP de áudio da sessão atual (WI3/MI3).
     pub audio_link: Mutex<Option<super::AudioLink>>,
+    /// Versão do app do par, do Hello da sessão atual (`None` = não informou).
+    pub peer_version: Mutex<Option<String>>,
 }
 
 impl Shared {
@@ -60,6 +62,7 @@ impl Shared {
             connections: AtomicU64::new(0),
             fast,
             audio_link: Mutex::new(None),
+            peer_version: Mutex::new(None),
         })
     }
 
@@ -256,6 +259,7 @@ async fn run_session(
     let Message::Hello {
         protocol_version: remote_version,
         device_id: remote_id,
+        app_version: remote_app_version,
         ..
     } = remote_hello
     else {
@@ -288,6 +292,11 @@ async fn run_session(
             pc_to_mac: noise.udp_keys(UdpChannel::AudioPcToMac),
             mac_to_pc: noise.udp_keys(UdpChannel::AudioMacToPc),
         });
+    *shared
+        .peer_version
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) =
+        Some(remote_app_version.trim().to_owned()).filter(|v| !v.is_empty());
     shared.connections.fetch_add(1, Ordering::Relaxed);
     shared.stats.send_replace(LatencyStats::default());
     shared.set_status(ConnectionStatus::Connected);
@@ -372,6 +381,10 @@ async fn run_session(
     };
     shared.fast.clear();
     shared.nodelay.store(0, Ordering::Relaxed);
+    *shared
+        .peer_version
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
     (end, true)
 }
 

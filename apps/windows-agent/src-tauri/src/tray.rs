@@ -22,7 +22,7 @@ const ID_UPDATE: &str = "update";
 const ID_QUIT: &str = "quit";
 
 /// Evento que pede o modal da atualização à janela (mesmo nome de `@relay/ui`).
-const OPEN_UPDATE_EVENT: &str = "relay:open-update";
+pub(crate) const OPEN_UPDATE_EVENT: &str = "relay:open-update";
 
 /// Itens que mudam com o estado; guardados para atualizar o texto.
 struct TrayItems<R: Runtime> {

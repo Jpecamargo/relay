@@ -20,4 +20,9 @@ impl UiEvents for TauriEvents {
     fn pairing(&self, event: &PairingEvent) {
         let _ = self.0.emit("relay:pairing", event);
     }
+
+    fn update_requested(&self, _version: &str) {
+        crate::tray::show_main_window(&self.0);
+        let _ = self.0.emit_to("main", crate::tray::OPEN_UPDATE_EVENT, ());
+    }
 }

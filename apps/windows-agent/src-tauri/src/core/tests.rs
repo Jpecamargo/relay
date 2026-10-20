@@ -22,7 +22,7 @@ use relay_core::platform::{
 use relay_core::types::{
     CapturedEvent, Config, ConnectionStatus, DisplayInfo, InputEvent, KeyCode, LatencyStats,
     LayoutProfile, Machine, Message, PairedPeer, PairingEvent, PairingState, PlacedDisplay, Ports,
-    ProfileKey, RectMm, StatusSnapshot,
+    ProfileKey, RectMm, StatusSnapshot, VersionSync,
 };
 use rtrb::{Consumer, RingBuffer};
 use tokio::time::{sleep, timeout};
@@ -41,9 +41,13 @@ struct Rec {
     status: Mutex<Vec<StatusSnapshot>>,
     pairing: Mutex<Vec<PairingEvent>>,
     latency: AtomicUsize,
+    update_requests: Mutex<Vec<String>>,
 }
 
 impl UiEvents for Rec {
+    fn update_requested(&self, version: &str) {
+        self.update_requests.lock().unwrap().push(version.into());
+    }
     fn status(&self, s: &StatusSnapshot) {
         self.status.lock().unwrap().push(s.clone());
     }
@@ -352,6 +356,15 @@ async fn pair(agent: &Agent, mac: &StaticKeypair) -> PairedPeer {
 }
 
 async fn connect(agent: &Agent, mac: &StaticKeypair, peer: PairedPeer) -> Mac {
+    connect_as(agent, mac, peer, relay_core::version::APP_VERSION).await
+}
+
+async fn connect_as(
+    agent: &Agent,
+    mac: &StaticKeypair,
+    peer: PairedPeer,
+    app_version: &str,
+) -> Mac {
     let mut cfg = DialerConfig::new(
         mac.clone(),
         peer,
@@ -363,6 +376,7 @@ async fn connect(agent: &Agent, mac: &StaticKeypair, peer: PairedPeer) -> Mac {
         },
     );
     cfg.bind_ip = LO;
+    cfg.app_version = app_version.into();
     let mut dialer = SessionDialer::start(cfg, Box::new(|_| {})).await.unwrap();
     let fast = dialer.take_input_producer().unwrap();
     let (ctrl_p, control) = RingBuffer::new(4096);
@@ -917,4 +931,51 @@ fn anuncia_as_portas_reais() {
         50124,
     );
     assert!(adv.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_learns_the_mac_version_and_opens_the_update_only_when_the_mac_is_newer() {
+    let agent = start_agent();
+    let mac_id = identity();
+    let peer = pair(&agent, &mac_id).await;
+    let mac = connect_as(&agent, &mac_id, peer.clone(), "99.0.0").await;
+    eventually("versão do Mac no status", || {
+        agent.core.status().peer_version.as_deref() == Some("99.0.0")
+    })
+    .await;
+    assert_eq!(agent.core.status().version_sync, VersionSync::LocalBehind);
+
+    mac.dialer
+        .send(Message::RequestUpdate {
+            version: "0.0.1".into(),
+        })
+        .await
+        .unwrap();
+    mac.dialer
+        .send(Message::RequestUpdate {
+            version: "99.0.0".into(),
+        })
+        .await
+        .unwrap();
+    eventually("pedido de atualização", || {
+        !agent.rec.update_requests.lock().unwrap().is_empty()
+    })
+    .await;
+    sleep(Duration::from_millis(100)).await;
+    assert_eq!(*agent.rec.update_requests.lock().unwrap(), ["99.0.0"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_that_reports_no_version_leaves_the_status_in_sync() {
+    let agent = start_agent();
+    let mac_id = identity();
+    let peer = pair(&agent, &mac_id).await;
+    let _mac = connect_as(&agent, &mac_id, peer, "").await;
+    eventually("conectado", || {
+        agent.core.status().status == ConnectionStatus::Connected
+    })
+    .await;
+    let status = agent.core.status();
+    assert_eq!(status.peer_version, None);
+    assert_eq!(status.version_sync, VersionSync::InSync);
 }

@@ -3779,6 +3779,7 @@ dependencies = [
  "rand",
  "rtrb",
  "rubato",
+ "semver",
  "serde",
  "sha2 0.11.1",
  "snow",

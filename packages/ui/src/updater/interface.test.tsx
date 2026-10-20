@@ -7,12 +7,12 @@ import { UpdaterProvider } from "./UpdaterProvider";
 const m = vi.hoisted(() => ({
   check: vi.fn(),
   relaunch: vi.fn(),
-  listeners: new Map<string, () => void>(),
+  listeners: new Map<string, (e?: { payload?: unknown }) => void>(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.1.0" }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: async (name: string, cb: () => void) => {
+  listen: async (name: string, cb: (e?: { payload?: unknown }) => void) => {
     m.listeners.set(name, cb);
     return () => m.listeners.delete(name);
   },
@@ -91,4 +91,15 @@ test("evento relay:open-update abre o modal quando há atualização", async () 
   await act(async () => {});
   await act(async () => m.listeners.get("relay:open-update")!());
   expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
+test("evento com o PC mais novo abre o modal dizendo que é para ficar na mesma versão", async () => {
+  m.check.mockResolvedValue(fakeUpdate());
+  setup();
+  await act(async () => {});
+  await act(async () => m.listeners.get("relay:open-update")!({ payload: { name: "PC", version: "0.2.0" } }));
+  expect(screen.getByRole("dialog").textContent).toContain("O PC já está na versão 0.2.0. Atualize para os dois ficarem na mesma versão.");
+  fireEvent.click(screen.getByRole("button", { name: "Depois" }));
+  fireEvent.click(screen.getByRole("button", { name: "Ver atualização" }));
+  expect(screen.getByRole("dialog").textContent).not.toContain("mesma versão");
 });
