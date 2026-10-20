@@ -20,7 +20,7 @@ jobs:
       release_id: ${{ steps.release.outputs.release_id }}
       notes: ${{ steps.release.outputs.notes }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Notas = seção da versão no CHANGELOG.md (sem seção, cai nas notas geradas do GitHub). O corpo
       # do release vira o campo `notes` do latest.json, que o modal de atualização mostra.
       # Nasce como rascunho e só é publicado no job `publish`, depois de todos os builds: publicado
@@ -60,7 +60,7 @@ jobs:
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
       HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -162,7 +162,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -216,7 +216,7 @@ jobs:
     needs: [create-release, mac, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: latest.json do rascunho tem as três plataformas na versão da tag
         env:
           GH_TOKEN: ${{ github.token }}
