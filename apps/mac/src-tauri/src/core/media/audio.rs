@@ -125,6 +125,13 @@ impl Drop for Capture {
 
 /// Pedido do usuário: manda `AudioControl` e liga/desliga os sentidos locais.
 pub(super) fn set_streams(sh: &Arc<Sh>, pc_to_mac: bool, mac_to_pc: bool) {
+    let has_session = sh.session().is_some();
+    tracing::info!(
+        pc_to_mac,
+        mac_to_pc,
+        has_session,
+        "áudio: pedido do usuário"
+    );
     sh.st().want = (pc_to_mac, mac_to_pc);
     sh.send(Message::AudioControl {
         pc_to_mac,
@@ -203,7 +210,12 @@ fn apply(sh: &Arc<Sh>) {
         (rx, tx)
     };
     drop((old_rx, old_tx));
-    let Some(ctx) = ctx else { return };
+    let Some(ctx) = ctx else {
+        if want.0 || want.1 {
+            tracing::warn!("áudio pedido sem sessão de mídia: liga quando a sessão subir");
+        }
+        return;
+    };
     let Some(keys) = ctx.audio_keys.clone() else {
         if want.0 || want.1 {
             tracing::warn!("sessão sem chaves de áudio: áudio desligado");

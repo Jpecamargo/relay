@@ -6,6 +6,9 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+- Com o foco no PC, se o macOS religar o trackpad ao cursor do Mac (os dois cursores andando juntos), o Relay percebe no próximo movimento, solta de novo e registra no log.
+- O log do Mac registra cada pedido de "Som do PC no Mac" e avisa quando ele chega sem sessão, em vez de descartar em silêncio.
+
 ## 0.1.8
 
 - Controle reverso (mouse do PC no Mac): ao voltar ao PC, o teclado volta junto; depois de usar o mouse do PC, o trackpad do Mac volta a atravessar para o PC.

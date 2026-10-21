@@ -69,6 +69,8 @@ pub struct Controller<Cap, Cur, Inj> {
     /// Tela do Mac sob o cursor (índice em `layout.local`) e última posição conhecida.
     cur_display: usize,
     last_pos: (i32, i32),
+    /// Vezes que o cursor do Mac andou com o foco no PC (o sistema reassociou o mouse).
+    cursor_escapes: u32,
     /// Slots de modificador físicos segurados (para `require_modifier` e o Cmd do matcher).
     mod_slots: u8,
     /// Teclas físicas seguradas no Mac enquanto o foco é local.
@@ -143,6 +145,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             locked: false,
             cur_display: 0,
             last_pos: (0, 0),
+            cursor_escapes: 0,
             mod_slots: 0,
             local_held: ArrayVec::new(),
             foreground: None,
@@ -342,6 +345,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
     fn on_move(&mut self, dx: i32, dy: i32, pos: (f64, f64), now: Instant) {
         match self.focus {
             Focus::Remote => {
+                self.hold_mac_cursor(pos);
                 self.send_fast(InputEvent::MouseMove {
                     dx: sat_i16(dx),
                     dy: sat_i16(dy),
@@ -384,6 +388,30 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
                 }
             }
         }
+    }
+
+    /// Com o foco no PC o cursor do Mac fica parado onde saiu (mouse desassociado). Se ele anda, o
+    /// macOS reassociou o mouse por conta própria e o cursor do Mac seguiria junto com o do PC:
+    /// reafirma o estado e devolve o cursor ao ponto de saída. No Windows (sentido inverso) o
+    /// `pos` do hook é o ponto pedido, não o cursor, então a checagem é só do Mac.
+    fn hold_mac_cursor(&mut self, pos: (f64, f64)) {
+        if self.local_machine != Machine::Mac {
+            return;
+        }
+        let p = (pos.0 as i32, pos.1 as i32);
+        if (p.0 - self.last_pos.0).abs() <= 2 && (p.1 - self.last_pos.1).abs() <= 2 {
+            return;
+        }
+        if self.cursor_escapes == 0 {
+            tracing::warn!(pos = ?p, anchor = ?self.last_pos, "cursor do Mac andou com o foco no PC: reassociado pelo sistema, reafirmando");
+        }
+        self.cursor_escapes += 1;
+        self.capture.set_swallow(true);
+        if let Err(e) = self.cursor.associate(false) {
+            tracing::warn!("desassociar o mouse falhou: {e}");
+        }
+        let _ = self.cursor.warp(self.last_pos.0, self.last_pos.1);
+        let _ = self.cursor.hide();
     }
 
     /// Tela do Mac que contém `p`; mantém a anterior se o ponto cair na borda externa.
@@ -730,7 +758,10 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         tracing::info!(entry = ?entry_px, from = ?self.last_pos, "foco: Mac -> PC");
         self.capture.set_swallow(true);
         let _ = self.cursor.hide();
-        let _ = self.cursor.associate(false);
+        if let Err(e) = self.cursor.associate(false) {
+            tracing::warn!("desassociar o mouse falhou: {e}");
+        }
+        self.cursor_escapes = 0;
         self.focus = Focus::Remote;
         self.focus_changed(true);
     }
@@ -750,7 +781,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             );
         }
         self.translator = KeymapTranslator::new(self.keymap_cfg.clone());
-        tracing::info!(point = ?point, from = ?self.last_pos, paused = self.paused, "foco: PC -> Mac");
+        tracing::info!(point = ?point, from = ?self.last_pos, paused = self.paused, escapes = self.cursor_escapes, "foco: PC -> Mac");
         // Confirma ao receptor (que também para a repetição de tecla).
         self.send_control(Message::FocusReturn {
             display_id: mac_display,
@@ -958,6 +989,29 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn cursor_do_mac_que_anda_com_foco_no_pc_e_desassociado_de_novo() {
+        let mut r = rig();
+        r.mv(5, 0, (1439.0, 450.0));
+        r.log.lock().unwrap().clear();
+        r.mv(3, 0, (1440.0, 451.0));
+        assert!(
+            calls(&r.log).is_empty(),
+            "parado no ponto de saída: nada a fazer"
+        );
+        r.mv(3, 0, (1300.0, 450.0));
+        assert_eq!(
+            calls(&r.log),
+            [
+                "swallow(true)",
+                "associate(false)",
+                "warp(1439,450)",
+                "hide"
+            ]
+        );
+        assert_eq!(r.drain_fast().len(), 2, "o movimento segue para o PC");
     }
 
     #[test]
@@ -1331,6 +1385,8 @@ mod tests {
     fn dez_mil_eventos_sem_alocar() {
         let mut r = rig();
         r.enter_dell();
+        // Com o foco no PC o cursor do Mac fica parado no ponto de saída.
+        let at = (f64::from(r.ctl.last_pos.0), f64::from(r.ctl.last_pos.1));
         let seq = |i: u32| -> [CapturedEvent; 8] {
             let key = |scan, down| CapturedEvent::Key {
                 code: KeyCode::Scan(scan),
@@ -1342,7 +1398,7 @@ mod tests {
                 CapturedEvent::MouseMove {
                     dx: (i % 7) as i32 - 3,
                     dy: 2,
-                    pos: (10.0, 10.0),
+                    pos: at,
                 },
                 CapturedEvent::Scroll {
                     dx_px: 1.0,
