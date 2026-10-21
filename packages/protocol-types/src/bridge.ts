@@ -43,6 +43,8 @@ export interface MacCommandMap {
   get_displays: { args: void; result: DisplaysPayload };
   get_layout: { args: void; result: LayoutProfile };
   save_layout: { args: { profile: LayoutProfile }; result: SaveLayoutResult };
+  /** Lista de perfis do usuário (criar, renomear, excluir) e o perfil em uso, pelo nome. */
+  set_layout_profiles: { args: { profiles: LayoutProfile[]; active: string }; result: void };
   get_config: { args: void; result: Config };
   save_config: { args: { config: Config }; result: void };
   send_command: { args: { command: RemoteCommand }; result: CommandResult };
@@ -96,6 +98,7 @@ export const COMMANDS = {
   get_displays: "get_displays",
   get_layout: "get_layout",
   save_layout: "save_layout",
+  set_layout_profiles: "set_layout_profiles",
   get_config: "get_config",
   save_config: "save_config",
   send_command: "send_command",

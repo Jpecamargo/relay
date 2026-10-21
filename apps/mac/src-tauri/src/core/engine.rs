@@ -331,35 +331,22 @@ impl<P: Platform> Core<P> {
         self.inner.events.displays(&payload);
     }
 
-    /// Perfil para as telas conectadas (persistido em `config.layout.profiles`). Combinação nova
-    /// com as duas máquinas presentes vira perfil padrão e é gravada, para o editor listá-la.
+    /// Perfil em uso (o ativo do usuário, adaptado às telas conectadas). Combinação nova de
+    /// telas não cria perfil: só o usuário cria, no editor.
     fn refresh_profile(&mut self) {
-        let (profile, new_cfg) = {
+        let profile = {
             let mut st = self.inner.st();
             let combined: Vec<DisplayInfo> = st.local.iter().chain(&st.remote).cloned().collect();
-            let Some(profile) = layout::select_profile(&st.config.layout.profiles, &combined)
+            let layout = &st.config.layout;
+            let Some(profile) =
+                layout::select_profile(&layout.profiles, layout.active.as_deref(), &combined)
             else {
                 st.profile = None;
                 return;
             };
-            let known = st
-                .config
-                .layout
-                .profiles
-                .iter()
-                .any(|p| p.key == profile.key);
-            let new_cfg = if !known && !st.remote.is_empty() {
-                st.config.layout.profiles.push(profile.clone());
-                Some(st.config.clone())
-            } else {
-                None
-            };
             st.profile = Some(profile.clone());
-            (profile, new_cfg)
+            profile
         };
-        if let Some(cfg) = new_cfg {
-            self.inner.persist_config(&cfg);
-        }
         self.rev.set_profile(profile.clone());
         if let Some(c) = self.ctl.as_mut() {
             c.set_profile(profile);

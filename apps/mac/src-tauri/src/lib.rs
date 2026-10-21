@@ -41,6 +41,7 @@ pub fn run() {
             layout::get_displays,
             layout::get_layout,
             layout::save_layout,
+            layout::set_layout_profiles,
             config::get_config,
             config::save_config,
             controls::send_command,

@@ -367,17 +367,22 @@ impl<P: Platform> AppCore<P> {
         })
     }
 
-    /// Valida, grava em `config.layout.profiles` (um por `key`) e, se for o perfil em uso,
-    /// aplica no Controller e manda `LayoutSync`. Devolve os avisos de Dock e Hot Corner.
-    pub fn save_layout(&self, profile: LayoutProfile) -> Result<SaveLayoutResult, String> {
+    /// Valida, grava em `config.layout.profiles` (um por nome), torna-o o perfil em uso, aplica no
+    /// Controller e manda `LayoutSync`. Devolve os avisos de Dock e Hot Corner.
+    pub fn save_layout(&self, mut profile: LayoutProfile) -> Result<SaveLayoutResult, String> {
         layout::validate(&profile).map_err(|e| e.to_string())?;
+        profile.name = profile.name.trim().to_owned();
+        if profile.name.is_empty() {
+            profile.name = layout::DEFAULT_PROFILE_NAME.to_owned();
+        }
         let (dock, corners) = self.inner.platform.dock();
         let cfg = self.inner.mutate(|s| {
-            let profiles = &mut s.config.layout.profiles;
-            match profiles.iter_mut().find(|p| p.key == profile.key) {
+            let l = &mut s.config.layout;
+            match l.profiles.iter_mut().find(|p| p.name == profile.name) {
                 Some(p) => *p = profile.clone(),
-                None => profiles.push(profile.clone()),
+                None => l.profiles.push(profile.clone()),
             }
+            l.active = Some(profile.name.clone());
             s.config.clone()
         });
         self.inner.persist_config(&cfg);
@@ -389,6 +394,41 @@ impl<P: Platform> AppCore<P> {
 
     pub fn config(&self) -> Config {
         self.inner.st().config.clone()
+    }
+
+    /// Troca a lista de perfis (criar, renomear, excluir) e o perfil em uso, vindos do editor.
+    pub fn set_layout_profiles(
+        &self,
+        profiles: Vec<LayoutProfile>,
+        active: String,
+    ) -> Result<(), String> {
+        let mut names = std::collections::HashSet::new();
+        for p in &profiles {
+            let name = p.name.trim();
+            if name.is_empty() {
+                return Err("perfil sem nome".into());
+            }
+            if !names.insert(name) {
+                return Err(format!("já existe um perfil chamado {name}"));
+            }
+        }
+        if !names.contains(active.trim()) {
+            return Err(format!("perfil {active} não existe"));
+        }
+        let cfg = self.inner.mutate(|s| {
+            s.config.layout.profiles = profiles
+                .into_iter()
+                .map(|p| LayoutProfile {
+                    name: p.name.trim().to_owned(),
+                    ..p
+                })
+                .collect();
+            s.config.layout.active = Some(active.trim().to_owned());
+            s.config.clone()
+        });
+        self.inner.persist_config(&cfg);
+        self.inner.core(CoreCmd::ProfilesChanged);
+        Ok(())
     }
 
     /// Grava o config vindo da UI. Os perfis de layout só mudam por `save_layout`.

@@ -1,11 +1,11 @@
 import { invokeCommand, type DisplayInfo, type LayoutProfile, type LayoutWarning, type PlacedDisplay } from "@relay/protocol-types";
-import { Banner, Button, KeyCombo, Section, Select, Slider, Toggle, useRelayEvent } from "@relay/ui";
+import { Banner, Button, ConfirmDialog, KeyCombo, Section, Select, Slider, Toggle, useRelayEvent } from "@relay/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../shared/errors";
 import { Canvas } from "./Canvas";
 import styles from "./editor.module.css";
 import { jumpIds } from "../shared/jump";
-import { alignDisplays, clampSensitivity, profileId, reconcile, rotateDisplay, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
+import { alignDisplays, clampSensitivity, reconcile, rotateDisplay, SENSITIVITY_MAX, SENSITIVITY_MIN } from "./geometry";
 
 interface Loaded {
   profile: LayoutProfile;
@@ -27,6 +27,7 @@ export function Editor() {
   const [detached, setDetached] = useState(false);
   const [name, setName] = useState("");
   const [key, setKey] = useState<LayoutProfile["key"]>([]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [selected, setSelected] = useState<string>();
   const [warnings, setWarnings] = useState<LayoutWarning[]>([]);
   const [error, setError] = useState<string>();
@@ -72,27 +73,54 @@ export function Editor() {
   const selectedWin = selected && windowsIds.includes(selected) ? selected : undefined;
   const alignIds = new Set(detached && selectedWin ? [selectedWin] : windowsIds);
 
-  const profileOptions = useMemo(() => {
-    if (!loaded) return [];
-    const all = [loaded.profile, ...loaded.profiles.filter((p) => profileId(p.key) !== profileId(loaded.profile.key))];
-    return all.map((p) => ({ value: profileId(p.key), label: p.name }));
-  }, [loaded]);
+  // Sem perfil salvo, a lista é só o perfil em uso (o padrão, ainda não gravado).
+  const saved = useMemo(() => (loaded ? (loaded.profiles.length ? loaded.profiles : [loaded.profile]) : []), [loaded]);
+  const current = loaded?.profile.name ?? "";
+  const profileOptions = saved.map((p) => ({ value: p.name, label: p.name }));
 
-  const choose = (id: string) => {
-    if (!loaded) return;
-    const p = [loaded.profile, ...loaded.profiles].find((x) => profileId(x.key) === id);
-    if (p) apply(p, loaded.connected);
+  const setProfiles = async (profiles: LayoutProfile[], active: string) => {
+    setError(undefined);
+    try {
+      await invokeCommand("set_layout_profiles", { profiles, active });
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  const choose = (n: string) => {
+    if (n !== current) void setProfiles(saved, n);
+  };
+
+  const createProfile = () => {
+    const names = new Set(saved.map((p) => p.name));
+    let n = saved.length + 1;
+    while (names.has(`Perfil ${n}`)) n++;
+    const fresh: LayoutProfile = { key, name: `Perfil ${n}`, displays, windows_detached: detached };
+    void setProfiles([...saved, fresh], fresh.name);
+  };
+
+  const deleteProfile = () => {
+    setConfirmDelete(false);
+    const rest = saved.filter((p) => p.name !== current);
+    const next = rest[0];
+    if (next) void setProfiles(rest, next.name);
   };
 
   const save = async () => {
     setSaving(true);
     setError(undefined);
     try {
-      const profile: LayoutProfile = { key, name, displays, windows_detached: detached };
+      const trimmed = name.trim() || current;
+      if (trimmed !== current) {
+        if (saved.some((p) => p.name === trimmed)) throw new Error(`Já existe um perfil chamado ${trimmed}.`);
+        const renamed = saved.map((p) => (p.name === current ? { ...p, name: trimmed } : p));
+        await invokeCommand("set_layout_profiles", { profiles: renamed, active: trimmed });
+      }
+      const profile: LayoutProfile = { key, name: trimmed, displays, windows_detached: detached };
       const result = await invokeCommand("save_layout", { profile });
+      await load();
       setWarnings(result.warnings);
-      setDirty(false);
-      setLoaded((l) => l && { ...l, profile });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -107,7 +135,13 @@ export function Editor() {
   return (
     <main className={styles.page}>
       <header className={styles.toolbar}>
-        <Select label="Perfil" value={profileId(key)} options={profileOptions} onChange={choose} />
+        <Select label="Perfil" value={current} options={profileOptions} onChange={choose} />
+        <label className={styles.nameField}>
+          <span className={styles.dim}>Nome</span>
+          <input className={styles.input} aria-label="Nome do perfil" value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} />
+        </label>
+        <Button onClick={createProfile}>Novo perfil</Button>
+        <Button disabled={saved.length < 2} onClick={() => setConfirmDelete(true)}>Excluir perfil</Button>
         <Toggle label="Mover separadamente" checked={detached} onChange={(v) => { setDetached(v); setDirty(true); }} />
         <div className={styles.actions}>
           <Button onClick={() => edit(alignDisplays(displays, alignIds, "top"))}>Alinhar pelo topo</Button>
@@ -118,6 +152,15 @@ export function Editor() {
         </div>
       </header>
 
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Excluir o perfil ${current}?`}
+        message="A disposição das telas deste perfil será perdida."
+        confirmLabel="Excluir"
+        destructive
+        onConfirm={deleteProfile}
+        onCancel={() => setConfirmDelete(false)}
+      />
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {warnings.map((w, i) => (
         <Banner key={i} tone="warn">

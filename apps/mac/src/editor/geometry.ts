@@ -1,6 +1,6 @@
 // Geometria do editor de telas (D17): snap e arraste ao vivo em TS, sem IPC. Tudo em mm, no plano do layout.
 // O core (C6) valida e calcula as bordas oficiais no save_layout; aqui é só a pré-visualização.
-import type { DisplayInfo, EdgeLink, PlacedDisplay, ProfileKey, RectMm, Side } from "@relay/protocol-types";
+import type { DisplayInfo, EdgeLink, PlacedDisplay, RectMm, Side } from "@relay/protocol-types";
 
 export const SNAP_MM = 5;
 /** Alcance do ímã em pixels de tela (independe do zoom do canvas). */
@@ -225,7 +225,6 @@ export function rotateDisplay(displays: PlacedDisplay[], info: ReadonlyMap<strin
   return out;
 }
 
-export const profileId = (key: ProfileKey) => key.join("|");
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
 

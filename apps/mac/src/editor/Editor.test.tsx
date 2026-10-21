@@ -119,3 +119,29 @@ test("orientação por tela: Retrato troca largura e altura do Dell e salva o ov
   const saved = mock.invoke.mock.calls.find((c) => c[0] === "save_layout")![1].profile;
   expect(saved.displays[1].rotation).toBe(90);
 });
+
+test("novo perfil copia a disposição atual com nome livre e passa a ser o perfil em uso", async () => {
+  backend();
+  render(<Editor />);
+  await screen.findByTestId("display-mac");
+  expect(screen.getByRole("button", { name: "Excluir perfil" })).toHaveProperty("disabled", true);
+
+  fireEvent.click(screen.getByRole("button", { name: "Novo perfil" }));
+  await waitFor(() => expect(mock.invoke.mock.calls.some((c) => c[0] === "set_layout_profiles")).toBe(true));
+  const [, args] = mock.invoke.mock.calls.find((c) => c[0] === "set_layout_profiles")!;
+  expect(args.profiles.map((p: LayoutProfile) => p.name)).toEqual(["Mesa", "Perfil 2"]);
+  expect(args.active).toBe("Perfil 2");
+  expect(args.profiles[1].displays).toEqual(profile.displays);
+});
+
+test("salvar com outro nome renomeia o perfil em vez de criar outro", async () => {
+  backend();
+  render(<Editor />);
+  await screen.findByTestId("display-mac");
+  fireEvent.change(screen.getByLabelText("Nome do perfil"), { target: { value: "Escritório" } });
+  fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+  await waitFor(() => expect(mock.invoke.mock.calls.some((c) => c[0] === "save_layout")).toBe(true));
+  const rename = mock.invoke.mock.calls.find((c) => c[0] === "set_layout_profiles")!;
+  expect(rename[1]).toEqual({ profiles: [{ ...profile, name: "Escritório" }], active: "Escritório" });
+  expect(mock.invoke.mock.calls.find((c) => c[0] === "save_layout")![1].profile.name).toBe("Escritório");
+});

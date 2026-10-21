@@ -119,6 +119,29 @@ pub fn migrate(table: &mut Table) {
                 }
                 table.insert("schema_version".into(), Value::Integer(3));
             }
+            // v3 -> v4: perfis de layout passam a ser do usuário. Antes, cada combinação de telas
+            // ganhava sozinha um perfil "Padrão"; fica só o mais completo, como "Principal".
+            3 => {
+                if let Some(Value::Table(layout)) = table.get_mut("layout")
+                    && let Some(Value::Array(profiles)) = layout.get_mut("profiles")
+                {
+                    let size = |p: &Value| {
+                        p.get("displays")
+                            .and_then(Value::as_array)
+                            .map_or(0, Vec::len)
+                    };
+                    if let Some(mut best) = profiles.iter().max_by_key(|p| size(p)).cloned() {
+                        if let Value::Table(t) = &mut best {
+                            t.insert(
+                                "name".into(),
+                                Value::String(crate::layout::DEFAULT_PROFILE_NAME.into()),
+                            );
+                        }
+                        *profiles = vec![best];
+                    }
+                }
+                table.insert("schema_version".into(), Value::Integer(4));
+            }
             _ => break,
         }
         version += 1;
@@ -288,13 +311,13 @@ mod tests {
     fn migra_v0_sem_campo_para_v1() {
         let mut t: Table = "[transition]\ndwell_ms = 200\n".parse().unwrap();
         migrate(&mut t);
-        assert_eq!(t["schema_version"].as_integer(), Some(3));
+        assert_eq!(t["schema_version"].as_integer(), Some(4));
 
         let d = dir();
         let p = d.path().join("config.toml");
         fs::write(&p, "[transition]\ndwell_ms = 200\n").unwrap();
         let c = load_or_default(&p).unwrap();
-        assert_eq!(c.schema_version, 3);
+        assert_eq!(c.schema_version, 4);
         assert_eq!(c.transition.dwell_ms, 200);
         assert!(!d.path().join("config.toml.bak").exists());
     }
@@ -308,9 +331,9 @@ mod tests {
             load_or_default(&p).unwrap()
         };
         let c = load("schema_version = 1\n[transition]\ndwell_ms = 100\n");
-        assert_eq!((c.schema_version, c.transition.dwell_ms), (3, 0));
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (4, 0));
         let c = load("schema_version = 1\n[transition]\ndwell_ms = 250\n");
-        assert_eq!((c.schema_version, c.transition.dwell_ms), (3, 250));
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (4, 250));
         // Já na v2: 100 é escolha do usuário e fica.
         let c = load("schema_version = 2\n[transition]\ndwell_ms = 100\n");
         assert_eq!(c.transition.dwell_ms, 100);
@@ -328,7 +351,7 @@ mod tests {
         let c = load(&format!("schema_version = 2\n{old}"));
         assert_eq!(
             (c.schema_version, c.audio.pc_mode),
-            (3, PcAudioMode::System)
+            (4, PcAudioMode::System)
         );
         let c = load(
             "schema_version = 2\n[audio]\npc_mode = \"process\"\nprocess_names = [\"Spotify.exe\"]\n",
@@ -352,7 +375,7 @@ mod tests {
             ),
             (47800, 47801, 47802, 47803, 47804)
         );
-        assert_eq!(c.schema_version, 3);
+        assert_eq!(c.schema_version, 4);
         assert_eq!(c.transition.dwell_ms, 0);
         assert_eq!(c.transition.edge_resistance_pt, 8.0);
         assert_eq!(c.transition.corner_dead_zone_mm, 10.0);
@@ -393,6 +416,51 @@ mod tests {
         let lido = load_or_default(&p).unwrap();
         assert_eq!(lido, c);
         assert_eq!(lido.layout.profiles[0].displays[0].sensitivity, 1.0);
+    }
+
+    #[test]
+    fn perfis_automaticos_por_combinacao_de_telas_viram_um_so() {
+        let old = "schema_version = 3
+[[layout.profiles]]
+key = [\"mac\"]
+name = \"Padrão\"
+windows_detached = false
+[[layout.profiles.displays]]
+display_id = \"mac\"
+machine = \"Mac\"
+sensitivity = 1.0
+[layout.profiles.displays.rect_mm]
+x = 0.0
+y = 0.0
+w = 300.0
+h = 200.0
+[[layout.profiles]]
+key = [\"mac\", \"w1\"]
+name = \"Padrão\"
+windows_detached = false
+[[layout.profiles.displays]]
+display_id = \"mac\"
+machine = \"Mac\"
+sensitivity = 1.0
+[layout.profiles.displays.rect_mm]
+x = 0.0
+y = 0.0
+w = 300.0
+h = 200.0
+[[layout.profiles.displays]]
+display_id = \"w1\"
+machine = \"Windows\"
+sensitivity = 1.0
+[layout.profiles.displays.rect_mm]
+x = 300.0
+y = 0.0
+w = 597.0
+h = 336.0
+";
+        let c = parse(old).unwrap();
+        assert_eq!(c.layout.profiles.len(), 1);
+        assert_eq!(c.layout.profiles[0].name, "Principal");
+        assert_eq!(c.layout.profiles[0].displays.len(), 2);
     }
 
     #[test]

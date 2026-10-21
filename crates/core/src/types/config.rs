@@ -9,7 +9,7 @@ use super::consts::*;
 use super::display::LayoutProfile;
 use super::hotkey::{HotkeyAction, HotkeyBinding, KeyCombo, Modifier};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 3;
+pub const CONFIG_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
@@ -270,7 +270,10 @@ impl Default for AudioConfig {
 #[serde(default)]
 #[ts(export)]
 pub struct LayoutConfig {
+    /// Perfis criados pelo usuário, identificados pelo nome. Vazio: o perfil padrão, calculado.
     pub profiles: Vec<LayoutProfile>,
+    /// Nome do perfil em uso; `None` (ou um nome que não existe mais) = o primeiro.
+    pub active: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]

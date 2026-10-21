@@ -21,3 +21,12 @@ pub fn save_layout(
 ) -> Result<SaveLayoutResult, String> {
     state.backend.save_layout(profile)
 }
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_layout_profiles(
+    state: State<'_, AppState>,
+    profiles: Vec<LayoutProfile>,
+    active: String,
+) -> Result<(), String> {
+    state.backend.set_layout_profiles(profiles, active)
+}

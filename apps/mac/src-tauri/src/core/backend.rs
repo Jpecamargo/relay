@@ -68,6 +68,14 @@ impl<P: Platform> AppBackend for AppCore<P> {
         AppCore::save_layout(self, profile)
     }
 
+    fn set_layout_profiles(
+        &self,
+        profiles: Vec<LayoutProfile>,
+        active: String,
+    ) -> BackendResult<()> {
+        AppCore::set_layout_profiles(self, profiles, active)
+    }
+
     fn get_config(&self) -> Config {
         self.config()
     }

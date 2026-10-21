@@ -489,20 +489,16 @@ impl Pump {
         self.send_all(out).await;
     }
 
-    /// `LayoutSync` recebido vira cópia no Config do agente (substitui o perfil de mesma chave).
+    /// `LayoutSync` recebido vira a cópia única no Config do agente: o perfil em uso no Mac,
+    /// usado no retorno antes da primeira sincronização (D11).
     fn persist_layout(&self, profile: &relay_core::types::LayoutProfile) {
         let snapshot = {
             let mut cfg = self.shared.config();
-            match cfg
-                .layout
-                .profiles
-                .iter_mut()
-                .find(|p| p.key == profile.key)
-            {
-                Some(slot) if slot == profile => return,
-                Some(slot) => *slot = profile.clone(),
-                None => cfg.layout.profiles.push(profile.clone()),
+            if cfg.layout.profiles.as_slice() == std::slice::from_ref(profile) {
+                return;
             }
+            cfg.layout.profiles = vec![profile.clone()];
+            cfg.layout.active = None;
             cfg.clone()
         };
         self.shared.save_config(&snapshot);

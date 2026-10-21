@@ -592,10 +592,8 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
     assert_eq!(layout.displays.len(), 2);
     let shown = core.displays();
     assert_eq!((shown.mac.len(), shown.windows.len()), (1, 1));
-    // O perfil padrão foi persistido para o editor listar.
-    assert_eq!(core.config().layout.profiles.len(), 1);
-    let on_disk = config::load_or_default(&platform.config_path).unwrap();
-    assert_eq!(on_disk.layout.profiles, vec![layout.clone()]);
+    // Telas novas não criam perfil sozinhas: só o salvar do usuário.
+    assert!(core.config().layout.profiles.is_empty());
     assert!(
         rec.displays
             .lock()
@@ -604,9 +602,12 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
             .any(|d| d.windows.len() == 1)
     );
 
-    // save_layout: grava, sem avisos (Dock sem autohide).
-    let result = core.save_layout(layout).unwrap();
+    // save_layout: grava como perfil em uso, sem avisos (Dock sem autohide).
+    let result = core.save_layout(layout.clone()).unwrap();
     assert!(result.warnings.is_empty());
+    let on_disk = config::load_or_default(&platform.config_path).unwrap();
+    assert_eq!(on_disk.layout.profiles, vec![layout]);
+    assert_eq!(on_disk.layout.active.as_deref(), Some("Principal"));
 
     // Cursor até a borda direita: FocusEnter no agente, foco passa ao Windows.
     move_to_edge(&platform, 400);

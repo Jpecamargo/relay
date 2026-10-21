@@ -118,20 +118,81 @@ pub fn profile_key(displays: &[DisplayInfo]) -> ProfileKey {
     ProfileKey(ids)
 }
 
-/// Perfil exato para `displays` ou o padrão (bloco Windows à direita do Mac, alinhado pelo topo).
-/// `None` se não há telas.
+/// Nome do perfil que existe antes de o usuário criar outros.
+pub const DEFAULT_PROFILE_NAME: &str = "Principal";
+
+/// Perfil em uso para `displays`: o `active` (ou o primeiro) adaptado às telas conectadas, ou o
+/// padrão (bloco Windows à direita do Mac, alinhado pelo topo) se não há perfil salvo. `None` se
+/// não há telas.
 pub fn select_profile(
     profiles: &[LayoutProfile],
+    active: Option<&str>,
     displays: &[DisplayInfo],
 ) -> Option<LayoutProfile> {
     if displays.is_empty() {
         return None;
     }
     let key = profile_key(displays);
-    if let Some(p) = profiles.iter().find(|p| p.key == key) {
-        return Some(follow_mac(reorient(p.clone(), displays), displays));
+    let chosen = active
+        .and_then(|n| profiles.iter().find(|p| p.name == n))
+        .or(profiles.first());
+    let Some(saved) = chosen else {
+        return Some(default_profile(key, displays));
+    };
+    let mut p = adapt(saved.clone(), displays);
+    p.key = key;
+    Some(follow_mac(reorient(p, displays), displays))
+}
+
+/// Deixa no perfil só as telas conectadas e acrescenta as que ele não conhece: as do Mac seguem o
+/// macOS (`follow_mac`); as do PC entram à direita das do PC já posicionadas ou, se nenhuma
+/// estava, onde o perfil padrão as poria.
+fn adapt(mut profile: LayoutProfile, displays: &[DisplayInfo]) -> LayoutProfile {
+    profile
+        .displays
+        .retain(|p| displays.iter().any(|d| d.id == p.display_id));
+    let missing: Vec<&DisplayInfo> = displays
+        .iter()
+        .filter(|d| !profile.displays.iter().any(|p| p.display_id == d.id))
+        .collect();
+    if missing.is_empty() {
+        return profile;
     }
-    Some(default_profile(key, displays))
+    let fallback = default_profile(ProfileKey::default(), displays);
+    let has_win = profile
+        .displays
+        .iter()
+        .any(|p| p.machine == Machine::Windows);
+    for d in missing {
+        let mut rect = fallback
+            .displays
+            .iter()
+            .find(|p| p.display_id == d.id)
+            .map_or(
+                RectMm {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 0.0,
+                    h: 0.0,
+                },
+                |p| p.rect_mm,
+            );
+        if d.machine == Machine::Windows && has_win {
+            let wins = profile
+                .displays
+                .iter()
+                .filter(|p| p.machine == Machine::Windows);
+            let right = wins
+                .clone()
+                .map(|p| p.rect_mm.x + p.rect_mm.w)
+                .fold(f32::MIN, f32::max);
+            let top = wins.map(|p| p.rect_mm.y).fold(f32::INFINITY, f32::min);
+            rect.x = right;
+            rect.y = top;
+        }
+        profile.displays.push(placed(d, rect));
+    }
+    profile
 }
 
 /// Perfil salvo com a tela girada depois (no Windows): onde não há override (`rotation: None`) e a
@@ -286,7 +347,7 @@ fn default_profile(key: ProfileKey, displays: &[DisplayInfo]) -> LayoutProfile {
 
     LayoutProfile {
         key,
-        name: "Padrão".to_string(),
+        name: DEFAULT_PROFILE_NAME.to_string(),
         displays: out,
         windows_detached: false,
     }
@@ -561,7 +622,7 @@ mod tests {
                 true,
             ),
         ];
-        let p = select_profile(&[], &ds).unwrap();
+        let p = select_profile(&[], None, &ds).unwrap();
         let r = p
             .displays
             .iter()
@@ -605,13 +666,13 @@ mod tests {
             ],
             windows_detached: false,
         };
-        let p = select_profile(std::slice::from_ref(&saved), &ds).unwrap();
+        let p = select_profile(std::slice::from_ref(&saved), None, &ds).unwrap();
         let r = p.displays[1].rect_mm;
         assert_eq!((r.w, r.h), (336.0, 597.0));
         // Override manual não é tocado.
         let mut manual = saved;
         manual.displays[1].rotation = Some(0);
-        let p = select_profile(&[manual], &ds).unwrap();
+        let p = select_profile(&[manual], None, &ds).unwrap();
         assert_eq!(p.displays[1].rect_mm.w, 597.0);
     }
 
@@ -713,18 +774,18 @@ mod tests {
     fn perfil_padrao_para_os_tres_perfis() {
         let all = setup();
         // MacBook sozinho
-        let p = select_profile(&[], &all[..1]).unwrap();
+        let p = select_profile(&[], None, &all[..1]).unwrap();
         assert_eq!(p.key, ProfileKey(vec!["mac".into()]));
         assert_eq!(p.displays.len(), 1);
         assert!(validate(&p).is_ok());
         // MacBook + 1 monitor
-        let p = select_profile(&[], &all[..2]).unwrap();
+        let p = select_profile(&[], None, &all[..2]).unwrap();
         let w1 = p.displays.iter().find(|d| d.display_id == "w1").unwrap();
         assert!((w1.rect_mm.x - 302.0).abs() < 1e-3 && w1.rect_mm.y.abs() < 1e-3);
         assert!(validate(&p).is_ok());
         assert_eq!(shared_edges(&p).len(), 2);
         // setup completo: disposição relativa preservada em mm
-        let p = select_profile(&[], &all).unwrap();
+        let p = select_profile(&[], None, &all).unwrap();
         assert_eq!(
             p.key,
             ProfileKey(vec!["mac".into(), "w1".into(), "w2".into()])
@@ -786,7 +847,7 @@ mod tests {
     #[test]
     fn telas_do_mac_com_densidades_diferentes_encostam_sem_sobrepor() {
         let all = mac_com_dell_a_esquerda();
-        let p = select_profile(&[], &all).unwrap();
+        let p = select_profile(&[], None, &all).unwrap();
         assert!(validate(&p).is_ok(), "{:?}", p.displays);
         let r = |id: &str| {
             p.displays
@@ -810,7 +871,7 @@ mod tests {
     #[test]
     fn perfil_salvo_com_telas_do_mac_sobrepostas_e_reparado() {
         let all = mac_com_dell_a_esquerda();
-        let mut saved = select_profile(&[], &all).unwrap();
+        let mut saved = select_profile(&[], None, &all).unwrap();
         // Como a 0.1.9 gravava: origem do Dell na escala do MacBook, tamanho na do Dell.
         saved.displays[1].rect_mm = RectMm {
             x: -244.7,
@@ -819,7 +880,7 @@ mod tests {
             h: 602.0,
         };
         saved.displays[2].rect_mm.y = 40.0;
-        let got = select_profile(std::slice::from_ref(&saved), &all).unwrap();
+        let got = select_profile(std::slice::from_ref(&saved), None, &all).unwrap();
         assert!(validate(&got).is_ok(), "{:?}", got.displays);
         assert_eq!(
             got.displays[2].rect_mm.y, 40.0,
@@ -830,27 +891,60 @@ mod tests {
     #[test]
     fn bloco_windows_sobreposto_pelo_mac_vai_para_a_direita() {
         let all = mac_com_dell_a_esquerda();
-        let mut saved = select_profile(&[], &all).unwrap();
+        let mut saved = select_profile(&[], None, &all).unwrap();
         // Dell passou para a direita do MacBook no macOS: invade o monitor do PC.
         let mut moved = all.clone();
         moved[1].origin_px = (1710, 0);
         saved.displays[2].rect_mm.x = 290.5;
-        let got = select_profile(std::slice::from_ref(&saved), &moved).unwrap();
+        let got = select_profile(std::slice::from_ref(&saved), None, &moved).unwrap();
         assert!(validate(&got).is_ok(), "{:?}", got.displays);
         let dell = got.displays[1].rect_mm;
         assert!((got.displays[2].rect_mm.x - (dell.x + dell.w)).abs() < 1e-3);
     }
 
     #[test]
+    fn perfil_ativo_e_escolhido_pelo_nome_e_se_adapta_as_telas_conectadas() {
+        let all = setup();
+        let mut mesa = select_profile(&[], None, &all[..2]).unwrap();
+        mesa.name = "Mesa".into();
+        mesa.displays[1].rect_mm.y = 50.0;
+        let outro = LayoutProfile {
+            name: "Outro".into(),
+            ..mesa.clone()
+        };
+        let profiles = [outro, mesa];
+
+        // Monitor novo no PC: entra à direita do que o perfil já posicionava, no mesmo topo.
+        let p = select_profile(&profiles, Some("Mesa"), &all).unwrap();
+        assert_eq!(p.name, "Mesa");
+        let r = |p: &LayoutProfile, id: &str| {
+            p.displays
+                .iter()
+                .find(|d| d.display_id == id)
+                .unwrap()
+                .rect_mm
+        };
+        let (w1, w2) = (r(&p, "w1"), r(&p, "w2"));
+        assert_eq!(w1.y, 50.0);
+        assert!((w2.x - (w1.x + w1.w)).abs() < 1e-3 && (w2.y - 50.0).abs() < 1e-3);
+        assert!(validate(&p).is_ok());
+
+        // Monitor desconectado sai do perfil em uso; nome que não existe cai no primeiro.
+        let p = select_profile(&profiles, Some("Sumiu"), &all[..1]).unwrap();
+        assert_eq!(p.name, "Outro");
+        assert_eq!(p.displays.len(), 1);
+    }
+
+    #[test]
     fn select_profile_devolve_exato_e_none_sem_telas() {
         let all = setup();
-        let mut custom = select_profile(&[], &all).unwrap();
+        let mut custom = select_profile(&[], None, &all).unwrap();
         custom.name = "meu".into();
         custom.displays[1].rect_mm.y += 10.0;
         let ids_rev: Vec<DisplayInfo> = all.iter().rev().cloned().collect();
-        let got = select_profile(std::slice::from_ref(&custom), &ids_rev).unwrap();
+        let got = select_profile(std::slice::from_ref(&custom), None, &ids_rev).unwrap();
         assert_eq!(got, custom);
-        assert!(select_profile(&[], &[]).is_none());
+        assert!(select_profile(&[], None, &[]).is_none());
     }
 
     #[test]

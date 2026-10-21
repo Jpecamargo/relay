@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.12
+
+- Perfis de telas: o Relay não cria mais um perfil sozinho para cada combinação de monitores. Começa com um perfil, "Principal", e no editor você cria, renomeia, escolhe e exclui os seus. O perfil em uso se adapta quando um monitor é ligado ou desligado: telas novas entram ao lado das que já estavam.
+- Os perfis "Padrão" criados automaticamente pelas versões anteriores viram um só, "Principal", mantendo a disposição mais completa.
+
 ## 0.1.11
 
 - Som do PC no Mac: ao ligar, o PC fica mudo sozinho e o som sai só no Mac; ao desligar, o PC volta a tocar. Não é mais preciso trocar a saída de som no Windows. Se você já tinha deixado o PC mudo, ele continua mudo ao desligar.

@@ -29,6 +29,11 @@ pub trait AppBackend: Send + Sync {
     fn get_displays(&self) -> DisplaysPayload;
     fn get_layout(&self) -> LayoutProfile;
     fn save_layout(&self, profile: LayoutProfile) -> BackendResult<SaveLayoutResult>;
+    fn set_layout_profiles(
+        &self,
+        profiles: Vec<LayoutProfile>,
+        active: String,
+    ) -> BackendResult<()>;
     fn get_config(&self) -> Config;
     fn save_config(&self, config: Config) -> BackendResult<()>;
     fn send_command(&self, command: RemoteCommand) -> CommandResult;
@@ -228,6 +233,17 @@ impl AppBackend for MockBackend {
     fn save_layout(&self, profile: LayoutProfile) -> BackendResult<SaveLayoutResult> {
         self.with(|s| s.layout = profile);
         Ok(SaveLayoutResult::default())
+    }
+    fn set_layout_profiles(
+        &self,
+        profiles: Vec<LayoutProfile>,
+        active: String,
+    ) -> BackendResult<()> {
+        self.with(|s| {
+            s.config.layout.profiles = profiles;
+            s.config.layout.active = Some(active);
+        });
+        Ok(())
     }
     fn get_config(&self) -> Config {
         self.with(|s| s.config.clone())
