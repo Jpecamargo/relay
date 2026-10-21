@@ -22,7 +22,7 @@ use relay_core::platform::{AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, Platfo
 use relay_core::types::{AudioConfig, AudioState, PcAudioMode, Ports, error_code};
 use relay_platform_windows::audio_endpoints::{find_vbcable, find_virtual_output};
 
-use super::platform::{AudioHost, OutputGuard};
+use super::platform::{AudioHost, LocalMute, OutputGuard};
 
 const TAG_LEN: usize = 16;
 const STATS_EVERY: Duration = Duration::from_secs(5);
@@ -67,12 +67,19 @@ struct PcStream {
     capture: Box<dyn AudioCapture>,
     worker: Worker,
     guard: Option<Box<dyn OutputGuard>>,
+    mute: Option<Box<dyn LocalMute>>,
 }
 
 impl PcStream {
     fn stop(&mut self) {
         self.capture.stop();
         self.worker.stop();
+        if let Some(m) = self.mute.as_mut()
+            && let Err(e) = m.restore()
+        {
+            tracing::warn!(error = %e, "não consegui desmutar a saída do PC");
+        }
+        self.mute = None;
         if let Some(g) = self.guard.as_mut() {
             if let Err(e) = g.restore() {
                 tracing::warn!(error = %e, "não consegui restaurar a saída padrão");
@@ -101,6 +108,7 @@ fn start_pc(
         Ok(rx)
     }
     let mut guard: Option<Box<dyn OutputGuard>> = None;
+    let mut mute: Option<Box<dyn LocalMute>> = None;
     let (mut capture, ring_rx): (Box<dyn AudioCapture>, _) = match cfg.pc_mode {
         PcAudioMode::System
             if cfg
@@ -141,8 +149,16 @@ fn start_pc(
                     None
                 }
             };
-            let mut c = host.loopback(id);
+            let mut c = host.loopback(id.clone());
             let rx = begin(&mut *c)?;
+            // O som vai só para o Mac: o loopback captura antes do mudo do endpoint.
+            mute = match host.mute(id) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(error = %e, "não consegui mutar o PC: o som sai nos dois");
+                    None
+                }
+            };
             (c, rx)
         }
         PcAudioMode::System => {
@@ -239,6 +255,7 @@ fn start_pc(
                 thread: Some(t),
             },
             guard,
+            mute,
         }),
         Err(e) => {
             capture.stop();

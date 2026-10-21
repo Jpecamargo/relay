@@ -133,6 +133,31 @@ pub fn set_mute(kind: EndpointKind, muted: bool) -> Result<(), PlatformError> {
     }
 }
 
+/// Mudo de um endpoint pelo id.
+pub fn get_mute_of(id: &str) -> Result<bool, PlatformError> {
+    #[cfg(windows)]
+    {
+        win::get_mute_of(id)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = id;
+        Err(PlatformError::Unsupported)
+    }
+}
+
+pub fn set_mute_of(id: &str, muted: bool) -> Result<(), PlatformError> {
+    #[cfg(windows)]
+    {
+        win::set_mute_of(id, muted)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (id, muted);
+        Err(PlatformError::Unsupported)
+    }
+}
+
 /// Id do endpoint padrão de console do tipo.
 pub fn default_endpoint_id(kind: EndpointKind) -> Result<String, PlatformError> {
     #[cfg(windows)]
@@ -376,6 +401,24 @@ mod win {
 
     pub fn set_mute(kind: EndpointKind, muted: bool) -> Result<(), PlatformError> {
         unsafe { volume(kind)?.SetMute(muted, std::ptr::null()) }.map_err(|e| err("SetMute", e))
+    }
+
+    fn volume_of(id: &str) -> Result<IAudioEndpointVolume, PlatformError> {
+        let wide: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
+        let dev = unsafe { enumerator()?.GetDevice(PCWSTR(wide.as_ptr())) }
+            .map_err(|e| err("GetDevice", e))?;
+        unsafe { dev.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) }
+            .map_err(|e| err("Activate(IAudioEndpointVolume)", e))
+    }
+
+    pub fn get_mute_of(id: &str) -> Result<bool, PlatformError> {
+        unsafe { volume_of(id)?.GetMute() }
+            .map(|b| b.as_bool())
+            .map_err(|e| err("GetMute", e))
+    }
+
+    pub fn set_mute_of(id: &str, muted: bool) -> Result<(), PlatformError> {
+        unsafe { volume_of(id)?.SetMute(muted, std::ptr::null()) }.map_err(|e| err("SetMute", e))
     }
 
     pub fn set_default_endpoint(id: &str) -> Result<(), PlatformError> {

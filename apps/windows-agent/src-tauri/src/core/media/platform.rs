@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use relay_core::platform::{AudioCapture, AudioPlayback, PlatformError};
 use relay_core::types::AudioDevices;
-use relay_platform_windows::audio_endpoints::{self, DefaultOutputGuard};
+use relay_platform_windows::audio_endpoints::{self, DefaultOutputGuard, EndpointKind};
 use relay_platform_windows::audio_stream::{
     EndpointRender, LoopbackCapture, ProcessLoopbackCapture,
 };
@@ -27,6 +27,12 @@ impl OutputGuard for DefaultOutputGuard {
     }
 }
 
+/// Mudo que o agente pôs numa saída do PC enquanto o som vai para o Mac; `restore()` e o `Drop`
+/// o desfazem.
+pub trait LocalMute: Send {
+    fn restore(&mut self) -> Result<(), PlatformError>;
+}
+
 /// Tudo de áudio que o agente pede ao sistema.
 pub trait AudioHost: Send + Sync {
     fn devices(&self) -> Result<AudioDevices, PlatformError>;
@@ -38,6 +44,9 @@ pub trait AudioHost: Send + Sync {
     fn process_loopback(&self, exe: &str) -> Box<dyn AudioCapture>;
     /// Reprodução num endpoint de render (`None` = padrão).
     fn render(&self, endpoint: Option<String>) -> Box<dyn AudioPlayback>;
+    /// Silencia a saída `endpoint` (`None` = padrão). `None` no retorno: já estava muda pelo
+    /// usuário, e então não é do agente desfazer.
+    fn mute(&self, endpoint: Option<String>) -> Result<Option<Box<dyn LocalMute>>, PlatformError>;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -59,6 +68,58 @@ impl AudioHost for WindowsAudioHost {
     fn render(&self, endpoint: Option<String>) -> Box<dyn AudioPlayback> {
         Box::new(EndpointRender::new(endpoint))
     }
+    fn mute(&self, endpoint: Option<String>) -> Result<Option<Box<dyn LocalMute>>, PlatformError> {
+        let id = match endpoint {
+            Some(id) => id,
+            None => audio_endpoints::default_endpoint_id(EndpointKind::Render)?,
+        };
+        if audio_endpoints::get_mute_of(&id)? {
+            return Ok(None);
+        }
+        // Marcador antes do mudo: se o agente cair com o PC mudo, o próximo boot desfaz.
+        let _ = std::fs::create_dir_all(mute_marker().parent().unwrap_or(&mute_marker()));
+        let _ = std::fs::write(mute_marker(), &id);
+        audio_endpoints::set_mute_of(&id, true)?;
+        Ok(Some(Box::new(EndpointMute(Some(id)))))
+    }
+}
+
+fn mute_marker() -> PathBuf {
+    crate::logging::log_dir()
+        .parent()
+        .map_or_else(std::env::temp_dir, PathBuf::from)
+        .join("saida-silenciada")
+}
+
+struct EndpointMute(Option<String>);
+
+impl LocalMute for EndpointMute {
+    fn restore(&mut self) -> Result<(), PlatformError> {
+        if let Some(id) = self.0.clone() {
+            audio_endpoints::set_mute_of(&id, false)?;
+            let _ = std::fs::remove_file(mute_marker());
+            self.0 = None;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for EndpointMute {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
+/// Desfaz o mudo deixado por um agente que caiu com o som indo para o Mac.
+pub fn recover_local_mute() {
+    let Ok(id) = std::fs::read_to_string(mute_marker()) else {
+        return;
+    };
+    match audio_endpoints::set_mute_of(id.trim(), false) {
+        Ok(()) => tracing::info!("saída do PC desmutada (o agente anterior caiu com ela muda)"),
+        Err(e) => tracing::warn!(error = %e, "não consegui desmutar a saída do PC"),
+    }
+    let _ = std::fs::remove_file(mute_marker());
 }
 
 /// Destino de um `DropFiles`: pasta do Explorer sob o cursor, senão Downloads (D20).

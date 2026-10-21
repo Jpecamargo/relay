@@ -27,7 +27,7 @@ use relay_core::types::{
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::audio::DATAGRAM_LEN;
-use super::platform::{AudioHost, OutputGuard};
+use super::platform::{AudioHost, LocalMute, OutputGuard};
 use super::{ACTIVE_PEER_ACCOUNT, Media, MediaDeps, MediaOut, MediaPort};
 use relay_core::audio::{STREAM_MIC, seal_datagram};
 
@@ -69,6 +69,21 @@ impl OutputGuard for MockGuard {
     }
 }
 impl Drop for MockGuard {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
+struct MockMute(Log, Option<String>);
+impl LocalMute for MockMute {
+    fn restore(&mut self) -> Result<(), PlatformError> {
+        if let Some(id) = self.1.take() {
+            self.0.lock().unwrap().push(format!("unmute:{id}"));
+        }
+        Ok(())
+    }
+}
+impl Drop for MockMute {
     fn drop(&mut self) {
         let _ = self.restore();
     }
@@ -213,6 +228,11 @@ impl AudioHost for MockHost {
             thread: None,
         })
     }
+    fn mute(&self, endpoint: Option<String>) -> Result<Option<Box<dyn LocalMute>>, PlatformError> {
+        let id = endpoint.unwrap_or_default();
+        self.log.lock().unwrap().push(format!("mute:{id}"));
+        Ok(Some(Box::new(MockMute(self.log.clone(), Some(id)))))
+    }
 }
 
 fn speakers_and_cables() -> (Vec<AudioDevice>, Vec<AudioDevice>) {
@@ -323,7 +343,7 @@ fn expect_audio_error(r: &mut Rig, code: &str) {
 // ---- áudio ----
 
 #[test]
-fn system_mode_without_virtual_output_captures_the_default_output_without_switching() {
+fn system_mode_without_virtual_output_captures_the_default_output_muted_and_unmutes_on_stop() {
     let (o, i) = speakers_and_cables();
     let host = MockHost::new(o, i);
     let mut r = rig(
@@ -337,7 +357,14 @@ fn system_mode_without_virtual_output_captures_the_default_output_without_switch
         mac_to_pc: false,
     });
     wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
-    assert_eq!(host.events(), ["capture:endpoint:"]);
+    assert_eq!(host.events(), ["capture:endpoint:", "mute:"]);
+    r.feed(Message::AudioControl {
+        pc_to_mac: false,
+        mac_to_pc: false,
+    });
+    wait("desmutado", || {
+        host.events().contains(&"unmute:".to_string()).then_some(())
+    });
 }
 
 #[test]
@@ -358,7 +385,10 @@ fn system_mode_leaves_cable_input_as_default_before_capturing_and_restores() {
         mac_to_pc: false,
     });
     wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
-    assert_eq!(host.events(), ["switch:spk", "capture:endpoint:spk"]);
+    assert_eq!(
+        host.events(),
+        ["switch:spk", "capture:endpoint:spk", "mute:spk"]
+    );
     r.media.link_changed(None);
     wait("restaurado", || {
         (host.events().last().unwrap() == "restore").then_some(())

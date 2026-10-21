@@ -113,10 +113,15 @@ impl CaptureRunner {
 
 /// Loopback WASAPI de um endpoint de render (o que o PC está tocando), em quadros i16 48 kHz
 /// estéreo de 240 amostras.
+///
+/// O loopback não entrega nada enquanto nenhum app toca no endpoint: o Mac esvaziava o buffer,
+/// subia o atraso e picotava a cada volta do som. Um stream de silêncio no mesmo endpoint mantém
+/// o relógio do loopback andando (contorno documentado pela Microsoft em "Loopback Recording").
 #[derive(Debug, Default)]
 pub struct LoopbackCapture {
     endpoint_id: Option<String>,
     runner: CaptureRunner,
+    silence: Option<EndpointRender>,
 }
 
 impl LoopbackCapture {
@@ -125,6 +130,23 @@ impl LoopbackCapture {
         Self {
             endpoint_id,
             runner: CaptureRunner::default(),
+            silence: None,
+        }
+    }
+
+    fn start_silence(&mut self) {
+        let mut render = EndpointRender::new(self.endpoint_id.clone());
+        // Ring que nunca recebe nada: o render completa tudo com silêncio.
+        let (_, empty) = rtrb::RingBuffer::<f32>::new(1);
+        match render.start(empty) {
+            Ok(()) => self.silence = Some(render),
+            Err(e) => tracing::warn!(error = %e, "silêncio de manutenção do loopback falhou"),
+        }
+    }
+
+    fn stop_silence(&mut self) {
+        if let Some(mut r) = self.silence.take() {
+            r.stop();
         }
     }
 }
@@ -132,23 +154,33 @@ impl LoopbackCapture {
 impl AudioCapture for LoopbackCapture {
     fn start(&mut self, sink: rtrb::Producer<AudioFrame>) -> Result<(), PlatformError> {
         self.runner
-            .start(Target::Endpoint(self.endpoint_id.clone()), sink)
+            .start(Target::Endpoint(self.endpoint_id.clone()), sink)?;
+        self.start_silence();
+        Ok(())
     }
 
     fn stop(&mut self) {
         self.runner.stop();
+        self.stop_silence();
     }
 
     fn set_device(&mut self, device_id: Option<&str>) -> Result<(), PlatformError> {
         self.endpoint_id = device_id.map(str::to_owned);
+        let running = self.runner.running();
+        self.stop_silence();
         self.runner
-            .restart(Target::Endpoint(self.endpoint_id.clone()))
+            .restart(Target::Endpoint(self.endpoint_id.clone()))?;
+        if running {
+            self.start_silence();
+        }
+        Ok(())
     }
 }
 
 impl Drop for LoopbackCapture {
     fn drop(&mut self) {
         self.runner.stop();
+        self.stop_silence();
     }
 }
 

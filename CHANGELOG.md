@@ -6,6 +6,12 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.11
+
+- Som do PC no Mac: ao ligar, o PC fica mudo sozinho e o som sai só no Mac; ao desligar, o PC volta a tocar. Não é mais preciso trocar a saída de som no Windows. Se você já tinha deixado o PC mudo, ele continua mudo ao desligar.
+- Som do PC no Mac: sem cortes quando o PC fica em silêncio entre um som e outro. Antes, cada pausa esvaziava o buffer no Mac e aumentava o atraso, e o som voltava picotado.
+- Se o Relay fechar inesperadamente com o PC mudo, o som do PC volta na próxima vez que o agente abrir.
+
 ## 0.1.10
 
 - Telas: com um segundo monitor no Mac, as telas não se sobrepõem mais no editor. As telas do Mac seguem a disposição do macOS, cada uma no tamanho real, e perfis já salvos com sobreposição são corrigidos ao abrir.

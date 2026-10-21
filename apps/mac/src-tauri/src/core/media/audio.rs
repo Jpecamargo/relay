@@ -382,6 +382,8 @@ fn play_loop(
                     played = s.played,
                     lost = s.lost,
                     underruns = s.underruns,
+                    skipped = s.skipped,
+                    late = s.late,
                     level_ms = s.level_ms,
                     "áudio PC→Mac jitter"
                 );

@@ -15,7 +15,9 @@ use relay_platform_windows::mouse_accel::PointerPrecisionGuard;
 use relay_platform_windows::pipe::InjectPipeClient;
 use relay_platform_windows::service::SERVICE_NAME;
 
-use super::media::platform::{WindowsAudioHost, detect_vbcable, windows_drop_target};
+use super::media::platform::{
+    WindowsAudioHost, detect_vbcable, recover_local_mute, windows_drop_target,
+};
 use super::media::{CaptureSource, Media, MediaDeps};
 use super::routed::{PipeInjector, SharedPipe};
 use super::{AgentDeps, ForegroundSource};
@@ -68,6 +70,7 @@ fn real_captures() -> CaptureSource {
 
 /// Mídia de produção: clipboard do Windows, Core Audio/VB-CABLE e Explorer.
 pub fn real_media(keystore: Arc<dyn KeyStore>) -> Media {
+    recover_local_mute();
     let config =
         relay_core::config::load_or_default(&relay_core::config::config_path()).unwrap_or_default();
     Media::start(
