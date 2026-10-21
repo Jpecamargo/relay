@@ -17,6 +17,7 @@ pub fn set_audio_streams(
     pc_to_mac: bool,
     mac_to_pc: bool,
 ) -> Result<(), String> {
+    tracing::info!(pc_to_mac, mac_to_pc, "comando set_audio_streams");
     state.backend.set_audio_streams(pc_to_mac, mac_to_pc)?;
     emit_status(&app, &state.backend.get_status());
     Ok(())

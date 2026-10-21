@@ -6,6 +6,12 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.10
+
+- Telas: com um segundo monitor no Mac, as telas não se sobrepõem mais no editor. As telas do Mac seguem a disposição do macOS, cada uma no tamanho real, e perfis já salvos com sobreposição são corrigidos ao abrir.
+- Cursor: a checagem de que o cursor do Mac ficou parado com o foco no PC usa a posição real e roda no máximo a cada 100 ms (na 0.1.9 disparava a cada movimento).
+- Som: registro no log quando o painel pede para ligar ou desligar o som, para diagnóstico.
+
 ## 0.1.9
 
 - Com o foco no PC, se o macOS religar o trackpad ao cursor do Mac (os dois cursores andando juntos), o Relay percebe no próximo movimento, solta de novo e registra no log.

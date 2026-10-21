@@ -129,7 +129,7 @@ export function Editor() {
         <Canvas displays={displays} info={info} jump={jump} detached={detached} selected={selected} onSelect={setSelected} onChange={edit} />
         <aside className={styles.side}>
           <Section title="Telas">
-            <span className={styles.dim}>Arraste para encaixar nas bordas; segure Option para desligar o ímã.</span>
+            <span className={styles.dim}>Arraste as telas do PC para encaixar nas bordas; segure Option para desligar o ímã. As do Mac seguem Ajustes do Sistema › Monitores.</span>
             {displays.map((d) => (
               <div key={d.display_id} className={styles.item} data-selected={selected === d.display_id}>
                 <button type="button" className={styles.itemHead} onClick={() => setSelected(d.display_id)}>

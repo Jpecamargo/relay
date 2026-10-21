@@ -30,6 +30,7 @@ const SC_LWIN: u16 = 0xE05B;
 
 /// Sem `Magnify` por este tempo, o gesto de pinça terminou (o evento não traz fase).
 const PINCH_IDLE: Duration = Duration::from_millis(120);
+const CURSOR_CHECK_EVERY: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -71,6 +72,7 @@ pub struct Controller<Cap, Cur, Inj> {
     last_pos: (i32, i32),
     /// Vezes que o cursor do Mac andou com o foco no PC (o sistema reassociou o mouse).
     cursor_escapes: u32,
+    cursor_checked: Option<Instant>,
     /// Slots de modificador físicos segurados (para `require_modifier` e o Cmd do matcher).
     mod_slots: u8,
     /// Teclas físicas seguradas no Mac enquanto o foco é local.
@@ -146,6 +148,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             cur_display: 0,
             last_pos: (0, 0),
             cursor_escapes: 0,
+            cursor_checked: None,
             mod_slots: 0,
             local_held: ArrayVec::new(),
             foreground: None,
@@ -345,7 +348,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
     fn on_move(&mut self, dx: i32, dy: i32, pos: (f64, f64), now: Instant) {
         match self.focus {
             Focus::Remote => {
-                self.hold_mac_cursor(pos);
+                self.hold_mac_cursor(now);
                 self.send_fast(InputEvent::MouseMove {
                     dx: sat_i16(dx),
                     dy: sat_i16(dy),
@@ -392,13 +395,21 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
 
     /// Com o foco no PC o cursor do Mac fica parado onde saiu (mouse desassociado). Se ele anda, o
     /// macOS reassociou o mouse por conta própria e o cursor do Mac seguiria junto com o do PC:
-    /// reafirma o estado e devolve o cursor ao ponto de saída. No Windows (sentido inverso) o
-    /// `pos` do hook é o ponto pedido, não o cursor, então a checagem é só do Mac.
-    fn hold_mac_cursor(&mut self, pos: (f64, f64)) {
-        if self.local_machine != Machine::Mac {
+    /// reafirma o estado e devolve o cursor ao ponto de saída. Lê a posição real do cursor (o
+    /// `pos` do evento desassociado é a posição "pretendida", não a do cursor), no máximo a cada
+    /// `CURSOR_CHECK_EVERY`. No Windows (sentido inverso) o cursor fica preso pelo clip: só no Mac.
+    fn hold_mac_cursor(&mut self, now: Instant) {
+        if self.local_machine != Machine::Mac
+            || self
+                .cursor_checked
+                .is_some_and(|t| now.duration_since(t) < CURSOR_CHECK_EVERY)
+        {
             return;
         }
-        let p = (pos.0 as i32, pos.1 as i32);
+        self.cursor_checked = Some(now);
+        let Ok(p) = self.cursor.position() else {
+            return;
+        };
         if (p.0 - self.last_pos.0).abs() <= 2 && (p.1 - self.last_pos.1).abs() <= 2 {
             return;
         }
@@ -762,6 +773,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             tracing::warn!("desassociar o mouse falhou: {e}");
         }
         self.cursor_escapes = 0;
+        self.cursor_checked = None;
         self.focus = Focus::Remote;
         self.focus_changed(true);
     }
@@ -831,6 +843,8 @@ mod tests {
         control: Consumer<Message>,
         injected: Arc<Mutex<Vec<InputEvent>>>,
         events: Arc<Mutex<Vec<EngineEvent>>>,
+        /// Posição real do cursor do Mac (o mock); `mv` com foco local a acompanha.
+        cursor: Pos,
         t0: Instant,
     }
 
@@ -848,12 +862,14 @@ mod tests {
         let (ctrl_p, control) = RingBuffer::new(32768);
         let inj = MockInjector::new();
         let injected = inj.events.clone();
+        let mock_cursor = MockCursor::new(&log);
+        let cursor = mock_cursor.pos.clone();
         let mut ctl = Controller::new(
             cfg,
             profile(1.0),
             vec![mac_display()],
             MockCapture::new(&log),
-            MockCursor::new(&log),
+            mock_cursor,
             inj,
             fast_p.into(),
             ctrl_p,
@@ -869,6 +885,7 @@ mod tests {
             control,
             injected,
             events,
+            cursor,
             t0: Instant::now(),
         }
     }
@@ -896,6 +913,9 @@ mod tests {
         }
 
         fn mv(&mut self, dx: i32, dy: i32, pos: (f64, f64)) {
+            if !self.ctl.is_remote() {
+                *self.cursor.lock().unwrap() = (pos.0 as i32, pos.1 as i32);
+            }
             self.ctl
                 .handle_at(CapturedEvent::MouseMove { dx, dy, pos }, self.t0);
         }
@@ -996,12 +1016,20 @@ mod tests {
         let mut r = rig();
         r.mv(5, 0, (1439.0, 450.0));
         r.log.lock().unwrap().clear();
-        r.mv(3, 0, (1440.0, 451.0));
+        r.mv(3, 0, (1600.0, 450.0));
         assert!(
             calls(&r.log).is_empty(),
-            "parado no ponto de saída: nada a fazer"
+            "o pos do evento anda, o cursor real não: nada a fazer"
         );
-        r.mv(3, 0, (1300.0, 450.0));
+        *r.cursor.lock().unwrap() = (1300, 450);
+        r.ctl.handle_at(
+            CapturedEvent::MouseMove {
+                dx: 3,
+                dy: 0,
+                pos: (1600.0, 450.0),
+            },
+            r.t0 + CURSOR_CHECK_EVERY,
+        );
         assert_eq!(
             calls(&r.log),
             [

@@ -67,10 +67,7 @@ pub fn validate(profile: &LayoutProfile) -> Result<(), LayoutError> {
             if a.display_id == b.display_id {
                 return Err(LayoutError::DuplicateDisplay(a.display_id.clone()));
             }
-            let (ra, rb) = (&a.rect_mm, &b.rect_mm);
-            let ox = (ra.x + ra.w).min(rb.x + rb.w) - ra.x.max(rb.x);
-            let oy = (ra.y + ra.h).min(rb.y + rb.h) - ra.y.max(rb.y);
-            if ox > OVERLAP_EPS_MM && oy > OVERLAP_EPS_MM {
+            if overlaps(&a.rect_mm, &b.rect_mm) {
                 return Err(LayoutError::Overlap(
                     a.display_id.clone(),
                     b.display_id.clone(),
@@ -132,7 +129,7 @@ pub fn select_profile(
     }
     let key = profile_key(displays);
     if let Some(p) = profiles.iter().find(|p| p.key == key) {
-        return Some(reorient(p.clone(), displays));
+        return Some(follow_mac(reorient(p.clone(), displays), displays));
     }
     Some(default_profile(key, displays))
 }
@@ -156,17 +153,92 @@ fn reorient(mut profile: LayoutProfile, displays: &[DisplayInfo]) -> LayoutProfi
     profile
 }
 
-/// Retângulo em mm de `d` relativo a `origin_px`. O deslocamento usa `origin_k` (mm/px da tela
-/// principal da máquina, pois as origens vivem num desktop virtual único); o tamanho usa a escala
-/// da própria tela.
-fn rect_relative(d: &DisplayInfo, origin_px: (i32, i32), origin_k: f32) -> RectMm {
+fn size_mm_of(d: &DisplayInfo) -> (f32, f32) {
     let k = mm_per_px(d);
-    RectMm {
-        x: (d.origin_px.0 - origin_px.0) as f32 * origin_k,
-        y: (d.origin_px.1 - origin_px.1) as f32 * origin_k,
-        w: d.size_px.0 as f32 * k,
-        h: d.size_px.1 as f32 * k,
+    (d.size_px.0 as f32 * k, d.size_px.1 as f32 * k)
+}
+
+fn overlaps(a: &RectMm, b: &RectMm) -> bool {
+    let ox = (a.x + a.w).min(b.x + b.w) - a.x.max(b.x);
+    let oy = (a.y + a.h).min(b.y + b.h) - a.y.max(b.y);
+    ox > OVERLAP_EPS_MM && oy > OVERLAP_EPS_MM
+}
+
+/// `d` encostada em `p` (já posta em `pr`), se as duas se tocam por uma borda no desktop da máquina.
+/// O deslocamento ao longo da borda usa a escala de `p`.
+fn attach(d: &DisplayInfo, p: &DisplayInfo, pr: &RectMm) -> Option<RectMm> {
+    let k = mm_per_px(p);
+    let (w, h) = size_mm_of(d);
+    let (dx, dy, dw, dh) = (
+        d.origin_px.0,
+        d.origin_px.1,
+        d.size_px.0 as i32,
+        d.size_px.1 as i32,
+    );
+    let (px, py, pw, ph) = (
+        p.origin_px.0,
+        p.origin_px.1,
+        p.size_px.0 as i32,
+        p.size_px.1 as i32,
+    );
+    let over_y = dy < py + ph && py < dy + dh;
+    let over_x = dx < px + pw && px < dx + dw;
+    let along_y = pr.y + (dy - py) as f32 * k;
+    let along_x = pr.x + (dx - px) as f32 * k;
+    let (x, y) = if over_y && dx + dw == px {
+        (pr.x - w, along_y)
+    } else if over_y && dx == px + pw {
+        (pr.x + pr.w, along_y)
+    } else if over_x && dy + dh == py {
+        (along_x, pr.y - h)
+    } else if over_x && dy == py + ph {
+        (along_x, pr.y + pr.h)
+    } else {
+        return None;
+    };
+    Some(RectMm { x, y, w, h })
+}
+
+/// Telas de uma máquina no plano em mm, cada uma no tamanho físico e encostadas como no desktop
+/// dela; `ds[first]` fica em (0, 0). Converter todas as origens por uma escala só sobrepõe (ou
+/// afasta) telas de densidades diferentes, como um MacBook ao lado de um monitor externo.
+fn arrange(ds: &[&DisplayInfo], first: usize) -> Vec<RectMm> {
+    let mut out: Vec<Option<RectMm>> = vec![None; ds.len()];
+    if ds.is_empty() {
+        return Vec::new();
     }
+    let (w, h) = size_mm_of(ds[first]);
+    out[first] = Some(RectMm {
+        x: 0.0,
+        y: 0.0,
+        w,
+        h,
+    });
+    while let Some(next) = out.iter().position(Option::is_none) {
+        let found = (0..ds.len()).filter(|&i| out[i].is_none()).find_map(|i| {
+            (0..ds.len()).find_map(|j| Some((i, attach(ds[i], ds[j], out[j].as_ref()?)?)))
+        });
+        let (i, r) = found.unwrap_or_else(|| {
+            // Sem vizinha encostada: à direita de tudo o que já foi posto.
+            let right = out
+                .iter()
+                .flatten()
+                .map(|r| r.x + r.w)
+                .fold(f32::MIN, f32::max);
+            let (w, h) = size_mm_of(ds[next]);
+            (
+                next,
+                RectMm {
+                    x: right,
+                    y: 0.0,
+                    w,
+                    h,
+                },
+            )
+        });
+        out[i] = Some(r);
+    }
+    out.into_iter().flatten().collect()
 }
 
 fn placed(d: &DisplayInfo, rect_mm: RectMm) -> PlacedDisplay {
@@ -179,51 +251,37 @@ fn placed(d: &DisplayInfo, rect_mm: RectMm) -> PlacedDisplay {
     }
 }
 
+fn of_machine(displays: &[DisplayInfo], m: Machine) -> (Vec<&DisplayInfo>, usize) {
+    let ds: Vec<&DisplayInfo> = displays.iter().filter(|d| d.machine == m).collect();
+    let main = ds.iter().position(|d| d.is_primary).unwrap_or(0);
+    (ds, main)
+}
+
 fn default_profile(key: ProfileKey, displays: &[DisplayInfo]) -> LayoutProfile {
-    let mac: Vec<&DisplayInfo> = displays
+    let (mac, mac_main) = of_machine(displays, Machine::Mac);
+    let (win, win_main) = of_machine(displays, Machine::Windows);
+    let mac_rects = arrange(&mac, mac_main);
+    let mut out: Vec<PlacedDisplay> = mac
         .iter()
-        .filter(|d| d.machine == Machine::Mac)
+        .zip(mac_rects.iter())
+        .map(|(d, r)| placed(d, *r))
         .collect();
-    let win: Vec<&DisplayInfo> = displays
-        .iter()
-        .filter(|d| d.machine == Machine::Windows)
-        .collect();
-    let primary = mac.iter().find(|d| d.is_primary).or(mac.first()).copied();
 
-    let mut out = Vec::new();
-    // Mac: origem do plano = canto da tela principal (ou da primeira tela, sem Mac).
-    let mac_origin = primary.map_or((0, 0), |p| p.origin_px);
-    let mac_k = primary.map_or(1.0, mm_per_px);
-    for d in &mac {
-        out.push(placed(d, rect_relative(d, mac_origin, mac_k)));
-    }
-
-    // Windows: preserva a disposição relativa; o bloco encosta à direita da tela principal do
-    // Mac, com o topo do bloco alinhado ao topo dela.
-    let win_origin = (
-        win.iter().map(|d| d.origin_px.0).min().unwrap_or(0),
-        win.iter().map(|d| d.origin_px.1).min().unwrap_or(0),
-    );
-    let win_main = win.iter().find(|d| d.is_primary).or(win.first()).copied();
-    let win_k = win_main.map_or(1.0, mm_per_px);
-    let (off_x, off_y) = primary.map_or((0.0, 0.0), |p| {
-        let r = rect_relative(p, mac_origin, mac_k);
-        (r.x + r.w, r.y)
-    });
-    let block_min_mm = |axis: usize| {
-        win.iter()
-            .map(|d| {
-                let r = rect_relative(d, win_origin, win_k);
-                if axis == 0 { r.x } else { r.y }
-            })
-            .fold(f32::INFINITY, f32::min)
-    };
-    let (min_x, min_y) = (block_min_mm(0), block_min_mm(1));
-    for d in &win {
-        let mut r = rect_relative(d, win_origin, win_k);
-        r.x += off_x - min_x;
-        r.y += off_y - min_y;
-        out.push(placed(d, r));
+    // Windows: preserva a disposição relativa; o bloco encosta à direita das telas do Mac, com o
+    // topo do bloco alinhado ao topo da tela principal do Mac.
+    let off_x = mac_rects.iter().map(|r| r.x + r.w).fold(0.0, f32::max);
+    let win_rects = arrange(&win, win_main);
+    let min_x = win_rects.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+    let min_y = win_rects.iter().map(|r| r.y).fold(f32::INFINITY, f32::min);
+    for (d, r) in win.iter().zip(win_rects) {
+        out.push(placed(
+            d,
+            RectMm {
+                x: r.x - min_x + off_x,
+                y: r.y - min_y,
+                ..r
+            },
+        ));
     }
 
     LayoutProfile {
@@ -232,6 +290,54 @@ fn default_profile(key: ProfileKey, displays: &[DisplayInfo]) -> LayoutProfile {
         displays: out,
         windows_detached: false,
     }
+}
+
+/// As telas do Mac seguem a disposição do macOS (o editor não as move): refaz os retângulos delas
+/// a cada carga, ancorados onde a principal estava no perfil, e afasta o bloco Windows para a
+/// direita se ele passar a sobrepor alguma delas. Também repara perfis salvos antes da 0.1.10,
+/// que podiam ter telas do Mac sobrepostas.
+fn follow_mac(mut profile: LayoutProfile, displays: &[DisplayInfo]) -> LayoutProfile {
+    let (mac, main) = of_machine(displays, Machine::Mac);
+    if mac.is_empty() {
+        return profile;
+    }
+    let anchor = profile
+        .displays
+        .iter()
+        .find(|p| p.display_id == mac[main].id)
+        .map_or((0.0, 0.0), |p| (p.rect_mm.x, p.rect_mm.y));
+    for (d, r) in mac.iter().zip(arrange(&mac, main)) {
+        if let Some(p) = profile.displays.iter_mut().find(|p| p.display_id == d.id) {
+            p.rect_mm = RectMm {
+                x: r.x + anchor.0,
+                y: r.y + anchor.1,
+                ..r
+            };
+        }
+    }
+    let (macs, wins): (Vec<RectMm>, Vec<RectMm>) = {
+        let rect = |m: Machine| {
+            profile
+                .displays
+                .iter()
+                .filter(|p| p.machine == m)
+                .map(|p| p.rect_mm)
+                .collect()
+        };
+        (rect(Machine::Mac), rect(Machine::Windows))
+    };
+    if wins.iter().any(|w| macs.iter().any(|m| overlaps(w, m))) {
+        let mac_right = macs.iter().map(|r| r.x + r.w).fold(f32::MIN, f32::max);
+        let win_left = wins.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+        for p in profile
+            .displays
+            .iter_mut()
+            .filter(|p| p.machine == Machine::Windows)
+        {
+            p.rect_mm.x += mac_right - win_left;
+        }
+    }
+    profile
 }
 
 /// Move o bloco Windows (ou só `display_id` se `windows_detached`) por `delta_mm`.
@@ -642,6 +748,97 @@ mod tests {
         let k2 = 597.0 / 2560.0;
         assert!((w2.y - (w1.y + 100.0 * k2)).abs() < 1e-2);
         assert!(validate(&p).is_ok());
+    }
+
+    /// MacBook (0,17 mm/pt) com um Dell em retrato (0,235 mm/pt) à esquerda, e um monitor no PC.
+    fn mac_com_dell_a_esquerda() -> Vec<DisplayInfo> {
+        vec![
+            disp(
+                "mb",
+                Machine::Mac,
+                (0, 0),
+                (1710, 1112),
+                2.0,
+                Some((290.5, 188.9)),
+                true,
+            ),
+            disp(
+                "dell",
+                Machine::Mac,
+                (-1440, -1448),
+                (1440, 2560),
+                1.0,
+                Some((602.0, 338.7)),
+                false,
+            ),
+            disp(
+                "w1",
+                Machine::Windows,
+                (0, 0),
+                (2560, 1440),
+                1.0,
+                Some((597.0, 336.0)),
+                true,
+            ),
+        ]
+    }
+
+    #[test]
+    fn telas_do_mac_com_densidades_diferentes_encostam_sem_sobrepor() {
+        let all = mac_com_dell_a_esquerda();
+        let p = select_profile(&[], &all).unwrap();
+        assert!(validate(&p).is_ok(), "{:?}", p.displays);
+        let r = |id: &str| {
+            p.displays
+                .iter()
+                .find(|d| d.display_id == id)
+                .unwrap()
+                .rect_mm
+        };
+        let (mb, dell, w1) = (r("mb"), r("dell"), r("w1"));
+        assert!(
+            (dell.x + dell.w - mb.x).abs() < 1e-3,
+            "o Dell encosta à esquerda do MacBook"
+        );
+        assert!(
+            (dell.h - 602.0).abs() < 1e-2,
+            "o Dell mantém o tamanho real"
+        );
+        assert!((w1.x - (mb.x + mb.w)).abs() < 1e-3 && (w1.y - mb.y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn perfil_salvo_com_telas_do_mac_sobrepostas_e_reparado() {
+        let all = mac_com_dell_a_esquerda();
+        let mut saved = select_profile(&[], &all).unwrap();
+        // Como a 0.1.9 gravava: origem do Dell na escala do MacBook, tamanho na do Dell.
+        saved.displays[1].rect_mm = RectMm {
+            x: -244.7,
+            y: -246.0,
+            w: 338.7,
+            h: 602.0,
+        };
+        saved.displays[2].rect_mm.y = 40.0;
+        let got = select_profile(std::slice::from_ref(&saved), &all).unwrap();
+        assert!(validate(&got).is_ok(), "{:?}", got.displays);
+        assert_eq!(
+            got.displays[2].rect_mm.y, 40.0,
+            "a posição escolhida para o PC fica"
+        );
+    }
+
+    #[test]
+    fn bloco_windows_sobreposto_pelo_mac_vai_para_a_direita() {
+        let all = mac_com_dell_a_esquerda();
+        let mut saved = select_profile(&[], &all).unwrap();
+        // Dell passou para a direita do MacBook no macOS: invade o monitor do PC.
+        let mut moved = all.clone();
+        moved[1].origin_px = (1710, 0);
+        saved.displays[2].rect_mm.x = 290.5;
+        let got = select_profile(std::slice::from_ref(&saved), &moved).unwrap();
+        assert!(validate(&got).is_ok(), "{:?}", got.displays);
+        let dell = got.displays[1].rect_mm;
+        assert!((got.displays[2].rect_mm.x - (dell.x + dell.w)).abs() < 1e-3);
     }
 
     #[test]
