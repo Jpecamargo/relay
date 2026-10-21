@@ -214,12 +214,26 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             self.last_pos = entry_px;
             return;
         }
-        let _ = self.cursor.warp(entry_px.0, entry_px.1);
+        self.warp_checked(entry_px);
         self.last_pos = entry_px;
         self.transition.landed_remote(entry_px);
         self.active = true;
         self.return_sent = None;
         self.focus_changed(true);
+    }
+
+    /// Posiciona o cursor na entrada e confere: se o sistema recusou (outra área de trabalho, cursor
+    /// preso por outro app), o input também não vai pegar, e o log diz por quê.
+    fn warp_checked(&mut self, to: (i32, i32)) {
+        if let Err(e) = self.cursor.warp(to.0, to.1) {
+            tracing::warn!(entry = ?to, "receptor: o sistema recusou posicionar o cursor: {e}");
+            return;
+        }
+        if let Ok(at) = self.cursor.position()
+            && ((at.0 - to.0).abs() > 2 || (at.1 - to.1).abs() > 2)
+        {
+            tracing::warn!(entry = ?to, at = ?at, "receptor: o cursor não foi para a entrada; o input pode não estar chegando");
+        }
     }
 
     /// O Mac tomou o foco de volta (ou a conexão caiu): solta tudo o que está pressionado e para

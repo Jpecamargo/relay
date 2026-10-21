@@ -6,8 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.9
+
 - Com o foco no PC, se o macOS religar o trackpad ao cursor do Mac (os dois cursores andando juntos), o Relay percebe no próximo movimento, solta de novo e registra no log.
 - O log do Mac registra cada pedido de "Som do PC no Mac" e avisa quando ele chega sem sessão, em vez de descartar em silêncio.
+- Quando o PC recebe o mouse mas não consegue posicionar o cursor (o mouse "vai" mas não controla), o log do PC registra o motivo.
 
 ## 0.1.8
 
