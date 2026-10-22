@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.14
+
+- Windows: o mouse e o teclado do Mac voltam a funcionar em janelas de administrador, como o Gerenciador de Tarefas, e na tela de confirmação do UAC. O agente nunca conseguia falar com o serviço do Relay (permissão incompleta no canal entre os dois) e injetava o input sem privilégio, que o Windows ignora nessas janelas.
+
 ## 0.1.13
 
 - Mac e PC agora valem o mesmo: quem mexeu por último manda. Se o Mac está controlando o PC e você pega o mouse ou o teclado do PC, o PC assume na hora e o cursor do Mac volta para ele. O mesmo vale ao contrário: com o mouse do PC no Mac, mexer no trackpad ou no teclado do Mac devolve o controle ao Mac. Antes era preciso trazer o cursor de volta pela borda.

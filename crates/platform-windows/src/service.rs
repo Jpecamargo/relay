@@ -22,9 +22,13 @@ pub const NO_SESSION: u32 = 0xFFFF_FFFF;
 
 /// SDDL do pipe: acesso total ao SYSTEM e escrita só ao usuário interativo da sessão. Sem SID
 /// (ninguém logado), só o SYSTEM. DACL protegida: não herda nada.
+///
+/// O usuário recebe FILE_WRITE_DATA|FILE_READ_ATTRIBUTES|SYNCHRONIZE (0x100082): o `CreateFileW`
+/// sempre acrescenta FILE_READ_ATTRIBUTES ao acesso pedido, e sem ele a abertura dá acesso negado
+/// (até a 0.1.13 o agente nunca conectava e injetava sem o helper).
 pub fn pipe_sddl(user_sid: Option<&str>) -> String {
     match user_sid {
-        Some(sid) => format!("D:P(A;;GA;;;SY)(A;;0x100002;;;{sid})"),
+        Some(sid) => format!("D:P(A;;GA;;;SY)(A;;0x100082;;;{sid})"),
         None => "D:P(A;;GA;;;SY)".to_string(),
     }
 }
@@ -392,37 +396,43 @@ mod win {
 
     /// SID (texto) do usuário logado na sessão deste processo, se houver.
     fn session_user_sid() -> Option<String> {
-        // SAFETY: buffers locais dimensionados pela própria API; handle fechado ao fim.
+        // SAFETY: `token` é fechado ao fim.
         unsafe {
             let mut session = 0u32;
             ProcessIdToSessionId(GetCurrentProcessId(), &mut session).ok()?;
             let mut token = HANDLE::default();
             WTSQueryUserToken(session, &mut token).ok()?;
-            let sid = (|| {
-                let mut len = 0u32;
-                let _ = GetTokenInformation(token, TokenUser, None, 0, &mut len);
-                if len == 0 {
-                    return None;
-                }
-                // u64 garante o alinhamento exigido por TOKEN_USER.
-                let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-                GetTokenInformation(
-                    token,
-                    TokenUser,
-                    Some(buf.as_mut_ptr().cast()),
-                    len,
-                    &mut len,
-                )
-                .ok()?;
-                let user = &*(buf.as_ptr().cast::<TOKEN_USER>());
-                let mut s = PWSTR::null();
-                ConvertSidToStringSidW(user.User.Sid, &mut s).ok()?;
-                let out = s.to_string().ok();
-                let _ = LocalFree(Some(HLOCAL(s.0.cast())));
-                out
-            })();
+            let sid = token_user_sid(token);
             let _ = CloseHandle(token);
             sid
+        }
+    }
+
+    /// SID (texto) do usuário dono do token.
+    fn token_user_sid(token: HANDLE) -> Option<String> {
+        // SAFETY: buffers locais dimensionados pela própria API.
+        unsafe {
+            let mut len = 0u32;
+            let _ = GetTokenInformation(token, TokenUser, None, 0, &mut len);
+            if len == 0 {
+                return None;
+            }
+            // u64 garante o alinhamento exigido por TOKEN_USER.
+            let mut buf = vec![0u64; (len as usize).div_ceil(8)];
+            GetTokenInformation(
+                token,
+                TokenUser,
+                Some(buf.as_mut_ptr().cast()),
+                len,
+                &mut len,
+            )
+            .ok()?;
+            let user = &*(buf.as_ptr().cast::<TOKEN_USER>());
+            let mut s = PWSTR::null();
+            ConvertSidToStringSidW(user.User.Sid, &mut s).ok()?;
+            let out = s.to_string().ok();
+            let _ = LocalFree(Some(HLOCAL(s.0.cast())));
+            out
         }
     }
 
@@ -489,7 +499,7 @@ mod win {
         }
     }
 
-    fn create_pipe(first: bool, sddl: &str) -> ServiceResult<HANDLE> {
+    fn create_pipe(name: &str, first: bool, sddl: &str) -> ServiceResult<HANDLE> {
         let sddl_w = wide(sddl);
         // SAFETY: o descritor alocado pela API é liberado com LocalFree após CreateNamedPipeW.
         unsafe {
@@ -506,7 +516,7 @@ mod win {
                 lpSecurityDescriptor: sd.0,
                 bInheritHandle: false.into(),
             };
-            let name = wide(PIPE_NAME);
+            let name = wide(name);
             let mut open_mode = PIPE_ACCESS_INBOUND;
             if first {
                 open_mode |= FILE_FLAG_FIRST_PIPE_INSTANCE;
@@ -586,14 +596,19 @@ mod win {
     /// é criada com FIRST_PIPE_INSTANCE: ninguém sequestra o nome. Cliente que não é o agente, quadro
     /// inválido ou queda derrubam só aquela conexão.
     pub fn run_helper() -> ServiceResult<()> {
-        let sddl = pipe_sddl(session_user_sid().as_deref());
+        let sid = session_user_sid();
+        if sid.is_none() {
+            tracing::warn!("helper: sem usuário na sessão, pipe só para o SYSTEM");
+        }
+        let sddl = pipe_sddl(sid.as_deref());
+        tracing::info!("helper: servindo {PIPE_NAME} ({sddl})");
         let install_dir = std::env::current_exe()
             .ok()
             .and_then(|e| std::fs::canonicalize(e).ok())
             .and_then(|e| e.parent().map(Path::to_path_buf));
         let mut injector = WindowsInjector::default();
         let mut desktop = DesktopFollower::new();
-        let mut listening = create_pipe(true, &sddl)?;
+        let mut listening = create_pipe(PIPE_NAME, true, &sddl)?;
         loop {
             // SAFETY: `listening` é válido até ser fechado abaixo.
             let connected = unsafe {
@@ -604,7 +619,7 @@ mod win {
             };
             let current = listening;
             // A próxima instância existe antes de atender esta.
-            listening = create_pipe(false, &sddl)?;
+            listening = create_pipe(PIPE_NAME, false, &sddl)?;
             if connected && client_is_agent(current, install_dir.as_deref()) {
                 serve_client(current, &mut injector, &mut desktop);
             }
@@ -614,6 +629,34 @@ mod win {
                 let _ = CloseHandle(current);
             }
         }
+    }
+
+    /// O agente roda como o usuário sem elevação: a ACE dele no pipe precisa bastar para o
+    /// `open_pipe` do cliente (até a 0.1.13 faltava FILE_READ_ATTRIBUTES e dava acesso negado).
+    #[cfg(test)]
+    #[test]
+    fn cliente_do_usuario_abre_o_pipe_com_a_sddl_do_helper() {
+        let name = format!(r"\\.\pipe\relay-inject-test-{}", std::process::id());
+        // SAFETY: token do próprio processo, fechado logo após ler o SID.
+        let sid = unsafe {
+            let mut token = HANDLE::default();
+            OpenProcessToken(
+                GetCurrentProcess(),
+                windows::Win32::Security::TOKEN_QUERY,
+                &mut token,
+            )
+            .unwrap();
+            let sid = token_user_sid(token);
+            let _ = CloseHandle(token);
+            sid
+        };
+        let server = create_pipe(&name, true, &pipe_sddl(sid.as_deref())).unwrap();
+        let client = crate::pipe::open_pipe(&name);
+        // SAFETY: handle criado acima.
+        unsafe {
+            let _ = CloseHandle(server);
+        }
+        client.expect("o usuário da sessão abre o pipe");
     }
 
     fn serve_client(pipe: HANDLE, injector: &mut WindowsInjector, desktop: &mut DesktopFollower) {
@@ -679,7 +722,7 @@ mod tests {
     fn sddl_restricts_to_system_and_session_user() {
         assert_eq!(
             pipe_sddl(Some("S-1-5-21-1-2-3-1001")),
-            "D:P(A;;GA;;;SY)(A;;0x100002;;;S-1-5-21-1-2-3-1001)"
+            "D:P(A;;GA;;;SY)(A;;0x100082;;;S-1-5-21-1-2-3-1001)"
         );
         assert_eq!(pipe_sddl(None), "D:P(A;;GA;;;SY)");
         assert!(!pipe_sddl(None).contains("WD") && !pipe_sddl(None).contains("BU"));

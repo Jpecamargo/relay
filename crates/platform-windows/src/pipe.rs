@@ -227,12 +227,28 @@ pub fn reconnect_due(since_last_attempt: Option<Duration>, interval: Duration) -
 struct ClientState {
     file: Option<File>,
     last_attempt: Option<Instant>,
+    /// Último resultado registrado no log: só a mudança vira linha (a tentativa é a cada 1 s).
+    logged: Option<Result<(), Option<i32>>>,
 }
 
 impl ClientState {
     fn try_connect(&mut self, path: &str) -> bool {
         self.last_attempt = Some(Instant::now());
-        self.file = open_pipe(path).ok();
+        let opened = open_pipe(path);
+        let outcome = opened
+            .as_ref()
+            .map(|_| ())
+            .map_err(std::io::Error::raw_os_error);
+        if self.logged != Some(outcome) {
+            match &opened {
+                Ok(_) => tracing::info!("pipe do helper conectado: injeção pelo serviço"),
+                Err(e) => tracing::warn!(
+                    "pipe do helper indisponível ({e}): injeção local, sem UAC nem janelas de administrador"
+                ),
+            }
+            self.logged = Some(outcome);
+        }
+        self.file = opened.ok();
         self.file.is_some()
     }
 
@@ -311,9 +327,10 @@ impl InjectPipeClient {
     }
 }
 
-/// Abre o pipe só com FILE_WRITE_DATA|SYNCHRONIZE: é tudo que o ACL do servidor concede ao
-/// usuário (sem FILE_CREATE_PIPE_INSTANCE, ninguém cria instância falsa do nome).
-fn open_pipe(path: &str) -> std::io::Result<File> {
+/// Abre o pipe só com FILE_WRITE_DATA|SYNCHRONIZE (o `CreateFileW` soma FILE_READ_ATTRIBUTES): é
+/// o que o ACL do servidor concede ao usuário (sem FILE_CREATE_PIPE_INSTANCE, ninguém cria
+/// instância falsa do nome).
+pub(crate) fn open_pipe(path: &str) -> std::io::Result<File> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
