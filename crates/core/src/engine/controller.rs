@@ -704,13 +704,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         }
         self.paused = paused;
         if paused && self.focus == Focus::Remote {
-            let id = self
-                .layout
-                .local
-                .get(self.cur_display)
-                .map(|d| d.id.clone())
-                .unwrap_or_default();
-            self.leave_remote(id, self.last_pos, now);
+            self.leave_where_left(now);
         }
         self.emit(EngineEvent::PauseChanged(paused));
     }
@@ -730,6 +724,14 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
                     self.transition.landed_local(point_px);
                 } else {
                     tracing::info!(point = ?point_px, remote = self.focus == Focus::Remote, locked = self.locked, "FocusReturn ignorado");
+                }
+            }
+            // Input físico do outro lado: ele quer o controle de volta (quem mexeu por último
+            // manda). O cursor daqui volta para onde saiu.
+            Message::TakeControl => {
+                if self.focus == Focus::Remote {
+                    tracing::info!(pos = ?self.last_pos, "foco: o outro lado tomou o controle");
+                    self.leave_where_left(now);
                 }
             }
             Message::ForegroundApp { exe } => self.foreground = Some(exe),
@@ -776,6 +778,17 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
         self.cursor_checked = None;
         self.focus = Focus::Remote;
         self.focus_changed(true);
+    }
+
+    /// Devolve o foco com o cursor daqui onde ele saiu.
+    fn leave_where_left(&mut self, now: Instant) {
+        let id = self
+            .layout
+            .local
+            .get(self.cur_display)
+            .map(|d| d.id.clone())
+            .unwrap_or_default();
+        self.leave_remote(id, self.last_pos, now);
     }
 
     /// Devolve o foco ao Mac em `point` (espaço do Mac) da tela `mac_display`.
@@ -1209,6 +1222,29 @@ mod tests {
         assert!(!r.ctl.is_locked());
         r.mv(5, 0, (1439.0, 450.0));
         assert!(r.ctl.is_remote());
+    }
+
+    #[test]
+    fn take_control_do_outro_lado_devolve_o_foco_onde_o_cursor_saiu() {
+        let mut r = rig();
+        r.ctl.on_message(Message::TakeControl, r.t0);
+        assert!(
+            r.drain_control().is_empty(),
+            "sem foco remoto não há o que devolver"
+        );
+        r.mv(1, 1, (1000.0, 300.0));
+        r.mv(5, 0, (1439.0, 450.0));
+        assert!(r.ctl.is_remote());
+        r.drain_control();
+        r.log.lock().unwrap().clear();
+        r.ctl.on_message(Message::TakeControl, r.t0);
+        assert!(!r.ctl.is_remote());
+        assert!(!r.ctl.is_paused());
+        assert!(calls(&r.log).contains(&"warp(1439,450)".to_string()));
+        assert!(matches!(
+            r.drain_control().last(),
+            Some(Message::FocusReturn { .. })
+        ));
     }
 
     #[test]

@@ -54,27 +54,36 @@ function axisCandidates(m0: number, m1: number, t0: number, t1: number, target: 
   ];
 }
 
-/** Melhor candidato dentro do limite (menor deslocamento em módulo) e os que empatam com ele. */
-function pick(cands: Candidate[], limit: number): { delta: number; ties: Candidate[] } | null {
-  let best: Candidate | null = null;
-  for (const c of cands) {
-    if (Math.abs(c.delta) <= limit && (best === null || Math.abs(c.delta) < Math.abs(best.delta))) best = c;
+interface Option {
+  delta: number;
+  ties: Candidate[];
+}
+
+/** Deslocamentos possíveis de um eixo, do menor para o maior, com os candidatos que empatam; por último, não colar. */
+function options(cands: Candidate[], limit: number): Option[] {
+  const within = cands.filter((c) => Math.abs(c.delta) <= limit).sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
+  const out: Option[] = [];
+  for (const c of within) {
+    if (!out.some((o) => Math.abs(o.delta - c.delta) < 0.01)) {
+      out.push({ delta: c.delta, ties: within.filter((t) => Math.abs(t.delta - c.delta) < 0.01) });
+    }
   }
-  if (!best) return null;
-  const delta = best.delta;
-  return { delta, ties: cands.filter((c) => Math.abs(c.delta - delta) < 0.01 && Math.abs(c.delta) <= limit) };
+  out.push({ delta: 0, ties: [] });
+  return out;
 }
 
 /**
  * Ímã: deslocamento extra que cola `moving` nas telas `targets` quando alguma borda ou centro está
  * a até `threshold` mm. Cada eixo é resolvido sozinho: encosta borda com borda (direita com esquerda,
- * embaixo com em cima) e alinha topo/centro/base e bordas laterais. Devolve também as guias do
- * alinhamento atingido, já na posição colada.
+ * embaixo com em cima) e alinha topo/centro/base e bordas laterais. Entre as combinações dos dois
+ * eixos fica a mais próxima que `fits` aceita: colar um eixo não pode jogar a tela em cima de outra.
+ * Devolve também as guias do alinhamento atingido, já na posição colada.
  */
 export function snapDelta(
   moving: RectMm,
   targets: RectMm[],
   threshold = SNAP_MM,
+  fits: (dx: number, dy: number) => boolean = () => true,
 ): { dx: number; dy: number; guides: Guide[] } {
   const xs: Candidate[] = [];
   const ys: Candidate[] = [];
@@ -82,19 +91,20 @@ export function snapDelta(
     xs.push(...axisCandidates(moving.x, right(moving), t.x, right(t), t));
     ys.push(...axisCandidates(moving.y, bottom(moving), t.y, bottom(t), t));
   }
-  const px = pick(xs, threshold);
-  const py = pick(ys, threshold);
-  const dx = px?.delta ?? 0;
-  const dy = py?.delta ?? 0;
-  const snapped = translate(moving, dx, dy);
+  const ox = options(xs, threshold);
+  const oy = options(ys, threshold);
+  const pairs = ox.flatMap((px, i) => oy.map((py, j) => ({ px, py, rank: i + j })));
+  pairs.sort((a, b) => a.rank - b.rank);
+  const { px, py } = pairs.find((p) => fits(p.px.delta, p.py.delta)) ?? pairs[0]!;
+  const snapped = translate(moving, px.delta, py.delta);
   const guides: Guide[] = [];
-  for (const c of px?.ties ?? []) {
+  for (const c of px.ties) {
     guides.push({ axis: "x", at: c.line, from: Math.min(c.target.y, snapped.y), to: Math.max(bottom(c.target), bottom(snapped)) });
   }
-  for (const c of py?.ties ?? []) {
+  for (const c of py.ties) {
     guides.push({ axis: "y", at: c.line, from: Math.min(c.target.x, snapped.x), to: Math.max(right(c.target), right(snapped)) });
   }
-  return { dx, dy, guides };
+  return { dx: px.delta, dy: py.delta, guides };
 }
 
 export function snapRect(moving: RectMm, targets: RectMm[], threshold = SNAP_MM): RectMm {
@@ -105,7 +115,8 @@ export function snapRect(moving: RectMm, targets: RectMm[], threshold = SNAP_MM)
 /**
  * Arrasta `ids` por (dx, dy). O conjunto inteiro se move junto, então as posições relativas
  * se preservam; o ímã é calculado sobre o retângulo envolvente do conjunto contra todas as outras
- * telas (qualquer máquina). `threshold` em mm; 0 desliga o ímã (Option/Alt).
+ * telas (qualquer máquina). `threshold` em mm; 0 desliga o ímã (Option/Alt). O resultado nunca
+ * sobrepõe outra tela: solto em cima de uma, o conjunto sai pelo lado mais próximo.
  */
 export function dragWithGuides(
   displays: PlacedDisplay[],
@@ -117,13 +128,33 @@ export function dragWithGuides(
   const moved = displays.filter((d) => ids.has(d.display_id));
   if (moved.length === 0) return { displays, guides: [] };
   const targets = displays.filter((d) => !ids.has(d.display_id)).map((d) => d.rect_mm);
-  const box = translate(bounds(moved.map((d) => d.rect_mm)), dx, dy);
-  const snap = threshold > 0 ? snapDelta(box, targets, threshold) : { dx: 0, dy: 0, guides: [] };
+  const rects = moved.map((d) => translate(d.rect_mm, dx, dy));
+  const fits = (sx: number, sy: number) => !collides(rects.map((r) => translate(r, sx, sy)), targets);
+  const box = bounds(rects);
+  let snap = threshold > 0 ? snapDelta(box, targets, threshold, fits) : { dx: 0, dy: 0, guides: [] as Guide[] };
+  if (!fits(snap.dx, snap.dy)) {
+    const out = pushOut(rects, targets);
+    snap = out ? { dx: out[0], dy: out[1], guides: [] } : { dx: -dx, dy: -dy, guides: [] };
+  }
   const [tx, ty] = [dx + snap.dx, dy + snap.dy];
   return {
     displays: displays.map((d) => (ids.has(d.display_id) ? { ...d, rect_mm: translate(d.rect_mm, tx, ty) } : d)),
     guides: snap.guides,
   };
+}
+
+function collides(rects: RectMm[], targets: RectMm[]): boolean {
+  return rects.some((a) => targets.some((b) => overlap(a.x, right(a), b.x, right(b)) && overlap(a.y, bottom(a), b.y, bottom(b))));
+}
+
+/** Menor deslocamento num eixo só que tira `rects` de cima de todas as `targets` (encostando numa delas). */
+function pushOut(rects: RectMm[], targets: RectMm[]): [number, number] | null {
+  const moves: [number, number][] = [];
+  for (const m of rects) {
+    for (const t of targets) moves.push([t.x - right(m), 0], [right(t) - m.x, 0], [0, t.y - bottom(m)], [0, bottom(t) - m.y]);
+  }
+  moves.sort((a, b) => Math.abs(a[0]) + Math.abs(a[1]) - (Math.abs(b[0]) + Math.abs(b[1])));
+  return moves.find(([x, y]) => !collides(rects.map((r) => translate(r, x, y)), targets)) ?? null;
 }
 
 export function dragDisplays(

@@ -141,3 +141,18 @@ test("perfil salvo acompanha a tela girada no Windows, mas não mexe no override
   const manual = reconcile([mac, { ...d1(302, 0), rotation: 0 }], connected);
   expect(manual[1]!.rect_mm).toMatchObject({ w: 597, h: 336 });
 });
+
+test("ímã da base da tela vertical não deixa a tela cobrir o MacBook", () => {
+  // A base da vertical (508) está 2 mm abaixo do topo do MacBook (500): colar nela sobreporia.
+  const tall = placed("d1", "Windows", 0, -89, 336, 597);
+  const book = placed("mac", "Mac", 450, 500, 291, 189);
+  const out = dragWithGuides([tall, book, d2(340, 0)], new Set(["d2"]), 0, 170, 10);
+  const r = out.displays[2]!.rect_mm;
+  expect(r.x).toBe(336);
+  expect(r.y + r.h).toBe(500);
+});
+
+test("soltar uma tela em cima de outra a empurra para o lado mais próximo", () => {
+  const out = dragDisplays([mac, d1(302, 0)], new Set(["d1"]), -50, 20, 0);
+  expect(out[1]!.rect_mm).toMatchObject({ x: 302, y: 20 });
+});

@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.13
+
+- Mac e PC agora valem o mesmo: quem mexeu por último manda. Se o Mac está controlando o PC e você pega o mouse ou o teclado do PC, o PC assume na hora e o cursor do Mac volta para ele. O mesmo vale ao contrário: com o mouse do PC no Mac, mexer no trackpad ou no teclado do Mac devolve o controle ao Mac. Antes era preciso trazer o cursor de volta pela borda.
+- Editor de telas: o ímã não encaixa mais uma tela por cima de outra (por exemplo, a base de um monitor em pé por cima do MacBook). Soltar uma tela em cima de outra a empurra para o lado mais próximo.
+
 ## 0.1.12
 
 - Perfis de telas: o Relay não cria mais um perfil sozinho para cada combinação de monitores. Começa com um perfil, "Principal", e no editor você cria, renomeia, escolhe e exclui os seus. O perfil em uso se adapta quando um monitor é ligado ou desligado: telas novas entram ao lado das que já estavam.

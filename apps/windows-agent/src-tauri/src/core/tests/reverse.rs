@@ -373,6 +373,83 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn quem_mexeu_por_ultimo_manda_nos_dois_sentidos() {
+    let ra = start_reverse_agent();
+    let mac_id = identity();
+    let peer = pair(&ra.agent, &mac_id).await;
+    let mut mac = connect_mac(&ra, &mac_id, peer).await;
+    mac.pump_until("Displays do agente", |m| {
+        m.got(|x| matches!(x, Message::Displays(d) if d.len() == 1))
+    })
+    .await;
+    mac.rx
+        .on_message(Message::Displays(vec![dell_display()]), Instant::now());
+    mac.dialer
+        .send(Message::Displays(vec![mac_display()]))
+        .await
+        .unwrap();
+    mac.dialer
+        .send(Message::LayoutSync(profile()))
+        .await
+        .unwrap();
+    eventually("layout no config", || {
+        ra.agent.core.config().layout.profiles == vec![profile()]
+    })
+    .await;
+    sleep(Duration::from_millis(100)).await;
+
+    // 1. O Mac controla o PC e o mouse do PC se mexe: o PC pede o controle.
+    mac.dialer
+        .send(Message::FocusEnter {
+            display_id: "dell".into(),
+            entry_px: (1000, 700),
+        })
+        .await
+        .unwrap();
+    eventually("Mac no controle", || {
+        ra.agent.core.status().focus == Machine::Windows
+    })
+    .await;
+    sleep(Duration::from_millis(50)).await;
+    ra.push(CapturedEvent::MouseMove {
+        dx: 12,
+        dy: 4,
+        pos: (1012.0, 704.0),
+    });
+    mac.pump_until("TakeControl do PC", |m| {
+        m.got(|x| matches!(x, Message::TakeControl))
+    })
+    .await;
+    // O Controller do Mac devolve com FocusReturn e o PC fica livre.
+    mac.dialer
+        .send(Message::FocusReturn {
+            display_id: "mac".into(),
+            point_px: (1439, 450),
+        })
+        .await
+        .unwrap();
+    eventually("PC livre", || ra.agent.core.status().focus == Machine::Mac).await;
+    sleep(Duration::from_millis(50)).await;
+
+    // 2. O PC controla o Mac e alguém mexe no Mac: o PC devolve e para de engolir o input.
+    ra.push_left_edge();
+    mac.pump_until("FocusEnter no Mac", |m| m.rx.is_active())
+        .await;
+    eventually("input engolido no PC", || ra.swallow.load(Ordering::SeqCst)).await;
+    mac.received.clear();
+    mac.dialer.send(Message::TakeControl).await.unwrap();
+    mac.pump_until("PC devolveu o Mac", |m| {
+        !m.rx.is_active() && m.got(|x| matches!(x, Message::FocusReturn { .. }))
+    })
+    .await;
+    eventually("input do PC liberado", || {
+        !ra.swallow.load(Ordering::SeqCst)
+    })
+    .await;
+    ra.agent.core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn volta_pela_borda_do_mac_devolve_mouse_e_teclado_ao_pc() {
     let ra = start_reverse_agent();
     let mac_id = identity();

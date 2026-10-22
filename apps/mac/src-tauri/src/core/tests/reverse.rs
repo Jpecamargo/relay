@@ -325,11 +325,33 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
         assert!(t.elapsed() < Duration::from_secs(4), "MouseMove não chegou");
     }
 
-    // 4. Com o PC no controle, o Mac não assume: empurrar a borda do Mac não manda FocusEnter.
-    move_to_edge(&platform, 300);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // 4. Quem mexeu por último manda: o trackpad do Mac se mexe com o PC no controle e o Mac
+    // toma o controle de volta (TakeControl), sem cruzar para o PC.
+    platform.push(CapturedEvent::MouseMove {
+        dx: 6,
+        dy: 4,
+        pos: (700.0, 450.0),
+    });
+    wait_until("TakeControl no PC", 3000, || {
+        pc.saw(|m| matches!(m, Message::TakeControl))
+    })
+    .await;
+    wait_until("PC devolveu o Mac", 3000, || {
+        !pc.remote.load(Ordering::SeqCst)
+    })
+    .await;
     assert!(!pc.saw(|m| matches!(m, Message::FocusEnter { .. })));
     assert_eq!(core.status().focus, Machine::Mac);
+    wait_until("ClipboardSwitch ao perder o foco", 3000, || {
+        media.0.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    pc.push_left_edge();
+    wait_until("PC assumiu de novo", 3000, || {
+        pc.remote.load(Ordering::SeqCst)
+    })
+    .await;
 
     // 5. Devolve por hotkey (Ctrl+Alt+2): o Mac solta o Option e volta a poder assumir.
     pc.key(CTRL, true);
@@ -337,9 +359,9 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     pc.key(DIGIT_2, true);
     wait_until("PC devolveu", 3000, || !pc.remote.load(Ordering::SeqCst)).await;
     assert!(platform.injected.lock().unwrap().contains(&key(ALT, false)));
-    // O Mac perdeu o foco para o PC e devolveu: o clipboard foi oferecido uma vez, ao perder.
+    // A cada vez que o PC devolve o Mac, o clipboard é oferecido uma vez.
     wait_until("ClipboardSwitch ao perder o foco", 3000, || {
-        media.0.load(Ordering::SeqCst) == 1
+        media.0.load(Ordering::SeqCst) == 2
     })
     .await;
     pc.key(ALT, false);
