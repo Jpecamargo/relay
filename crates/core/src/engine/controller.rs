@@ -31,6 +31,8 @@ const SC_LWIN: u16 = 0xE05B;
 /// Sem `Magnify` por este tempo, o gesto de pinça terminou (o evento não traz fase).
 const PINCH_IDLE: Duration = Duration::from_millis(120);
 const CURSOR_CHECK_EVERY: Duration = Duration::from_millis(100);
+/// Intervalo entre pedidos de controle enquanto o outro lado não devolve.
+const TAKEOVER_RETRY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
@@ -66,6 +68,9 @@ pub struct Controller<Cap, Cur, Inj> {
     rotation: RotationMapper,
     focus: Focus,
     paused: bool,
+    /// Pausado, o mouse local empurrou a borda para o outro lado: quando o pedido de controle saiu.
+    crossing_wanted: Option<Instant>,
+    crossing_sent: Option<Instant>,
     locked: bool,
     /// Tela do Mac sob o cursor (índice em `layout.local`) e última posição conhecida.
     cur_display: usize,
@@ -144,6 +149,8 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             rotation: RotationMapper::default(),
             focus: Focus::Local,
             paused: false,
+            crossing_wanted: None,
+            crossing_sent: None,
             locked: false,
             cur_display: 0,
             last_pos: (0, 0),
@@ -236,6 +243,24 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
 
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    /// Pausado porque o outro lado controla esta máquina, o mouse físico daqui atravessou a borda
+    /// para lá: `true` quando é hora de pedir o controle (`Message::TakeControl`), no máximo a cada
+    /// `TAKEOVER_RETRY`. Mexer sem atravessar não pede: dá para usar o mouse de uma máquina com o
+    /// teclado da outra (D36).
+    pub fn take_crossing_request(&mut self) -> bool {
+        let Some(at) = self.crossing_wanted.take() else {
+            return false;
+        };
+        if self
+            .crossing_sent
+            .is_some_and(|t| at.saturating_duration_since(t) < TAKEOVER_RETRY)
+        {
+            return false;
+        }
+        self.crossing_sent = Some(at);
+        true
     }
 
     /// Eventos descartados por fila cheia: (canal rápido, controle).
@@ -356,9 +381,6 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             }
             Focus::Local => {
                 self.last_pos = (pos.0 as i32, pos.1 as i32);
-                if self.paused {
-                    return;
-                }
                 let Some(idx) = self.display_under(self.last_pos) else {
                     return;
                 };
@@ -387,7 +409,11 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
                     entry_px,
                 } = decision
                 {
-                    self.enter_remote(display_id, entry_px);
+                    if self.paused {
+                        self.crossing_wanted = Some(now);
+                    } else {
+                        self.enter_remote(display_id, entry_px);
+                    }
                 }
             }
         }

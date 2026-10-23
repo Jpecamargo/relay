@@ -373,7 +373,7 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn quem_mexeu_por_ultimo_manda_nos_dois_sentidos() {
+async fn quem_atravessa_a_borda_manda_nos_dois_sentidos() {
     let ra = start_reverse_agent();
     let mac_id = identity();
     let peer = pair(&ra.agent, &mac_id).await;
@@ -398,7 +398,8 @@ async fn quem_mexeu_por_ultimo_manda_nos_dois_sentidos() {
     .await;
     sleep(Duration::from_millis(100)).await;
 
-    // 1. O Mac controla o PC e o mouse do PC se mexe: o PC pede o controle.
+    // 1. O Mac controla o PC. O mouse do PC mexendo no PC não pede nada (teclado do Mac + mouse do
+    // PC); atravessar a borda para o Mac pede o controle.
     mac.dialer
         .send(Message::FocusEnter {
             display_id: "dell".into(),
@@ -412,10 +413,18 @@ async fn quem_mexeu_por_ultimo_manda_nos_dois_sentidos() {
     .await;
     sleep(Duration::from_millis(50)).await;
     ra.push(CapturedEvent::MouseMove {
-        dx: 12,
-        dy: 4,
-        pos: (1012.0, 704.0),
+        dx: 40,
+        dy: 12,
+        pos: (1040.0, 712.0),
     });
+    let until = Instant::now() + Duration::from_millis(300);
+    mac.pump_until("mensagens do PC", |_| Instant::now() >= until)
+        .await;
+    assert!(
+        !mac.got(|x| matches!(x, Message::TakeControl)),
+        "mexer o mouse do PC sem atravessar não toma o controle"
+    );
+    ra.push_left_edge();
     mac.pump_until("TakeControl do PC", |m| {
         m.got(|x| matches!(x, Message::TakeControl))
     })

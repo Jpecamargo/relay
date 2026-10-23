@@ -11,7 +11,6 @@ mod commands;
 mod controller;
 mod receiver;
 pub mod reverse;
-mod takeover;
 /// Mocks de plataforma para testes (próprios e dos apps, via feature `test-util`).
 #[cfg(any(test, feature = "test-util"))]
 pub mod testutil;
@@ -22,7 +21,6 @@ use crate::types::{DisplayInfo, HotkeyAction, KeyCode, LayoutProfile, ProfileKey
 pub use commands::{COMMAND_TIMEOUT, CommandDispatcher};
 pub use controller::Controller;
 pub use receiver::Receiver;
-pub use takeover::LocalActivity;
 
 /// Notificação do motor para o AppCore/AgentCore (UI, clipboard, comandos).
 #[derive(Debug, Clone, PartialEq)]

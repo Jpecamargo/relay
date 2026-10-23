@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.15
+
+- Volta a dar para usar o teclado do Mac com o mouse do PC (e o mouse do Mac com o teclado do PC). Na 0.1.13, qualquer movimento do mouse do PC tirava o controle do Mac e o teclado voltava a digitar no Mac. Agora a máquina só toma o controle quando o mouse dela atravessa a borda para a outra.
+
 ## 0.1.14
 
 - Windows: o mouse e o teclado do Mac voltam a funcionar em janelas de administrador, como o Gerenciador de Tarefas, e na tela de confirmação do UAC. O agente nunca conseguia falar com o serviço do Relay (permissão incompleta no canal entre os dois) e injetava o input sem privilégio, que o Windows ignora nessas janelas.

@@ -325,14 +325,22 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
         assert!(t.elapsed() < Duration::from_secs(4), "MouseMove não chegou");
     }
 
-    // 4. Quem mexeu por último manda: o trackpad do Mac se mexe com o PC no controle e o Mac
-    // toma o controle de volta (TakeControl), sem cruzar para o PC.
+    // 4. Com o PC no controle, mexer o trackpad do Mac sem atravessar não pede nada (mouse do Mac
+    // + teclado do PC); atravessar a borda para o PC pede o controle de volta (TakeControl).
     platform.push(CapturedEvent::MouseMove {
-        dx: 6,
-        dy: 4,
+        dx: 40,
+        dy: 12,
         pos: (700.0, 450.0),
     });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!pc.saw(|m| matches!(m, Message::TakeControl)));
+    assert!(pc.remote.load(Ordering::SeqCst));
     wait_until("TakeControl no PC", 3000, || {
+        platform.push(CapturedEvent::MouseMove {
+            dx: 6,
+            dy: 0,
+            pos: (1439.0, 450.0),
+        });
         pc.saw(|m| matches!(m, Message::TakeControl))
     })
     .await;

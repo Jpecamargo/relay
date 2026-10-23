@@ -6,10 +6,12 @@
 //! `on_message` e `tick` na mesma thread. O pump do agente só conversa com ela por filas:
 //! mensagens do Mac entram por `ReverseHandle::send`, e as do Controller saem por um canal tokio.
 //!
-//! Arbitragem: só um lado controla por vez, e quem mexeu por último manda. Enquanto o `Receiver`
-//! do agente está ativo (o Mac controla o PC) o pump chama `set_blocked(true)` e o Controller fica
-//! pausado; input físico do PC nesse estado manda `TakeControl` e o Mac devolve o foco. Do mesmo
-//! jeito, `TakeControl` do Mac (input físico lá) faz o Controller daqui devolver. Se as duas pontas
+//! Arbitragem: só um lado controla por vez, e quem atravessa a borda por último manda. Enquanto o
+//! `Receiver` do agente está ativo (o Mac controla o PC) o pump chama `set_blocked(true)` e o
+//! Controller fica pausado; se o mouse do PC atravessa a borda para o Mac nesse estado, sai
+//! `TakeControl` e o Mac devolve o foco. Mexer sem atravessar não pede nada: o mouse do PC funciona
+//! no PC junto com o teclado do Mac. Do mesmo jeito, `TakeControl` do Mac faz o Controller daqui
+//! devolver. Se as duas pontas
 //! entrarem ao mesmo tempo o Mac vence: ele devolve `FocusReturn` ao `FocusEnter` do PC.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use relay_core::engine::{Controller, EventHandler, LocalActivity};
+use relay_core::engine::{Controller, EventHandler};
 use relay_core::net::FastSender;
 use relay_core::platform::{
     CaptureError, CursorControl, InjectError, InputCapture, InputInjector, KeyRepeat, LoopWaker,
@@ -283,22 +285,18 @@ impl Worker {
         let (mut link, mut user_paused) = (false, false);
         ctl.set_paused(true, Instant::now());
         let mut last_tick = Instant::now();
-        let mut activity = LocalActivity::default();
         loop {
             let mut active = false;
             let mut n = 0;
             let mac_controls = blocked.load(Ordering::Acquire);
-            if !mac_controls {
-                activity.reset();
-            }
             while n < 512 {
                 let Ok(ev) = cap_rx.pop() else { break };
                 n += 1;
-                if mac_controls && link && activity.on_event(&ev, Instant::now()) {
-                    tracing::info!("foco: input físico no PC, TakeControl enviado ao Mac");
+                ctl.handle(ev);
+                if ctl.take_crossing_request() && mac_controls && link && !user_paused {
+                    tracing::info!("foco: mouse do PC atravessou para o Mac, TakeControl enviado");
                     let _ = out.send(Message::TakeControl);
                 }
-                ctl.handle(ev);
             }
             active |= n > 0;
             loop {

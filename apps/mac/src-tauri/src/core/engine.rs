@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use relay_core::engine::{CommandDispatcher, Controller, EngineEvent, LocalActivity};
+use relay_core::engine::{CommandDispatcher, Controller, EngineEvent};
 use relay_core::layout;
 use relay_core::net::FastSender;
 use relay_core::platform::{CaptureError, DisplaySource, InputCapture, LoopWaker};
@@ -126,7 +126,6 @@ pub(crate) fn spawn<P: Platform>(
         left_down: false,
         rev,
         rev_active: false,
-        activity: LocalActivity::default(),
     };
     std::thread::Builder::new()
         .name("relay-core".into())
@@ -161,8 +160,6 @@ struct Core<P: Platform> {
     /// Sentido inverso: o PC controla o Mac (R1).
     rev: MacReverse<P>,
     rev_active: bool,
-    /// Input físico do Mac com o PC no controle: o Mac toma o controle de volta.
-    activity: LocalActivity,
 }
 
 impl<P: Platform> Core<P> {
@@ -188,13 +185,15 @@ impl<P: Platform> Core<P> {
                 {
                     self.left_down = down;
                 }
-                if self.rev_active && self.link && self.activity.on_event(&ev, now) {
-                    tracing::info!("foco: input físico no Mac, TakeControl enviado ao PC");
-                    self.send(Message::TakeControl);
-                }
                 let remote_before = self.ctl.as_ref().is_some_and(|c| c.is_remote());
+                let mut crossing = false;
                 if let Some(c) = self.ctl.as_mut() {
                     c.handle(ev);
+                    crossing = c.take_crossing_request();
+                }
+                if crossing && self.rev_active && self.link && !self.user_paused {
+                    tracing::info!("foco: mouse do Mac atravessou para o PC, TakeControl enviado");
+                    self.send(Message::TakeControl);
                 }
                 self.media_hooks_for(&ev, remote_before);
             }
@@ -451,7 +450,6 @@ impl<P: Platform> Core<P> {
         let was_active = self.rev_active;
         self.rev_active = self.rev.is_active();
         if was_active && !self.rev_active {
-            self.activity.reset();
             if let Some(c) = self.ctl.as_mut() {
                 c.rearm_edge();
             }
