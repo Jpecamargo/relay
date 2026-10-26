@@ -1,6 +1,6 @@
 //! dono: WA1
-//! Casco do agente Windows: bandeja, janela oculta, instância única, início com o Windows e
-//! registro dos comandos `agent_*` contra o `AgentBackend` real (`core::AgentCore`).
+//! Casco do app Windows: bandeja com o painel `panel`, janela `main` (mesmo front do Mac), instância
+//! única, início com o Windows e comandos `agent_*` contra o `AgentBackend` real (`core::AgentCore`).
 
 pub mod backend;
 pub mod commands;
@@ -49,7 +49,6 @@ pub fn run() {
                 .unwrap_or_default();
             let events = Arc::new(TauriEvents(app.handle().clone()));
             let (start_events, start_config) = (events, config.clone());
-            let refresh = app.handle().clone();
             // Falha ao subir (porta ocupada, Credential Manager) não derruba o app: bandeja em
             // estado de erro, nova tentativa a cada 5 s e a cada pedido de pareamento.
             let backend = ResilientBackend::new(
@@ -62,20 +61,47 @@ pub fn run() {
                     )
                 }),
                 config,
-                Box::new(move || tray::refresh(&refresh)),
+                Box::new(|| {}),
                 true,
             );
             app.manage(AgentState::new(backend));
             tray::setup(app.handle())?;
             Ok(())
         })
-        // Fechar a janela só a esconde: o agente continua na bandeja.
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match (window.label(), event) {
+            // O painel fecha ao perder o foco.
+            ("panel", WindowEvent::Focused(false)) => tray::panel_blurred(window.app_handle()),
+            // Fechar uma janela só a esconde: o app continua na bandeja.
+            (_, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("erro ao executar o app Tauri");
+}
+
+#[cfg(test)]
+mod tests {
+    /// D48: o que amarra a instalação da 0.2 não muda (o NSIS deriva pasta, chave de desinstalação e
+    /// atalho do `productName`); só os textos das janelas mostram "Relay".
+    #[test]
+    fn conf_keeps_the_install_identity_and_declares_panel_and_main() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["productName"], "Relay Agent");
+        assert_eq!(conf["identifier"], "com.joaocamargo.relay.agent");
+        assert_eq!(conf["bundle"]["externalBin"][0], "binaries/relay-service");
+        assert_eq!(conf["build"]["frontendDist"], "../../mac/dist");
+        let windows = conf["app"]["windows"].as_array().unwrap();
+        let labels: Vec<_> = windows
+            .iter()
+            .map(|w| w["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels, ["panel", "main"]);
+        assert!(windows.iter().all(|w| w["title"] == "Relay"));
+        assert_eq!(windows[0]["decorations"], false);
+        assert_eq!(windows[0]["skipTaskbar"], true);
+    }
 }

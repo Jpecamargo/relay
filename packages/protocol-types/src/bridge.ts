@@ -82,20 +82,7 @@ export interface MacCommandMap {
   set_update_available: { args: { version: string | null }; result: void };
 }
 
-/** Comandos do agente Windows: argumentos e retorno. */
-export interface AgentCommandMap {
-  agent_get_status: { args: void; result: StatusSnapshot };
-  agent_new_pairing_code: { args: void; result: NewPairingCode };
-  agent_revoke_pair: { args: void; result: void };
-  agent_get_service_status: { args: void; result: ServiceStatus };
-  agent_get_config: { args: void; result: Config };
-  agent_save_config: { args: { config: Config }; result: void };
-  agent_set_autostart: { args: { enabled: boolean }; result: void };
-  /** Avisa a bandeja que há (ou não há mais) atualização: o item "Atualização disponível" aparece e abre a janela. */
-  agent_set_update_available: { args: { version: string | null }; result: void };
-}
-
-export type CommandMap = MacCommandMap & AgentCommandMap;
+export type CommandMap = MacCommandMap;
 export type CommandName = keyof CommandMap;
 export type CommandArgs<K extends CommandName> = CommandMap[K]["args"];
 export type CommandResultOf<K extends CommandName> = CommandMap[K]["result"];
@@ -135,14 +122,6 @@ export const COMMANDS = {
   quit_app: "quit_app",
   get_service_status: "get_service_status",
   set_update_available: "set_update_available",
-  agent_get_status: "agent_get_status",
-  agent_new_pairing_code: "agent_new_pairing_code",
-  agent_revoke_pair: "agent_revoke_pair",
-  agent_get_service_status: "agent_get_service_status",
-  agent_get_config: "agent_get_config",
-  agent_save_config: "agent_save_config",
-  agent_set_autostart: "agent_set_autostart",
-  agent_set_update_available: "agent_set_update_available",
 } as const satisfies { [K in CommandName]: K };
 
 /** Payload de cada evento core→UI. */

@@ -4,20 +4,33 @@
   "version": "0.2.0",
   "identifier": "com.joaocamargo.relay.agent",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1421",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
+    "beforeDevCommand": "pnpm --filter @relay/mac dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm --filter @relay/mac build",
+    "frontendDist": "../../mac/dist"
   },
   "app": {
     "windows": [
       {
-        "label": "main",
-        "title": "Relay Agent",
-        "width": 380,
-        "height": 480,
+        "label": "panel",
+        "title": "Relay",
+        "width": 360,
+        "height": 420,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
         "visible": false,
-        "resizable": false
+        "resizable": false,
+        "shadow": true
+      },
+      {
+        "label": "main",
+        "title": "Relay",
+        "width": 1000,
+        "height": 680,
+        "minWidth": 780,
+        "minHeight": 520,
+        "visible": false
       }
     ],
     "security": {
