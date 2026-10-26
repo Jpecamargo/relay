@@ -1,4 +1,6 @@
 import {
+  CAPS,
+  hasCap,
   invokeCommand,
   type DisplayInfo,
   type LatencyStats,
@@ -46,9 +48,11 @@ export function Overview({ act, status, latency, history, metrics, transfers }: 
         ) : null}
       </div>
 
-      <PeerMetrics metrics={metrics} />
-      <Transfers act={act} transfers={transfers} />
-      <Utilities act={act} online={online} />
+      {hasCap(status.peer_caps, CAPS.METRICS) ? <PeerMetrics metrics={metrics} /> : null}
+      <Transfers act={act} transfers={transfers} canPull={hasCap(status.local_caps, CAPS.FILE_PULL)} />
+      {hasCap(status.peer_caps, CAPS.COMMANDS) ? (
+        <Utilities act={act} online={online} canCapture={hasCap(status.peer_caps, CAPS.SCREEN_CAPTURE)} />
+      ) : null}
     </>
   );
 }
@@ -88,11 +92,11 @@ function PeerMetrics({ metrics }: { metrics: SystemMetrics | undefined }) {
 
 const mb = (n: number) => `${decimal(n / 1048576)} MB`;
 
-function Transfers({ act, transfers }: Pick<OverviewProps, "act" | "transfers">) {
+function Transfers({ act, transfers, canPull }: Pick<OverviewProps, "act" | "transfers"> & { canPull: boolean }) {
   return (
     <Section
       title="Transferências recentes" grouped
-      actions={<Button variant="ghost" onClick={() => void act("Receber arquivos", () => invokeCommand("receive_remote_files"))}>Receber arquivos</Button>}
+      actions={canPull ? <Button variant="ghost" onClick={() => void act("Receber arquivos", () => invokeCommand("receive_remote_files"))}>Receber arquivos</Button> : null}
     >
       {transfers.length === 0 ? <p className={styles.empty}>Nenhuma transferência nesta sessão.</p> : null}
       {transfers.map((t) => (
@@ -114,7 +118,7 @@ function bytesToBase64(bytes: ReadonlyArray<number>): string {
   return btoa(s);
 }
 
-function Utilities({ act, online }: { act: Act; online: boolean }) {
+function Utilities({ act, online, canCapture }: { act: Act; online: boolean; canCapture: boolean }) {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [display, setDisplay] = useState("");
   const [shot, setShot] = useState<string>();
@@ -136,6 +140,8 @@ function Utilities({ act, online }: { act: Act; online: boolean }) {
 
   return (
     <Section title="Ferramentas do outro computador" grouped>
+      {canCapture ? (
+        <>
       <div className={styles.toolRow}>
         <Select
           label="Capturar tela" value={display} disabled={!online || displays.length === 0}
@@ -144,6 +150,8 @@ function Utilities({ act, online }: { act: Act; online: boolean }) {
         <Button disabled={!online || !display} onClick={() => void capture()}>Capturar</Button>
       </div>
       {shot ? <img className={styles.shot} src={shot} alt="Captura da tela do outro computador" /> : null}
+        </>
+      ) : null}
       <form className={styles.toolRow} onSubmit={submit(() => { void act("Abrir", () => send({ OpenTarget: { target } })); })}>
         <input className={styles.input} aria-label="URL ou app" placeholder="Abrir URL ou app no outro computador" value={target} onChange={(e) => setTarget(e.target.value)} />
         <Button type="submit" disabled={!online || !target.trim()}>Abrir</Button>
