@@ -6,6 +6,14 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.0
+
+- Agora o Relay é o mesmo app, com a mesma interface, no Mac e no PC. Os dois podem mostrar o código de pareamento ou digitá-lo, e os dois podem editar o layout das telas.
+- Ao parear, você escolhe qual computador guarda a versão oficial dos layouts (o padrão é o próprio computador em que você está). A troca pode ser feita depois em Ajustes. Se esse computador estiver desconectado, o outro mostra os layouts só para leitura até ele voltar.
+- Cada máquina mostra só o que ela suporta. O Mac não recebe microfone, captura de tela nem comandos de energia do PC; o PC continua controlando e sendo controlado como antes.
+- Atualizar da 0.2.x é automático e não precisa parear de novo. Se um dos lados ainda estiver na 0.2, o Relay continua funcionando até ele se atualizar, e o outro lado avisa que há atualização.
+- No Windows, o app agora aparece como "Relay" nas janelas e na bandeja. O atalho do Menu Iniciar e o nome em "Adicionar ou remover programas" continuam "Relay Agent", para a atualização instalar por cima sem problemas.
+
 ## 0.2.0
 
 - O Mac não pede mais a senha (3 vezes) a cada atualização. As chaves do pareamento saem do Keychain para um arquivo que só o seu usuário lê. Nesta atualização o macOS ainda pede uma última vez, para copiá-las; o pareamento continua.
