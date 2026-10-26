@@ -18,6 +18,7 @@ use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
 use super::fast::FastShared;
 use super::stats::{Backoff, RttTracker, now_us};
 use super::{DialerConfig, NetError, SessionEvent};
+use crate::compat::v02::allowed_for_peer;
 use crate::crypto::{
     CryptoError, LocalDevice, NoiseSession, PairingError, StaticKeypair, UdpChannel, noise_accept,
     noise_dial, pair, read_frame, write_frame,
@@ -309,6 +310,7 @@ async fn run_session(
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut last_rx = Instant::now();
     let mut ping_id = 0u32;
+    let peer_app_version = Some(remote_app_version.trim().to_owned()).filter(|v| !v.is_empty());
 
     let end = 'session: loop {
         let mut inbound: Vec<Message> = pending_msgs.drain(..).collect();
@@ -332,6 +334,13 @@ async fn run_session(
             }
             out = ctx.outbound.recv() => {
                 let Some(msg) = out else { break End::Shutdown };
+                if !allowed_for_peer(&msg, peer_app_version.as_deref()) {
+                    tracing::warn!(
+                        peer_version = ?peer_app_version,
+                        "mensagem da 0.3 não enviada: o par não a entende"
+                    );
+                    continue;
+                }
                 if write_msg(&mut noise, &mut wr, &msg, &mut sc).await.is_err() {
                     break End::Lost;
                 }

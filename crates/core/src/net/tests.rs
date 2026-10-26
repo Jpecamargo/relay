@@ -616,3 +616,153 @@ fn fast_module_does_not_import_tokio() {
         assert!(!src.contains(needle), "{name} não pode usar {needle}");
     }
 }
+
+fn sample_display() -> crate::types::DisplayInfo {
+    crate::types::DisplayInfo {
+        id: "D1".into(),
+        name: "Tela".into(),
+        machine: crate::types::Machine::Mac,
+        origin_px: (0, 0),
+        size_px: (1920, 1080),
+        scale: 1.0,
+        size_mm: None,
+        is_primary: true,
+        is_builtin: false,
+    }
+}
+
+fn sample_layout() -> crate::types::LayoutProfile {
+    crate::types::LayoutProfile {
+        key: Default::default(),
+        name: "L".into(),
+        displays: vec![],
+        windows_detached: false,
+    }
+}
+
+async fn next_message(s: &mut impl EventSource) -> Message {
+    timeout(Duration::from_secs(3), async {
+        loop {
+            if let Some(SessionEvent::Message(m)) = s.next().await {
+                return m;
+            }
+        }
+    })
+    .await
+    .expect("mensagem não chegou")
+}
+
+trait EventSource {
+    async fn next(&mut self) -> Option<SessionEvent>;
+}
+impl EventSource for SessionDialer {
+    async fn next(&mut self) -> Option<SessionEvent> {
+        self.recv_event().await
+    }
+}
+impl EventSource for SessionListener {
+    async fn next(&mut self) -> Option<SessionEvent> {
+        self.recv_event().await
+    }
+}
+
+/// Dialer que se apresenta como 0.2.9, agente 0.3.0.
+async fn pair_with_legacy_dialer(rig: &Rig) -> (SessionDialer, SessionListener) {
+    let mut lcfg = rig.listener_cfg(ephemeral());
+    lcfg.app_version = "0.3.0".into();
+    let listener = SessionListener::start(lcfg, noop()).await.unwrap();
+    let mut dcfg = rig.dialer_cfg(&listener);
+    dcfg.app_version = "0.2.9".into();
+    let dialer = SessionDialer::start(dcfg, noop()).await.unwrap();
+    wait_connections(&dialer, 1, 3000).await;
+    wait_connections(&listener, 1, 3000).await;
+    wait_status(&mut dialer.status(), ConnectionStatus::Connected, 1000).await;
+    wait_status(&mut listener.status(), ConnectionStatus::Connected, 1000).await;
+    (dialer, listener)
+}
+
+#[tokio::test]
+async fn caps_is_not_written_to_a_0_2_9_peer_but_ping_pong_continue() {
+    let rig = Rig::new();
+    let (mut dialer, listener) = pair_with_legacy_dialer(&rig).await;
+    let caps = Message::Caps(crate::types::Caps::baseline(crate::types::Os::Windows));
+    listener.send(caps).await.unwrap();
+    listener
+        .send(Message::Displays(vec![sample_display()]))
+        .await
+        .unwrap();
+    // O primeiro que chega ao 0.2.9 é Displays: Caps foi barrado.
+    assert!(matches!(
+        next_message(&mut dialer).await,
+        Message::Displays(_)
+    ));
+    // Ping/Pong seguem: o rtt é publicado e a sessão não cai.
+    let mut stats = dialer.stats();
+    timeout(Duration::from_secs(3), async {
+        loop {
+            stats.changed().await.unwrap();
+            if stats.borrow().rtt_ms > 0.0 {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("rtt");
+    assert_eq!(dialer.connections(), 1);
+    dialer.shutdown().await;
+    listener.shutdown().await;
+}
+
+#[tokio::test]
+async fn caps_reaches_a_0_3_0_peer() {
+    let rig = Rig::new();
+    let mut lcfg = rig.listener_cfg(ephemeral());
+    lcfg.app_version = "0.3.0".into();
+    let listener = SessionListener::start(lcfg, noop()).await.unwrap();
+    let mut dcfg = rig.dialer_cfg(&listener);
+    dcfg.app_version = "0.3.0".into();
+    let mut dialer = SessionDialer::start(dcfg, noop()).await.unwrap();
+    wait_connections(&dialer, 1, 3000).await;
+    wait_connections(&listener, 1, 3000).await;
+    wait_status(&mut listener.status(), ConnectionStatus::Connected, 1000).await;
+    let caps = Message::Caps(crate::types::Caps::baseline(crate::types::Os::Windows));
+    listener.send(caps.clone()).await.unwrap();
+    assert_eq!(next_message(&mut dialer).await, caps);
+    dialer.shutdown().await;
+    listener.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_node_presenting_as_0_2_9_exchanges_everything_both_ways_without_dropping() {
+    let rig = Rig::new();
+    let (mut dialer, mut listener) = pair_with_legacy_dialer(&rig).await;
+    let input = Message::Input {
+        seq: 1,
+        ts_us: 2,
+        event: InputEvent::Key {
+            scan: 30,
+            down: true,
+        },
+    };
+    let to_dialer = [
+        Message::HelloAck,
+        Message::Displays(vec![sample_display()]),
+        Message::LayoutSync(sample_layout()),
+        input.clone(),
+    ];
+    for m in &to_dialer {
+        listener.send(m.clone()).await.unwrap();
+        dialer.send(m.clone()).await.unwrap();
+    }
+    // HelloAck é absorvido pelo loop; o resto chega, em ordem, nos dois sentidos.
+    for want in &to_dialer[1..] {
+        assert_eq!(&next_message(&mut dialer).await, want);
+        assert_eq!(&next_message(&mut listener).await, want);
+    }
+    sleep(Duration::from_millis(1200)).await; // alguns Pings
+    assert_eq!(dialer.connections(), 1);
+    assert_eq!(listener.connections(), 1);
+    assert_eq!(*dialer.status().borrow(), ConnectionStatus::Connected);
+    dialer.shutdown().await;
+    listener.shutdown().await;
+}
