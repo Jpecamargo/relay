@@ -77,7 +77,7 @@ test("relay:navigate leva à seção pedida e ignora id desconhecido", async () 
   expect(screen.getByRole("heading", { name: "Visão geral" })).toBeTruthy();
   bridge.navigate?.({ payload: "general" });
   expect(await screen.findByRole("heading", { name: "Geral" })).toBeTruthy();
-  expect(await screen.findByRole("heading", { name: "Início" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Layout" })).toBeTruthy();
 });
 
 const box = (n: number) => screen.getByLabelText(`Dígito ${n}`) as HTMLInputElement;
@@ -88,7 +88,7 @@ const pairCalls = () => bridge.invoke.mock.calls.filter(([n]) => n === "pair_wit
 async function openFirstUse() {
   bridge.peer = null;
   render(<Main />);
-  await screen.findByRole("heading", { name: "Conecte seu PC" });
+  await screen.findByRole("heading", { name: "Conecte outro computador" });
   await screen.findByRole("button", { name: /DESKTOP-PC/ });
 }
 
@@ -106,13 +106,13 @@ test("digitar os 6 dígitos envia o pareamento sozinho, com o endereço do PC", 
   expect(pairCalls()).toHaveLength(0);
   expect(box(6)).toBe(document.activeElement);
   fireEvent.change(box(6), { target: { value: "6" } });
-  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000", layout_host: "Local" }));
 });
 
 test("colar o código preenche as caixas, ignora o que não é dígito e envia", async () => {
   await openFirstUse();
   pasteCode("12a-3 456");
-  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000", layout_host: "Local" }));
   fireEvent.change(box(1), { target: { value: "x" } });
   expect(pairCalls()).toHaveLength(1);
 });
@@ -161,5 +161,5 @@ test("depois de revogar, o app volta à tela de primeiro uso", async () => {
   await screen.findByRole("heading", { name: "Visão geral" });
   bridge.peer = null;
   await act(async () => bridge.listeners.get("relay:status")?.({ status: "Disconnected", peer_name: null, focus: "Local", audio: { mic_to_peer: false, mic_from_peer: false } }));
-  expect(await screen.findByRole("heading", { name: "Conecte seu PC" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Conecte outro computador" })).toBeTruthy();
 });

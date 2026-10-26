@@ -49,16 +49,16 @@ export function LiveAudio({ act, online, audio, refresh }: {
   return (
     <>
       <Section title="Microfone" grouped>
-        <Toggle label="Microfone do Mac no PC" checked={audio.mic_to_peer} onChange={(v) => streams("Microfone do Mac no PC", v)} />
+        <Toggle label="Microfone deste computador no outro" checked={audio.mic_to_peer} onChange={(v) => streams("Microfone deste computador no outro", v)} />
       </Section>
       <Section title="Dispositivos" grouped>
         <Select
-          label="Saída do Windows" value={pcOutput} options={deviceOptions(pcOutputs)} disabled={!online || pcOutputs.length === 0}
-          onChange={(id) => { setPcOutput(id); void act("Saída do Windows", () => send({ SetOutputDevice: { id } })); }}
+          label="Saída do outro computador" value={pcOutput} options={deviceOptions(pcOutputs)} disabled={!online || pcOutputs.length === 0}
+          onChange={(id) => { setPcOutput(id); void act("Saída do outro computador", () => send({ SetOutputDevice: { id } })); }}
         />
         <Select
-          label="Entrada do Mac" value={macIn} options={deviceOptions(macDevices?.inputs ?? [])} disabled={!macDevices?.inputs.length}
-          onChange={(id) => { setMacIn(id); void act("Entrada do Mac", () => invokeCommand("set_audio_devices", { input_id: id })); }}
+          label="Entrada deste computador" value={macIn} options={deviceOptions(macDevices?.inputs ?? [])} disabled={!macDevices?.inputs.length}
+          onChange={(id) => { setMacIn(id); void act("Entrada deste computador", () => invokeCommand("set_audio_devices", { input_id: id })); }}
         />
       </Section>
     </>

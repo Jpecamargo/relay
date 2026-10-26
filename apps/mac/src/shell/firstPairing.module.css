@@ -18,3 +18,5 @@
   font: var(--relay-text-md) var(--relay-font); -webkit-user-select: text; user-select: text;
 }
 .input:focus-visible { outline: 2px solid var(--relay-focus); outline-offset: 1px; }
+.modes { align-self: stretch; display: flex; flex-direction: column; align-items: center; }
+.modes > div { width: 100%; }

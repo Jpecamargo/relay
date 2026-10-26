@@ -2,8 +2,7 @@
 import type { Config } from "@relay/protocol-types";
 import { Banner, Button, ConfirmDialog, Section, StatusDot } from "@relay/ui";
 import { useState } from "react";
-import { CodeInput } from "../shared/pairing/CodeInput";
-import { PeerList } from "../shared/pairing/PeerList";
+import { PairingModes } from "../shared/pairing/PairingModes";
 import { usePairing } from "../shared/pairing/usePairing";
 import styles from "./settings.module.css";
 
@@ -30,7 +29,7 @@ export function ConnectionTab({ config, update }: TabProps) {
       {p.error ? <Banner tone="danger">{p.error}</Banner> : null}
       {p.paired && !p.error ? <Banner tone="info">Pareamento concluído.</Banner> : null}
 
-      <Section title="PC pareado">
+      <Section title="Computador pareado">
         {p.peerName ? (
           <div className={styles.row}>
             <span className={styles.rowMain}>
@@ -41,23 +40,19 @@ export function ConnectionTab({ config, update }: TabProps) {
             </Button>
           </div>
         ) : (
-          <p className={styles.muted}>Nenhum PC pareado.</p>
+          <p className={styles.muted}>Nenhum computador pareado.</p>
         )}
       </Section>
 
       <Section
-        title="Parear com um PC"
+        title="Parear com outro computador"
         actions={
           <Button variant="ghost" onClick={p.refresh}>
             Atualizar
           </Button>
         }
       >
-        <PeerList peers={p.peers} selectedId={p.target?.device_id ?? null} onSelect={p.select} emptyText="Nenhum PC encontrado na rede." />
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>Código do agente do Windows</span>
-          <CodeInput value={p.code} onChange={p.changeCode} onComplete={(c) => void p.pair(c)} disabled={p.busy} invalid={p.error !== ""} />
-        </div>
+        <PairingModes pairing={p} />
       </Section>
 
       <Section title="Endereço manual">
@@ -82,7 +77,7 @@ export function ConnectionTab({ config, update }: TabProps) {
         open={confirming}
         destructive
         title="Revogar o pareamento?"
-        message={`${p.peerName ?? "O PC"} deixará de controlar e de ser controlado. Será preciso parear de novo.`}
+        message={`${p.peerName ?? "O outro computador"} deixará de controlar e de ser controlado. Será preciso parear de novo.`}
         confirmLabel="Revogar"
         onConfirm={unpair}
         onCancel={() => setConfirming(false)}

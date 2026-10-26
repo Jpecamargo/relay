@@ -34,7 +34,7 @@ export function Overview({ act, status, latency, history, metrics, transfers }: 
             {STATUS_LABELS[key] ?? key}
           </div>
           <p className={styles.heroSub}>
-            {status.peer_name ? `${status.peer_name} · ` : ""}foco no {status.focus === "Local" ? "Mac" : "Windows"}
+            {status.peer_name ? `${status.peer_name} · ` : ""}foco {status.focus === "Local" ? "neste computador" : "no outro computador"}
           </p>
         </div>
         {latency && online ? (
@@ -46,7 +46,7 @@ export function Overview({ act, status, latency, history, metrics, transfers }: 
         ) : null}
       </div>
 
-      <PcMetrics metrics={metrics} />
+      <PeerMetrics metrics={metrics} />
       <Transfers act={act} transfers={transfers} />
       <Utilities act={act} online={online} />
     </>
@@ -64,17 +64,17 @@ function Meter({ label, value, ratio }: { label: string; value: string; ratio: n
   );
 }
 
-function PcMetrics({ metrics }: { metrics: SystemMetrics | undefined }) {
+function PeerMetrics({ metrics }: { metrics: SystemMetrics | undefined }) {
   if (!metrics) {
     return (
-      <Section title="PC">
-        <p className={styles.empty}>Sem métricas: conecte ao PC para ver CPU, memória e GPU.</p>
+      <Section title="Outro computador">
+        <p className={styles.empty}>Sem métricas: conecte ao outro computador para ver CPU, memória e GPU.</p>
       </Section>
     );
   }
   const temp = metrics.gpu_temp_c ?? metrics.cpu_temp_c;
   return (
-    <Section title="PC" grouped>
+    <Section title="Outro computador" grouped>
       <Meter label="CPU" value={`${Math.round(metrics.cpu_pct)}%`} ratio={metrics.cpu_pct / 100} />
       <Meter
         label="Memória" value={`${gb(metrics.ram_used_mb)} de ${gb(metrics.ram_total_mb)} GB`}
@@ -135,7 +135,7 @@ function Utilities({ act, online }: { act: Act; online: boolean }) {
   const submit = (run: () => void) => (e: FormEvent) => { e.preventDefault(); run(); };
 
   return (
-    <Section title="Ferramentas do PC" grouped>
+    <Section title="Ferramentas do outro computador" grouped>
       <div className={styles.toolRow}>
         <Select
           label="Capturar tela" value={display} disabled={!online || displays.length === 0}
@@ -143,13 +143,13 @@ function Utilities({ act, online }: { act: Act; online: boolean }) {
         />
         <Button disabled={!online || !display} onClick={() => void capture()}>Capturar</Button>
       </div>
-      {shot ? <img className={styles.shot} src={shot} alt="Captura da tela do PC" /> : null}
+      {shot ? <img className={styles.shot} src={shot} alt="Captura da tela do outro computador" /> : null}
       <form className={styles.toolRow} onSubmit={submit(() => { void act("Abrir", () => send({ OpenTarget: { target } })); })}>
-        <input className={styles.input} aria-label="URL ou app" placeholder="Abrir URL ou app no PC" value={target} onChange={(e) => setTarget(e.target.value)} />
+        <input className={styles.input} aria-label="URL ou app" placeholder="Abrir URL ou app no outro computador" value={target} onChange={(e) => setTarget(e.target.value)} />
         <Button type="submit" disabled={!online || !target.trim()}>Abrir</Button>
       </form>
       <form className={styles.toolRow} onSubmit={submit(() => { void act("Texto enviado", () => send({ TypeText: { text } })); })}>
-        <input className={styles.input} aria-label="Texto para digitar no PC" placeholder="Digitar texto no PC" value={text} onChange={(e) => setText(e.target.value)} />
+        <input className={styles.input} aria-label="Texto para digitar no outro computador" placeholder="Digitar texto no outro computador" value={text} onChange={(e) => setText(e.target.value)} />
         <Button type="submit" disabled={!online || !text}>Enviar</Button>
       </form>
     </Section>
