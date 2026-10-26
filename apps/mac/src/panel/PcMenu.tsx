@@ -4,30 +4,43 @@ import { useState } from "react";
 import { send } from "../shared/send";
 import type { Act } from "../shared/useActions";
 
-const CONFIRM: Record<"Restart" | "Shutdown", { title: string; message: string; label: string }> = {
-  Restart: { title: "Reiniciar o PC?", message: "O PC será reiniciado e a conexão cai até ele voltar.", label: "Reiniciar" },
-  Shutdown: { title: "Desligar o PC?", message: "O PC será desligado. Para religar use 'Ligar o PC'.", label: "Desligar" },
-};
+const confirmOf = (peer: string): Record<"Restart" | "Shutdown", { title: string; message: string; label: string }> => ({
+  Restart: { title: `Reiniciar ${peer}?`, message: "Ele será reiniciado e a conexão cai até voltar.", label: "Reiniciar" },
+  Shutdown: { title: `Desligar ${peer}?`, message: "Ele será desligado. Para religar use 'Acordar'.", label: "Desligar" },
+});
 
-/** Linha "PC ›" que abre, no próprio painel, as ações de energia. Reiniciar/desligar confirmam. */
-export function PcMenu({ act, online, canWake, wakeShortcut }: { act: Act; online: boolean; canWake: boolean; wakeShortcut?: string }) {
+/**
+ * Linha com o nome do outro computador que abre, no próprio painel, as ações de energia (COMMANDS) e
+ * o acordar (WOL_TARGET). Reiniciar/desligar confirmam.
+ */
+export function PcMenu({ act, online, peer, canCommand, hasWake, canWake, wakeShortcut }: {
+  act: Act; online: boolean; peer: string; canCommand: boolean; hasWake: boolean; canWake: boolean; wakeShortcut?: string;
+}) {
+  const CONFIRM = confirmOf(peer);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<"Restart" | "Shutdown">();
   const power = (label: string, action: PowerAction, confirm: boolean) =>
     act(label, () => send({ Power: { action, confirm } }));
+  if (!canCommand && !hasWake) return null;
   return (
     <>
-      <MenuRow label="PC" icon="monitor" chevron={open ? "open" : true} onClick={() => setOpen((o) => !o)} />
+      <MenuRow label={peer} icon="monitor" chevron={open ? "open" : true} onClick={() => setOpen((o) => !o)} />
       {open ? (
         <>
-          <MenuRow nested label="Bloquear" icon="lock" disabled={!online} onClick={() => void power("Bloquear", "Lock", false)} />
-          <MenuRow nested label="Suspender" icon="moon" disabled={!online} onClick={() => void power("Suspender", "Suspend", false)} />
-          <MenuRow nested label="Reiniciar" icon="restart" disabled={!online} onClick={() => setPending("Restart")} />
-          <MenuRow nested label="Desligar" icon="power" disabled={!online} onClick={() => setPending("Shutdown")} />
-          <MenuRow
-            nested label="Ligar o PC" icon="wifi" disabled={!canWake} shortcut={wakeShortcut}
-            onClick={() => void act("Ligar o PC", () => invokeCommand("wake_peer"))}
-          />
+          {canCommand ? (
+            <>
+              <MenuRow nested label="Bloquear" icon="lock" disabled={!online} onClick={() => void power("Bloquear", "Lock", false)} />
+              <MenuRow nested label="Suspender" icon="moon" disabled={!online} onClick={() => void power("Suspender", "Suspend", false)} />
+              <MenuRow nested label="Reiniciar" icon="restart" disabled={!online} onClick={() => setPending("Restart")} />
+              <MenuRow nested label="Desligar" icon="power" disabled={!online} onClick={() => setPending("Shutdown")} />
+            </>
+          ) : null}
+          {hasWake ? (
+            <MenuRow
+              nested label="Acordar" icon="wifi" disabled={!canWake} shortcut={wakeShortcut}
+              onClick={() => void act("Acordar", () => invokeCommand("wake_peer"))}
+            />
+          ) : null}
         </>
       ) : null}
       <ConfirmDialog

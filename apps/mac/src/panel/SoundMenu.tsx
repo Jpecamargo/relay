@@ -7,8 +7,8 @@ import styles from "./panel.module.css";
 
 const currentOf = (list: ReadonlyArray<AudioDevice>) => list.find((d) => d.is_default)?.id ?? "";
 
-/** Linha "Saída de som ›": saídas do Windows com check na atual. A troca é imediata; erro vira toast. */
-export function SoundMenu({ act, online }: { act: Act; online: boolean }) {
+/** Linha "Saída de som ›": saídas do outro computador com check na atual. A troca é imediata; erro vira toast. */
+export function SoundMenu({ act, online, peer }: { act: Act; online: boolean; peer: string }) {
   const [open, setOpen] = useState(false);
   const [pc, setPc] = useState<AudioDevice[]>([]);
   const [pcCurrent, setPcCurrent] = useState("");
@@ -33,10 +33,10 @@ export function SoundMenu({ act, online }: { act: Act; online: boolean }) {
           ? pc.map((d) => (
               <MenuRow
                 nested key={d.id} label={d.name} selected={d.id === pcCurrent}
-                onClick={() => { setPcCurrent(d.id); void act("Saída do Windows", () => send({ SetOutputDevice: { id: d.id } })); }}
+                onClick={() => { setPcCurrent(d.id); void act(`Saída de ${peer}`, () => send({ SetOutputDevice: { id: d.id } })); }}
               />
             ))
-          : <div className={styles.caption}>PC desconectado</div>
+          : <div className={styles.caption}>{peer} desconectado</div>
         : null}
     </>
   );
