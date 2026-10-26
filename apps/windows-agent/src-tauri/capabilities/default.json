@@ -1,12 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões da janela principal",
+  "description": "Permissões das janelas do app",
   "windows": [
+    "panel",
     "main"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
     "updater:default",
     "process:allow-restart"
   ]
