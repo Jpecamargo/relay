@@ -98,6 +98,10 @@ pub(crate) enum Cmd {
     OpenPairing { code: String, expires_at_ms: u64 },
     Revoke,
     SetPaused(bool),
+    SetLocked(bool),
+    JumpTo(u8),
+    ClipboardSendNow,
+    Reconnect,
     DisplaysChanged,
     Foreground(String),
     Fast(relay_core::net::FastEvent),
@@ -284,6 +288,22 @@ impl AgentBackend for AgentCore {
 
     fn set_paused(&self, paused: bool) -> AgentResult<()> {
         self.send(Cmd::SetPaused(paused))
+    }
+
+    fn set_locked(&self, locked: bool) -> AgentResult<()> {
+        self.send(Cmd::SetLocked(locked))
+    }
+
+    fn jump_to(&self, n: u8) -> AgentResult<()> {
+        self.send(Cmd::JumpTo(n))
+    }
+
+    fn clipboard_send_now(&self) -> AgentResult<()> {
+        self.send(Cmd::ClipboardSendNow)
+    }
+
+    fn reconnect(&self) -> AgentResult<()> {
+        self.send(Cmd::Reconnect)
     }
 
     /// Código de 6 dígitos válido por 120 s e de uso único (consumido pela primeira tentativa).

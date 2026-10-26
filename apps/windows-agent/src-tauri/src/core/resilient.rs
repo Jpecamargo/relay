@@ -127,6 +127,23 @@ impl AgentBackend for ResilientBackend {
         self.core()?.set_paused(paused)
     }
 
+    fn set_locked(&self, locked: bool) -> AgentResult<()> {
+        self.core()?.set_locked(locked)
+    }
+
+    fn jump_to(&self, n: u8) -> AgentResult<()> {
+        self.core()?.jump_to(n)
+    }
+
+    fn clipboard_send_now(&self) -> AgentResult<()> {
+        self.core()?.clipboard_send_now()
+    }
+
+    fn reconnect(&self) -> AgentResult<()> {
+        self.retry();
+        self.core()?.reconnect()
+    }
+
     fn new_pairing_code(&self) -> AgentResult<NewPairingCode> {
         self.retry();
         self.core()?.new_pairing_code()
