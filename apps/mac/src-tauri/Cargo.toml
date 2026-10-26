@@ -39,3 +39,5 @@ objc2-app-kit.workspace = true
 [dev-dependencies]
 relay-core = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
+# Confronto Mac x PC nos dois apps reais (tests/confronto.rs).
+relay-windows-agent = { path = "../../windows-agent/src-tauri" }

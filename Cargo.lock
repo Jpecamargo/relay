@@ -3812,6 +3812,7 @@ dependencies = [
  "objc2-foundation",
  "relay-core",
  "relay-platform-macos",
+ "relay-windows-agent",
  "rtrb",
  "serde",
  "serde_json",
