@@ -34,6 +34,8 @@ pub struct LayoutHostState {
     peer: Option<bool>,
     /// Peer simétrico conectado cujo `LayoutBookSync` inicial ainda não chegou.
     awaiting_exchange: bool,
+    /// Último conjunto de telas (local + peer) informado: quem vira host cria o perfil dele.
+    displays: Vec<DisplayInfo>,
 }
 
 fn other(m: Machine) -> Machine {
@@ -53,6 +55,7 @@ impl LayoutHostState {
             active: config.active,
             peer: None,
             awaiting_exchange: false,
+            displays: Vec::new(),
         }
     }
 
@@ -159,11 +162,20 @@ impl LayoutHostState {
         }
         // O host só aceita Sync de quem assumiu o papel de host (book.host é o outro lado).
         let handover =
-            self.is_host() && peer_book.revision > self.revision && peer_book.host != self.local;
+            self.is_host() && peer_book.revision >= self.revision && peer_book.host != self.local;
         if (self.is_host() && !handover) || peer_book.revision < self.revision {
             return Vec::new();
         }
         self.adopt(peer_book);
+        self.adopted()
+    }
+
+    /// Efeitos depois de adotar um livro. Se isto me fez host e o livro não tem perfil para as
+    /// telas atuais (o host anterior não as conhecia), crio o perfil e publico.
+    fn adopted(&mut self) -> Vec<LayoutEffect> {
+        if self.is_host() && self.ensure_profile() {
+            return self.published();
+        }
         vec![
             LayoutEffect::Persist(self.book()),
             LayoutEffect::Emit(self.book()),
@@ -193,10 +205,7 @@ impl LayoutHostState {
             return Vec::new();
         }
         self.adopt(winner);
-        vec![
-            LayoutEffect::Persist(self.book()),
-            LayoutEffect::Emit(self.book()),
-        ]
+        self.adopted()
     }
 
     /// Edição local (salvar perfis, trocar o ativo).
@@ -254,13 +263,16 @@ impl LayoutHostState {
     /// Edit o nomeia host, e então assume o papel.
     pub fn on_book_edit(&mut self, edit: LayoutBook) -> Vec<LayoutEffect> {
         // Não-host só aceita o Edit que lhe passa o papel de host (edit.host é ele mesmo).
-        if !self.is_host() && !(edit.host == self.local && edit.revision > self.revision) {
+        if !self.is_host() && !(edit.host == self.local && edit.revision >= self.revision) {
             return Vec::new();
         }
         self.revision = self.revision.max(edit.revision) + 1;
         self.host = edit.host;
         self.profiles = edit.profiles;
         self.active = edit.active;
+        if self.is_host() {
+            self.ensure_profile();
+        }
         self.published()
     }
 
@@ -287,27 +299,40 @@ impl LayoutHostState {
             return Vec::new();
         }
         let machine = self.machine_of(choice);
-        self.revision += 1;
         if machine == self.local {
+            self.revision += 1;
             self.host = machine;
+            self.ensure_profile();
             return self.published();
+        }
+        if self.host == machine {
+            // O outro já é o host: nada a passar (um Edit com o meu livro sobrescreveria o dele).
+            return Vec::new();
         }
         let mut book = self.book();
         book.host = machine;
+        book.revision += 1;
         vec![LayoutEffect::Send(Message::LayoutBookEdit(book))]
     }
 
     /// Conjunto de telas (local + do peer) mudou. O host cria o perfil da `ProfileKey` se faltar.
     pub fn on_displays(&mut self, displays: &[DisplayInfo]) -> Vec<LayoutEffect> {
-        if !self.is_host() {
-            return Vec::new();
+        self.displays = displays.to_vec();
+        if self.is_host() && self.ensure_profile() {
+            self.published()
+        } else {
+            Vec::new()
         }
-        let key = profile_key(displays);
-        if self.has_profile_for(&key) {
-            return Vec::new();
+    }
+
+    /// Cria (com revision+1) o perfil das telas atuais se o livro não tiver um. `true` se criou.
+    fn ensure_profile(&mut self) -> bool {
+        let key = profile_key(&self.displays);
+        if self.displays.is_empty() || self.has_profile_for(&key) {
+            return false;
         }
-        let Some(mut profile) = select_profile(&[], None, displays) else {
-            return Vec::new();
+        let Some(mut profile) = select_profile(&[], None, &self.displays) else {
+            return false;
         };
         let mut name = profile.name.clone();
         let mut n = 2;
@@ -319,7 +344,7 @@ impl LayoutHostState {
         self.profiles.push(profile);
         self.active = Some(name);
         self.revision += 1;
-        self.published()
+        true
     }
 
     fn has_profile_for(&self, key: &ProfileKey) -> bool {
@@ -683,5 +708,25 @@ mod tests {
                 LayoutEffect::Send(Message::LayoutBookSync(_))
             ]
         ));
+    }
+
+    #[test]
+    fn new_host_creates_profile_missing_for_known_displays() {
+        // Não-host conhece as telas; o Sync de handover (tie) vem sem perfil para elas.
+        let ds = [display("m1", Mac), display("w1", Windows)];
+        let mut win = connected(state(Windows, Mac, 1, &[]), true);
+        assert!(win.on_displays(&ds).is_empty());
+        let edit = LayoutBook {
+            revision: 1,
+            host: Windows,
+            profiles: vec![],
+            active: None,
+        };
+        win.on_book_edit(edit);
+        assert!(win.is_host());
+        assert_eq!(win.book().profiles[0].key, profile_key(&ds));
+        // pareamento: o outro já é host, nada a enviar
+        let mut win = connected(state(Windows, Mac, 1, &["a"]), true);
+        assert!(win.on_new_pairing(Host::Peer).is_empty());
     }
 }

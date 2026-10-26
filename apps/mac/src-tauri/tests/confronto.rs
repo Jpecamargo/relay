@@ -1207,6 +1207,21 @@ async fn pc_mostra_mac_digita_host_neste_computador() {
     pareia(true, Host::Local).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pc_mostra_mac_digita_host_no_outro() {
+    pareia(true, Host::Peer).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mac_mostra_pc_digita_host_neste_computador() {
+    pareia(false, Host::Local).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mac_mostra_pc_digita_host_no_outro() {
+    pareia(false, Host::Peer).await;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Cenário 3: edição no não-host, Sync de volta, desconexão e reconexão
 // ---------------------------------------------------------------------------------------------

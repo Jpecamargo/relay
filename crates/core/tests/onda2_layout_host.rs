@@ -166,7 +166,13 @@ fn novo_pareamento_aplica_a_escolha_de_host_dos_dois_lados() {
             };
             let tag = format!("typer={typer:?} choice={choice:?}");
             assert_eq!(book.host, want_host, "{tag}");
-            assert!(book.revision >= 3, "{tag}: revision {}", book.revision);
+            // Host que muda ou o próprio digitador sendo host publicam; "o outro já é host" é no-op.
+            let published = want_host != Machine::Mac || typer == Machine::Mac;
+            assert!(
+                book.revision > before.revision || !published,
+                "{tag}: revision {}",
+                book.revision
+            );
             assert_eq!(book.profiles, before.profiles, "{tag}: perfis preservados");
             assert_eq!(book.active.as_deref(), Some("casa"), "{tag}");
             assert_eq!(l.mac.st.to_config().host, want_host, "{tag}");
