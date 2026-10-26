@@ -65,8 +65,9 @@ pub fn run() {
             commands::system::open_window,
             commands::system::quit_app,
             commands::system::set_update_available,
-            commands::pairing::agent_new_pairing_code,
-            commands::pairing::agent_revoke_pair,
+            commands::pairing::new_pairing_code,
+            commands::pairing::pair_with_code,
+            commands::pairing::unpair,
         ])
         .setup(|app| {
             let config = relay_core::config::load_or_default(&relay_core::config::config_path())

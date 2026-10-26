@@ -1,6 +1,5 @@
 //! dono: WA1
-//! Comandos Tauri do agente: o contrato IPC único (`MacCommandMap`) e, até o front do agente
-//! migrar, o pareamento `agent_*`. Cada submódulo é de um tema.
+//! Comandos Tauri do agente: o contrato IPC único (`MacCommandMap`). Cada submódulo é de um tema.
 
 pub mod audio;
 pub mod config;

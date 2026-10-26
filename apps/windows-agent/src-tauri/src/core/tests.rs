@@ -20,15 +20,17 @@ use relay_core::platform::{
     InputInjector, KeyStore, PlatformError,
 };
 use relay_core::types::{
-    CapturedEvent, Config, ConnectionStatus, DisplayInfo, DisplaysPayload, InputEvent, KeyCode,
-    LatencyStats, LayoutBook, LayoutProfile, Machine, Message, PairedPeer, PairingEvent,
-    PairingState, PlacedDisplay, Ports, ProfileKey, RectMm, StatusSnapshot, VersionSync,
+    CapturedEvent, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload,
+    InputEvent, KeyCode, LatencyStats, LayoutBook, LayoutProfile, Machine, Message, PairedPeer,
+    PairingEvent, PairingState, PlacedDisplay, Ports, ProfileKey, RectMm, StatusSnapshot,
+    VersionSync,
 };
 use rtrb::{Consumer, RingBuffer};
 use tokio::time::{sleep, timeout};
 
 use super::*;
 
+mod dial;
 mod layout;
 mod reverse;
 
@@ -172,7 +174,17 @@ struct Agent {
     engaged: Arc<AtomicUsize>,
     live_guards: Arc<AtomicUsize>,
     config_path: std::path::PathBuf,
+    /// Pares que o mDNS "vê".
+    browse: std::sync::mpsc::Sender<DiscoveredPeer>,
     _dir: tempfile::TempDir,
+}
+
+struct MockBrowse(Arc<Mutex<std::sync::mpsc::Receiver<DiscoveredPeer>>>);
+
+impl PeerBrowse for MockBrowse {
+    fn next_peer(&mut self, timeout: Duration) -> Option<DiscoveredPeer> {
+        self.0.lock().unwrap().recv_timeout(timeout).ok()
+    }
 }
 
 fn start_agent() -> Agent {
@@ -207,6 +219,8 @@ fn start_agent_cfg(
     let engaged = Arc::new(AtomicUsize::new(0));
     let live_guards = Arc::new(AtomicUsize::new(0));
     let rec = Arc::new(Rec::default());
+    let (browse_tx, browse_rx) = std::sync::mpsc::channel();
+    let browse_rx = Arc::new(Mutex::new(browse_rx));
 
     let mut config = Config::default();
     config.network.ports = Ports {
@@ -253,6 +267,9 @@ fn start_agent_cfg(
         config_path: Some(config_path.clone()),
         bind_ip: LO,
         advertise: false,
+        browse: Some(Box::new(move || {
+            Ok(Box::new(MockBrowse(browse_rx.clone())) as Box<dyn PeerBrowse>)
+        })),
         message_hook: None,
         engine_events: None,
         media: None,
@@ -273,6 +290,7 @@ fn start_agent_cfg(
         engaged,
         live_guards,
         config_path,
+        browse: browse_tx,
         _dir: dir,
     }
 }
@@ -742,7 +760,7 @@ async fn revogar_remove_o_peer_e_manda_unpair() {
         m.got(|x| matches!(x, Message::Displays(_)))
     })
     .await;
-    agent.core.revoke_pair().unwrap();
+    agent.core.unpair().unwrap();
     mac.pump_until("Unpair recebido", |m| {
         m.got(|x| matches!(x, Message::Unpair))
     })

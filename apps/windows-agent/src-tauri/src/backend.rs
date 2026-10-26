@@ -3,8 +3,8 @@
 //! real (WI1) o implementa e o `MockBackend` (só `#[cfg(test)]`) serve aos testes.
 
 use relay_core::types::{
-    Config, DisplaysPayload, Host, LayoutBook, LayoutProfile, NewPairingCode, SaveLayoutResult,
-    ServiceStatus, StatusSnapshot,
+    Config, DiscoveredPeer, DisplaysPayload, Host, LayoutBook, LayoutProfile, NewPairingCode,
+    SaveLayoutResult, ServiceStatus, StatusSnapshot,
 };
 
 /// Erro exato que o front reconhece quando a edição de layouts não é permitida (só-leitura).
@@ -29,8 +29,20 @@ pub trait AgentBackend: Send + Sync {
     fn clipboard_send_now(&self) -> AgentResult<()>;
     /// Derruba e refaz a sessão com o par.
     fn reconnect(&self) -> AgentResult<()>;
+    /// Esta máquina mostra o código e escuta como Listener (120 s).
     fn new_pairing_code(&self) -> AgentResult<NewPairingCode>;
-    fn revoke_pair(&self) -> AgentResult<()>;
+    /// Esta máquina disca como Dialer com o código que o outro lado mostra. `address` é `host`,
+    /// `host:porta` ou `None` (o único par descoberto); `layout_host` é a escolha do D44.
+    fn pair_with_code(
+        &self,
+        code: String,
+        address: Option<String>,
+        layout_host: Host,
+    ) -> AgentResult<()>;
+    /// Esquece o par (avisa o outro lado com `Unpair`).
+    fn unpair(&self) -> AgentResult<()>;
+    /// Pares vistos pelo mDNS agora.
+    fn list_discovered(&self) -> Vec<DiscoveredPeer>;
     fn service_status(&self) -> ServiceStatus;
     fn config(&self) -> Config;
     fn save_config(&self, config: Config) -> AgentResult<()>;
@@ -59,8 +71,9 @@ mod mock {
 
     use super::{AgentBackend, AgentError, AgentResult};
     use relay_core::types::{
-        Caps, Config, ConnectionStatus, DisplaysPayload, Host, LayoutBook, LayoutProfile,
-        NewPairingCode, Os, ProfileKey, SaveLayoutResult, ServiceStatus, StatusSnapshot,
+        Caps, Config, ConnectionStatus, DiscoveredPeer, DisplaysPayload, Host, LayoutBook,
+        LayoutProfile, NewPairingCode, Os, ProfileKey, SaveLayoutResult, ServiceStatus,
+        StatusSnapshot,
     };
 
     /// Validade do código de pareamento (D5).
@@ -157,7 +170,21 @@ mod mock {
             })
         }
 
-        fn revoke_pair(&self) -> AgentResult<()> {
+        fn pair_with_code(
+            &self,
+            _code: String,
+            _address: Option<String>,
+            _layout_host: Host,
+        ) -> AgentResult<()> {
+            self.lock().paired = true;
+            Ok(())
+        }
+
+        fn list_discovered(&self) -> Vec<DiscoveredPeer> {
+            Vec::new()
+        }
+
+        fn unpair(&self) -> AgentResult<()> {
             let mut g = self.lock();
             g.paired = false;
             g.status.status = ConnectionStatus::Disconnected;
@@ -229,7 +256,7 @@ mod tests {
         let code = b.new_pairing_code().unwrap();
         assert_eq!(code.code.len(), 6);
         assert_eq!(b.status().status, ConnectionStatus::Pairing);
-        b.revoke_pair().unwrap();
+        b.unpair().unwrap();
         assert_eq!(b.status().status, ConnectionStatus::Disconnected);
     }
 

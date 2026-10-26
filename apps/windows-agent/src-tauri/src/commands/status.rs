@@ -14,8 +14,8 @@ pub fn get_service_status(state: State<'_, AgentState>) -> ServiceStatus {
     state.backend.service_status()
 }
 
-/// O agente é quem escuta (Listener): o Mac é quem descobre e disca, então não há lista aqui.
+/// Pares vistos pelo mDNS: o PC também busca (D41), e a tela "Digitar código" usa a lista.
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_discovered() -> Vec<DiscoveredPeer> {
-    Vec::new()
+pub fn list_discovered(state: State<'_, AgentState>) -> Vec<DiscoveredPeer> {
+    state.backend.list_discovered()
 }

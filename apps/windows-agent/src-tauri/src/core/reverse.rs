@@ -26,9 +26,10 @@ use relay_core::platform::{
     CaptureError, CursorControl, InjectError, InputCapture, InputInjector, KeyRepeat, LoopWaker,
 };
 use relay_core::types::{CapturedEvent, Config, DisplayInfo, InputEvent, LayoutProfile, Message};
-use rtrb::{Producer, RingBuffer};
+use rtrb::{Consumer, Producer, RingBuffer};
 use tokio::sync::mpsc::UnboundedSender;
 
+use super::Side;
 use super::routed::BoxCursor;
 
 const CAPTURE_RING: usize = 4096;
@@ -38,6 +39,9 @@ const TICK: Duration = Duration::from_millis(5);
 const IDLE_LOCAL: Duration = Duration::from_millis(2);
 const IDLE_REMOTE: Duration = Duration::from_micros(500);
 const BUSY: Duration = Duration::from_micros(150);
+
+/// Fila entre o Controller (que é dono de um único `FastSender`) e as sessões possíveis.
+const FAST_PROXY: usize = 4096;
 
 /// Peças de plataforma do Controller reverso (hooks LL, cursor, injetor local).
 pub struct ReverseDeps {
@@ -107,6 +111,10 @@ enum Cmd {
     Profile(LayoutProfile),
     Config(Box<Config>),
     Link(bool),
+    /// Produtor do canal rápido da sessão deste lado (a do `SessionDialer` nasce depois).
+    Fast(Side, FastSender),
+    /// Qual sessão leva o movimento do mouse.
+    UseSide(Side),
     UserPaused(bool),
     Locked(bool),
     JumpTo(u8),
@@ -145,7 +153,7 @@ impl ReverseHandle {
             local,
             profile,
             deps,
-            fast,
+            listener_fast: Some(fast),
             out,
             events,
             rx,
@@ -202,6 +210,17 @@ impl ReverseHandle {
         self.post(Cmd::Link(up));
     }
 
+    /// Entrega o produtor do canal rápido de `side` (o do listener já vai no `spawn`).
+    pub fn set_fast(&self, side: Side, fast: FastSender) {
+        self.post(Cmd::Fast(side, fast));
+    }
+
+    /// Aponta o movimento do mouse para a sessão em uso (D41: pode ser a que o par discou ou a
+    /// que este PC discou).
+    pub fn use_side(&self, side: Side) {
+        self.post(Cmd::UseSide(side));
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.post(Cmd::UserPaused(paused));
     }
@@ -239,12 +258,37 @@ struct Worker {
     local: Vec<DisplayInfo>,
     profile: Option<LayoutProfile>,
     deps: ReverseDeps,
-    fast: FastSender,
+    listener_fast: Option<FastSender>,
     out: UnboundedSender<Message>,
     events: Option<EventHandler>,
     rx: StdReceiver<Cmd>,
     blocked: Arc<AtomicBool>,
     remote: Arc<AtomicBool>,
+}
+
+/// Leva o que o Controller pôs na fila rápida para a sessão em uso. Sem sessão, descarta.
+struct FastRouter {
+    from: Consumer<InputEvent>,
+    side: Side,
+    listener: Option<FastSender>,
+    dialer: Option<FastSender>,
+}
+
+impl FastRouter {
+    fn route(&mut self) -> bool {
+        let mut any = false;
+        while let Ok(ev) = self.from.pop() {
+            any = true;
+            let to = match self.side {
+                Side::Listener => self.listener.as_mut(),
+                Side::Dialer => self.dialer.as_mut(),
+            };
+            if let Some(to) = to {
+                let _ = to.push(ev);
+            }
+        }
+        any
+    }
 }
 
 impl Worker {
@@ -255,7 +299,7 @@ impl Worker {
             local,
             profile,
             deps,
-            fast,
+            listener_fast,
             out,
             events,
             rx,
@@ -278,6 +322,13 @@ impl Worker {
             displays: Vec::new(),
             windows_detached: false,
         });
+        let (proxy, from) = RingBuffer::new(FAST_PROXY);
+        let mut router = FastRouter {
+            from,
+            side: Side::Listener,
+            listener: listener_fast,
+            dialer: None,
+        };
         let mut ctl: Ctl = Controller::new(
             &config,
             profile,
@@ -285,7 +336,7 @@ impl Worker {
             capture.clone(),
             BoxCursor(deps.cursor),
             BoxInjector(deps.injector),
-            fast,
+            proxy.into(),
             control,
         );
         ctl.set_reverse(config.keymap.reverse_modifiers.clone());
@@ -316,10 +367,16 @@ impl Worker {
                     Ok(Cmd::Shutdown) | Err(TryRecvError::Disconnected) => {
                         ctl.set_paused(true, Instant::now());
                         flush(&mut ctl_out, &out);
+                        router.route();
                         remote.store(false, Ordering::Release);
                         capture.stop();
                         return;
                     }
+                    Ok(Cmd::Fast(side, f)) => match side {
+                        Side::Listener => router.listener = Some(f),
+                        Side::Dialer => router.dialer = Some(f),
+                    },
+                    Ok(Cmd::UseSide(side)) => router.side = side,
                     Ok(cmd) => {
                         active = true;
                         apply(&mut ctl, &mut link, &mut user_paused, cmd);
@@ -337,6 +394,7 @@ impl Worker {
                 last_tick = now;
                 ctl.tick(now);
             }
+            active |= router.route();
             remote.store(ctl.is_remote(), Ordering::Release);
             // Dorme até o relógio do laço vencer ou até a captura/um comando acordar a thread.
             LoopWaker::park(match (active, ctl.is_remote()) {
@@ -358,7 +416,7 @@ fn apply(ctl: &mut Ctl, link: &mut bool, user_paused: &mut bool, cmd: Cmd) {
         Cmd::UserPaused(p) => *user_paused = p,
         Cmd::Locked(l) => ctl.set_locked(l),
         Cmd::JumpTo(n) => ctl.jump_to(n, Instant::now()),
-        Cmd::Shutdown => {}
+        Cmd::Fast(..) | Cmd::UseSide(_) | Cmd::Shutdown => {}
     }
 }
 
