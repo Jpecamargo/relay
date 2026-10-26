@@ -46,6 +46,8 @@ export function Panel() {
   const update = updateOf(updater.state)?.version;
   useEffect(() => {
     if (update) void emit("relay:update-available", { version: update }).catch(() => undefined);
+    // A bandeja do Windows mostra "Atualização disponível" (o painel fica escondido); no Mac é no-op.
+    void invokeCommand("set_update_available", { version: update ?? null }).catch(() => undefined);
   }, [update]);
   // O PC já está numa versão mais nova (ele é quem manda): procura na hora e mostra o modal.
   const peer = status.peer_name ?? "outro computador";
