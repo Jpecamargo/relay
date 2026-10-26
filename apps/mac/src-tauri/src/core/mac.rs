@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use relay_core::crypto::{FileKeyStore, SystemKeyStore};
-use relay_core::discovery::{Browser, local_hostname};
+use relay_core::discovery::{Advertiser, Browser, local_hostname};
 use relay_core::platform::{KeyStore, PlatformError};
 use relay_core::types::{DiscoveredPeer, DockInfo, HotCorners, PermissionKind, PermissionsStatus};
 use relay_platform_macos::capture::MacCapture;
@@ -124,6 +124,17 @@ impl Platform for MacPlatform {
     fn browse(&self) -> Result<Box<dyn Browse>, String> {
         Browser::start()
             .map(|b| Box::new(b) as Box<dyn Browse>)
+            .map_err(|e| e.to_string())
+    }
+
+    fn advertise(
+        &self,
+        device_id: &str,
+        control_port: u16,
+        input_port: u16,
+    ) -> Result<Box<dyn Any + Send>, String> {
+        Advertiser::start_with_ports(&local_hostname(), device_id, control_port, input_port)
+            .map(|a| Box::new(a) as Box<dyn Any + Send>)
             .map_err(|e| e.to_string())
     }
 }

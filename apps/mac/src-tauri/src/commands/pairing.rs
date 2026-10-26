@@ -1,5 +1,5 @@
 //! dono: MI1 (casco: MAC1)
-use relay_core::types::Host;
+use relay_core::types::{Host, NewPairingCode};
 use tauri::State;
 
 use crate::state::AppState;
@@ -9,12 +9,17 @@ pub async fn pair_with_code(
     state: State<'_, AppState>,
     code: String,
     address: Option<String>,
-    // D44: o host do layout só passa a valer com o núcleo simétrico; por ora é ignorado.
+    // D44: o host do layout fica guardado até o layout o aplicar depois do pareamento.
     layout_host: Option<Host>,
 ) -> Result<(), String> {
-    let _ = layout_host;
     let backend = state.backend.clone();
+    backend.set_pending_layout_host(layout_host);
     backend.pair_with_code(code, address).await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn new_pairing_code(state: State<'_, AppState>) -> Result<NewPairingCode, String> {
+    state.backend.new_pairing_code()
 }
 
 #[tauri::command(rename_all = "snake_case")]

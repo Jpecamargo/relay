@@ -37,4 +37,7 @@ impl CoreEvents for TauriSink {
     fn transfer_progress(&self, progress: &TransferProgress) {
         events::emit_transfer_progress(&self.0, progress);
     }
+    fn update_available(&self, version: &str) {
+        events::emit_update_available(&self.0, version);
+    }
 }

@@ -9,8 +9,8 @@ use std::sync::Mutex;
 use relay_core::types::{
     AudioDevice, AudioDevices, AudioState, Caps, CommandOutput, CommandResult, Config,
     ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host, LatencyStats,
-    LayoutProfile, Machine, Os, PermissionKind, PermissionState, PermissionsStatus, PlacedDisplay,
-    ProfileKey, RectMm, RemoteCommand, SaveLayoutResult, StatusSnapshot,
+    LayoutProfile, Machine, NewPairingCode, Os, PermissionKind, PermissionState, PermissionsStatus,
+    PlacedDisplay, ProfileKey, RectMm, RemoteCommand, SaveLayoutResult, StatusSnapshot,
 };
 
 pub type BackendResult<T> = Result<T, String>;
@@ -24,6 +24,10 @@ pub trait AppBackend: Send + Sync {
     /// `address` é `host`, `host:porta` ou `None` (usa o PC descoberto).
     fn pair_with_code(&self, code: String, address: Option<String>)
     -> BoxFuture<BackendResult<()>>;
+    /// Host do layout escolhido no pareamento, guardado até o layout o aplicar (D44).
+    fn set_pending_layout_host(&self, _host: Option<Host>) {}
+    /// Abre o pareamento com este Mac como Listener: código de 6 dígitos, 120 s, uso único.
+    fn new_pairing_code(&self) -> BackendResult<NewPairingCode>;
     fn unpair(&self) -> BackendResult<()>;
     fn set_manual_address(&self, address: Option<String>) -> BackendResult<()>;
     fn get_displays(&self) -> DisplaysPayload;
@@ -213,6 +217,12 @@ impl AppBackend for MockBackend {
         _address: Option<String>,
     ) -> BoxFuture<BackendResult<()>> {
         Box::pin(async { Ok(()) })
+    }
+    fn new_pairing_code(&self) -> BackendResult<NewPairingCode> {
+        Ok(NewPairingCode {
+            code: "123456".into(),
+            expires_at: 0,
+        })
     }
     fn unpair(&self) -> BackendResult<()> {
         self.with(|s| {

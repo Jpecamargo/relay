@@ -6,9 +6,9 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use relay_core::types::{
-    AudioDevices, CommandResult, Config, DiscoveredPeer, DisplaysPayload, LatencyStats,
-    LayoutProfile, PermissionKind, PermissionsStatus, RemoteCommand, SaveLayoutResult,
-    StatusSnapshot,
+    AudioDevices, CommandResult, Config, DiscoveredPeer, DisplaysPayload, Host, LatencyStats,
+    LayoutProfile, NewPairingCode, PermissionKind, PermissionsStatus, RemoteCommand,
+    SaveLayoutResult, StatusSnapshot,
 };
 use tokio::sync::oneshot;
 
@@ -46,6 +46,14 @@ impl<P: Platform> AppBackend for AppCore<P> {
             rx.await
                 .map_err(|_| "O Relay está encerrando.".to_string())?
         })
+    }
+
+    fn set_pending_layout_host(&self, host: Option<Host>) {
+        AppCore::set_pending_layout_host(self, host);
+    }
+
+    fn new_pairing_code(&self) -> BackendResult<NewPairingCode> {
+        AppCore::new_pairing_code(self)
     }
 
     fn unpair(&self) -> BackendResult<()> {

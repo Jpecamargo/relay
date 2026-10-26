@@ -36,6 +36,7 @@ pub fn run() {
             status::get_status,
             status::list_discovered,
             pairing::pair_with_code,
+            pairing::new_pairing_code,
             pairing::unpair,
             pairing::set_manual_address,
             layout::get_displays,
