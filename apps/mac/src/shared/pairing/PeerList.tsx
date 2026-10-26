@@ -12,7 +12,7 @@ export interface PeerListProps {
 export function PeerList({ peers, selectedId, onSelect, emptyText }: PeerListProps) {
   if (peers.length === 0) return <p className={styles.empty}>{emptyText}</p>;
   return (
-    <ul className={styles.peers} aria-label="PCs encontrados">
+    <ul className={styles.peers} aria-label="Computadores encontrados">
       {peers.map((p) => (
         <li key={p.device_id}>
           <button type="button" className={styles.peer} aria-pressed={p.device_id === selectedId} onClick={() => onSelect(p)}>

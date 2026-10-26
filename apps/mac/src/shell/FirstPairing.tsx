@@ -1,16 +1,15 @@
-// Primeiro uso (nenhum PC pareado): a única coisa na janela é digitar o código que o agente mostra.
+// Primeiro uso (nenhum computador pareado): a janela é só o pareamento, nos dois modos.
 import { Button, Icon } from "@relay/ui";
 import { useEffect, useState, type FormEvent } from "react";
 import { useSettings } from "../settings";
-import { CodeInput } from "../shared/pairing/CodeInput";
-import { PeerList } from "../shared/pairing/PeerList";
+import { PairingModes } from "../shared/pairing/PairingModes";
 import { usePairing } from "../shared/pairing/usePairing";
 import styles from "./firstPairing.module.css";
 
 const SUCCESS_MS = 2200;
 
 export interface FirstPairingProps {
-  /** PC recém-pareado (`null` enquanto o pareamento ainda não aconteceu). */
+  /** Computador recém-pareado (`null` enquanto o pareamento ainda não aconteceu). */
   peerName: string | null;
   onDone: () => void;
 }
@@ -37,7 +36,7 @@ export function FirstPairing({ peerName, onDone }: FirstPairingProps) {
           <h2 className={styles.title}>
             <Icon name="check" size={22} className={styles.done} /> Conectado
           </h2>
-          <p className={styles.lead}>{peerName} já pode ser controlado com este teclado e trackpad.</p>
+          <p className={styles.lead}>{peerName} está conectado.</p>
           <Button variant="primary" onClick={onDone}>
             Começar
           </Button>
@@ -54,21 +53,18 @@ export function FirstPairing({ peerName, onDone }: FirstPairingProps) {
   return (
     <div className={styles.page}>
       <div className={styles.column}>
-        <h2 className={styles.title}>Conecte seu PC</h2>
+        <h2 className={styles.title}>Conecte outro computador</h2>
         <ol className={styles.steps}>
-          <li>Instale o Relay Agent no PC.</li>
-          <li>Abra o agente: o código de 6 dígitos aparece na janela.</li>
-          <li>Digite o código aqui.</li>
+          <li>Abra o Relay no outro computador.</li>
+          <li>Lá, escolha "Mostrar código" e digite aqui o código de 6 dígitos, ou mostre o código aqui e digite lá.</li>
         </ol>
 
-        <PeerList
-          peers={p.peers}
-          selectedId={p.target?.device_id ?? null}
-          onSelect={p.select}
-          emptyText="Procurando PCs na rede… Deixe o agente aberto no PC."
+        <div className={styles.modes}>
+        <PairingModes
+          pairing={p} size="lg" autoFocus
+          emptyText="Procurando computadores na rede… Deixe o Relay aberto no outro computador."
         />
-
-        <CodeInput size="lg" autoFocus value={p.code} onChange={p.changeCode} onComplete={(c) => void p.pair(c)} disabled={p.busy} invalid={p.error !== ""} />
+        </div>
         <p className={p.error ? styles.error : styles.status} role={p.error ? "alert" : "status"}>
           {p.error || (p.busy ? "Conectando…" : "")}
         </p>
@@ -77,7 +73,7 @@ export function FirstPairing({ peerName, onDone }: FirstPairingProps) {
           <form className={styles.manual} onSubmit={submitManual}>
             <input
               className={styles.input}
-              aria-label="IP do PC"
+              aria-label="IP do outro computador"
               autoFocus
               placeholder="192.168.0.20"
               value={p.manual}

@@ -21,6 +21,7 @@ const SECTIONS: ReadonlyArray<{ id: Section; label: string; icon: IconName }> = 
   { id: "audio", label: "Áudio", icon: "volume" },
   { id: "clipboard", label: "Clipboard e arquivos", icon: "clipboard" },
   { id: "connection", label: "Conexão e pareamento", icon: "link" },
+  { id: "computer", label: "Este computador", icon: "monitor" },
   { id: "general", label: "Geral", icon: "gear" },
 ];
 
@@ -69,7 +70,7 @@ function MainShell() {
     };
   }, []);
 
-  // Sem PC pareado a janela é só a tela de pareamento; o sucesso fica em tela até o usuário seguir.
+  // Sem computador pareado a janela é só a tela de pareamento; o sucesso fica em tela até o usuário seguir.
   const needsPairing = loaded && !status.peer_name;
   const [showingPairing, setShowingPairing] = useState(false);
   if (needsPairing && !showingPairing) setShowingPairing(true);
@@ -148,7 +149,8 @@ function MainShell() {
               </>
             ) : null}
             {section === "connection" ? <SettingsPane views={["connection"]} /> : null}
-            {section === "general" ? <SettingsPane views={["general", "transition"]} /> : null}
+            {section === "computer" ? <SettingsPane views={["computer"]} /> : null}
+            {section === "general" ? <SettingsPane views={["general", "layout", "transition"]} /> : null}
             <SaveBar />
           </main>
         </div>
@@ -171,7 +173,7 @@ function ClipboardNow({ act }: { act: ReturnType<typeof useActions>["act"] }) {
         type="button" className={styles.linkAction}
         onClick={() => void act("Receber arquivos", () => invokeCommand("receive_remote_files"))}
       >
-        <Icon name="download" /> Receber arquivos do PC
+        <Icon name="download" /> Receber arquivos do outro computador
       </button>
     </div>
   );

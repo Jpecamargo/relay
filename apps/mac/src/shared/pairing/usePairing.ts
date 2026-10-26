@@ -1,11 +1,11 @@
-// Lógica de pareamento compartilhada entre a tela de primeiro uso e Ajustes › Conexão.
-import type { DiscoveredPeer } from "@relay/protocol-types";
+// Lógica do modo "Digitar código", compartilhada entre a tela de primeiro uso e Ajustes › Conexão.
+import type { DiscoveredPeer, Host } from "@relay/protocol-types";
 import { invokeCommand } from "@relay/protocol-types";
 import { useRelayEvent } from "@relay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../errors";
 
-const WRONG_CODE = "Código incorreto ou expirado. Confira o código no PC e digite de novo.";
+const WRONG_CODE = "Código incorreto ou expirado. Confira o código no outro computador e digite de novo.";
 const POLL_MS = 3000;
 
 export interface UsePairingOptions {
@@ -26,6 +26,7 @@ export function usePairing({ manualAddress, onManualApplied, poll }: UsePairingO
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [paired, setPaired] = useState(false);
+  const [layoutHost, setLayoutHost] = useState<Host>("Local");
 
   const refresh = useCallback(() => {
     invokeCommand("list_discovered").then(setPeers, (e) => setError(errorMessage(e)));
@@ -38,7 +39,7 @@ export function usePairing({ manualAddress, onManualApplied, poll }: UsePairingO
     return () => clearInterval(id);
   }, [poll, refresh]);
 
-  // Um único PC na rede já vem selecionado.
+  // Um único computador na rede já vem selecionado.
   const target = peers.find((p) => p.device_id === selectedId) ?? (peers.length === 1 ? peers[0]! : null);
 
   const fail = (message: string) => {
@@ -65,7 +66,7 @@ export function usePairing({ manualAddress, onManualApplied, poll }: UsePairingO
     setError("");
     try {
       const address = target ? `${target.addrs[0]}:${target.port}` : undefined;
-      await invokeCommand("pair_with_code", address ? { code: digits, address } : { code: digits });
+      await invokeCommand("pair_with_code", address ? { code: digits, address, layout_host: layoutHost } : { code: digits, layout_host: layoutHost });
       setPaired(true);
       setCode("");
       refresh();
@@ -100,7 +101,7 @@ export function usePairing({ manualAddress, onManualApplied, poll }: UsePairingO
 
   return {
     peers, peerName, target, select: (p: DiscoveredPeer) => setSelectedId(p.device_id),
-    code, changeCode, busy, error, paired, pair, refresh,
+    code, changeCode, layoutHost, setLayoutHost, busy, error, paired, pair, refresh,
     manual, setManual, applyManual, unpair,
   };
 }

@@ -6,17 +6,21 @@ import { Banner, Button } from "@relay/ui";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { errorMessage } from "../shared/errors";
 import { AudioTab, ClipboardTab, TransitionTab } from "./BehaviorTabs";
+import { ComputerTab } from "./ComputerTab";
 import { ConnectionTab } from "./ConnectionTab";
 import { GeneralTab } from "./GeneralTab";
 import { HotkeysTab } from "./HotkeysTab";
 import { KeyboardTab } from "./KeyboardTab";
+import { LayoutTab } from "./LayoutTab";
 import { validateConfig } from "./model";
 import styles from "./settings.module.css";
 
-export type SettingsView = "connection" | "keyboard" | "hotkeys" | "transition" | "clipboard" | "audio" | "general";
+export type SettingsView = "connection" | "computer" | "layout" | "keyboard" | "hotkeys" | "transition" | "clipboard" | "audio" | "general";
 
 const VIEWS = {
   connection: ConnectionTab,
+  computer: ComputerTab,
+  layout: LayoutTab,
   keyboard: KeyboardTab,
   hotkeys: HotkeysTab,
   transition: TransitionTab,

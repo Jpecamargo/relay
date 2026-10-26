@@ -9,7 +9,7 @@ export const EMPTY_STATUS: StatusSnapshot = {
 };
 
 export const STATUS_LABELS: Record<string, string> = {
-  Disconnected: "Desconectado", Discovering: "Procurando o PC", Connecting: "Conectando",
+  Disconnected: "Desconectado", Discovering: "Procurando o outro computador", Connecting: "Conectando",
   Pairing: "Pareando", Connected: "Conectado", Reconnecting: "Reconectando",
   IncompatibleVersion: "Versão incompatível",
 };

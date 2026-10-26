@@ -39,7 +39,7 @@ const open = async (...views: SettingsView[]) => {
       <SaveBar />
     </SettingsProvider>,
   );
-  await screen.findByRole("heading", { name: views[0] === "connection" ? "PC pareado" : views[0] === "hotkeys" ? "Atalhos globais" : "Troca de máquina" });
+  await screen.findByRole("heading", { name: views[0] === "connection" ? "Computador pareado" : views[0] === "hotkeys" ? "Atalhos globais" : "Troca de máquina" });
 };
 
 test("em Ajustes, colar os 6 dígitos envia o pareamento sem o botão Parear", async () => {
@@ -47,7 +47,7 @@ test("em Ajustes, colar os 6 dígitos envia o pareamento sem o botão Parear", a
   expect(screen.queryByRole("button", { name: "Parear" })).toBeNull();
   await screen.findByRole("button", { name: /DESKTOP-PC/ });
   fireEvent.paste(screen.getByLabelText("Dígito 1"), { clipboardData: { getData: () => "123456" } });
-  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("pair_with_code", { code: "123456", address: "192.168.0.20:7000", layout_host: "Local" }));
 });
 
 test("revogar pede confirmação antes de unpair", async () => {

@@ -24,3 +24,16 @@
 .peerAddr { color: var(--relay-text-3); font-size: var(--relay-text-sm); font-variant-numeric: tabular-nums; }
 .peerCheck { color: var(--relay-accent); flex: none; }
 .empty { margin: 0; padding: var(--relay-space-2) var(--relay-space-3); font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-3); }
+
+.modes { display: flex; flex-direction: column; gap: var(--relay-space-3); }
+.show { display: flex; flex-direction: column; align-items: flex-start; gap: var(--relay-space-2); }
+.showLg { align-items: center; }
+.shownCode { display: flex; gap: var(--relay-space-2); }
+.digit {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 44px; border-radius: var(--relay-radius-md);
+  background: var(--relay-fill-hover); font: 500 var(--relay-text-xl) var(--relay-font-mono); font-variant-numeric: tabular-nums;
+}
+.showLg .digit { width: 54px; height: 68px; font-size: 32px; border-radius: var(--relay-radius-lg); }
+.expiry { margin: 0; font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-2); font-variant-numeric: tabular-nums; }
+.soon { color: var(--relay-danger); }
+.hostChoice { align-self: stretch; }
