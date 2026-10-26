@@ -50,7 +50,7 @@ export function Editor() {
         invokeCommand("get_layout"),
         invokeCommand("get_config"),
       ]);
-      const connected = [...payload.mac, ...payload.windows];
+      const connected = [...payload.local, ...payload.peer];
       setLoaded({ profile, profiles: config.layout.profiles, connected });
       apply(profile, connected);
     } catch (e) {

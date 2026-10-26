@@ -36,7 +36,7 @@ const profile: LayoutProfile = {
 function backend(warnings: unknown[] = []) {
   mock.invoke.mockImplementation(async (name: string) => {
     if (name === "get_displays")
-      return { mac: [info("mac", "MacBook Pro", "Mac", [302, 196])], windows: [info("d1", "Dell 1", "Windows", [597, 336]), info("d2", "Dell 2", "Windows", [597, 336])] };
+      return { local: [info("mac", "MacBook Pro", "Mac", [302, 196])], peer: [info("d1", "Dell 1", "Windows", [597, 336]), info("d2", "Dell 2", "Windows", [597, 336])] };
     if (name === "get_layout") return profile;
     if (name === "get_config") return { layout: { profiles: [] } };
     if (name === "save_layout") return { warnings };

@@ -1,4 +1,5 @@
 //! dono: MI1 (casco: MAC1)
+use relay_core::types::Host;
 use tauri::State;
 
 use crate::state::AppState;
@@ -8,7 +9,10 @@ pub async fn pair_with_code(
     state: State<'_, AppState>,
     code: String,
     address: Option<String>,
+    // D44: o host do layout só passa a valer com o núcleo simétrico; por ora é ignorado.
+    layout_host: Option<Host>,
 ) -> Result<(), String> {
+    let _ = layout_host;
     let backend = state.backend.clone();
     backend.pair_with_code(code, address).await
 }

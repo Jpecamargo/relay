@@ -10,8 +10,8 @@ use relay_core::engine::Receiver;
 use relay_core::net::{SessionEvent, SessionListener};
 use relay_core::platform::{DisplaySource, KeyStore};
 use relay_core::types::{
-    ConnectionStatus, Machine, Message, PairedPeer, PairingEvent, PairingState, StatusSnapshot,
-    VersionSync,
+    Caps, ConnectionStatus, Host, Message, Os, PairedPeer, PairingEvent, PairingState,
+    StatusSnapshot, VersionSync,
 };
 use relay_core::version::{APP_VERSION, version_sync};
 use tokio::sync::{mpsc, watch};
@@ -309,14 +309,14 @@ impl Pump {
             },
             peer_name: self.peer.as_ref().map(|p| p.name.clone()),
             focus: if self.rx.is_active() {
-                Machine::Windows
+                Host::Local
             } else {
-                Machine::Mac
+                Host::Peer
             },
             locked: false,
             paused: self.paused,
             secure_input: false,
-            pc_unreachable: false,
+            peer_unreachable: false,
             clipboard_sync: self.shared.config().clipboard.enabled,
             peer_version: peer_version.clone(),
             version_sync: version_sync(APP_VERSION, peer_version.as_deref()),
@@ -325,6 +325,12 @@ impl Pump {
                 .as_ref()
                 .map(|m| m.audio_state())
                 .unwrap_or_default(),
+            local_os: Os::Windows,
+            peer_os: None,
+            local_caps: Caps::baseline(Os::Windows),
+            peer_caps: None,
+            layout_host: Host::Peer,
+            layout_editable: false,
         };
         let mut cur = self.shared.snapshot();
         if *cur != snap {

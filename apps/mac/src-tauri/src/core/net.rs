@@ -16,7 +16,7 @@ use relay_core::discovery::parse_manual_address;
 use relay_core::net::{DialerConfig, FastEvent, SessionDialer, SessionEvent};
 use relay_core::platform::KeyStore;
 use relay_core::types::{
-    ConnectionStatus, DiscoveredPeer, Message, PairedPeer, PairingEvent, PairingState, Ports,
+    ConnectionStatus, DiscoveredPeer, Message, Os, PairedPeer, PairingEvent, PairingState, Ports,
 };
 use relay_core::version::{APP_VERSION, update_request};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -507,7 +507,9 @@ async fn pump<P: Platform>(
             return;
         }
         // Sessão nova com o PC mais antigo: pede que ele se atualize (uma vez por conexão).
-        if let Some(request) = update_request(APP_VERSION, dialer.peer_version().as_deref()) {
+        if let Some(request) =
+            update_request(APP_VERSION, dialer.peer_version().as_deref(), Os::Windows)
+        {
             let _ = out_tx.send(request);
         }
         let audio_keys = dialer.audio_link().map(|l| AudioKeys {

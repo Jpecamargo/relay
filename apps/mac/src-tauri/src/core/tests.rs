@@ -591,7 +591,7 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
     let layout = core.layout();
     assert_eq!(layout.displays.len(), 2);
     let shown = core.displays();
-    assert_eq!((shown.mac.len(), shown.windows.len()), (1, 1));
+    assert_eq!((shown.local.len(), shown.peer.len()), (1, 1));
     // Telas novas não criam perfil sozinhas: só o salvar do usuário.
     assert!(core.config().layout.profiles.is_empty());
     assert!(
@@ -599,7 +599,7 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
             .lock()
             .unwrap()
             .iter()
-            .any(|d| d.windows.len() == 1)
+            .any(|d| d.peer.len() == 1)
     );
 
     // save_layout: grava como perfil em uso, sem avisos (Dock sem autohide).
@@ -617,7 +617,7 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
     .await;
     assert!(agent.active.load(Ordering::SeqCst));
     wait_until("foco no Windows", 2000, || {
-        core.status().focus == Machine::Windows
+        core.status().focus == Host::Peer
     })
     .await;
     assert!(platform.swallow.load(Ordering::SeqCst));
@@ -663,7 +663,7 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
         (wake.as_ref().unwrap())(SysEvent::DidWake);
     }
     wait_until("volta ao Mac na queda", 5000, || {
-        core.status().focus == Machine::Mac
+        core.status().focus == Host::Local
     })
     .await;
     wait_until("reconecta", 10000, || {
@@ -961,7 +961,7 @@ async fn latencia_da_borda() {
         }
         us.push(t.elapsed().as_micros() as u64);
         core.set_sharing_paused(true);
-        wait_until("volta ao Mac", 2000, || core.status().focus == Machine::Mac).await;
+        wait_until("volta ao Mac", 2000, || core.status().focus == Host::Local).await;
         core.set_sharing_paused(false);
         std::thread::sleep(Duration::from_millis(20));
     }

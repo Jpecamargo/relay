@@ -37,7 +37,7 @@ mod mock {
 
     use super::{AgentBackend, AgentResult};
     use relay_core::types::{
-        Config, ConnectionStatus, Machine, NewPairingCode, ServiceStatus, StatusSnapshot,
+        Caps, Config, ConnectionStatus, Host, NewPairingCode, Os, ServiceStatus, StatusSnapshot,
     };
 
     /// Validade do código de pareamento (D5).
@@ -60,15 +60,21 @@ mod mock {
                     status: StatusSnapshot {
                         status: ConnectionStatus::Disconnected,
                         peer_name: None,
-                        focus: Machine::Windows,
+                        focus: Host::Local,
                         locked: false,
                         paused: false,
                         secure_input: false,
-                        pc_unreachable: false,
+                        peer_unreachable: false,
                         peer_version: None,
                         version_sync: Default::default(),
                         clipboard_sync: true,
                         audio: Default::default(),
+                        local_os: Os::Windows,
+                        peer_os: None,
+                        local_caps: Caps::baseline(Os::Windows),
+                        peer_caps: None,
+                        layout_host: Host::Peer,
+                        layout_editable: false,
                     },
                     config: Config::default(),
                     paired: false,

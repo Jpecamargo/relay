@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use relay_core::types::{
-    Config, ConnectionStatus, Machine, NewPairingCode, ServiceStatus, StatusSnapshot,
+    Caps, Config, ConnectionStatus, Host, NewPairingCode, Os, ServiceStatus, StatusSnapshot,
 };
 
 use super::AgentCore;
@@ -104,15 +104,21 @@ impl AgentBackend for ResilientBackend {
             None => StatusSnapshot {
                 status: ConnectionStatus::Disconnected,
                 peer_name: None,
-                focus: Machine::Mac,
+                focus: Host::Peer,
                 locked: false,
                 paused: false,
                 secure_input: false,
-                pc_unreachable: false,
+                peer_unreachable: false,
                 peer_version: None,
                 version_sync: Default::default(),
                 clipboard_sync: lock(&self.config).clipboard.enabled,
                 audio: Default::default(),
+                local_os: Os::Windows,
+                peer_os: None,
+                local_caps: Caps::baseline(Os::Windows),
+                peer_caps: None,
+                layout_host: Host::Peer,
+                layout_editable: false,
             },
         }
     }

@@ -131,7 +131,7 @@ impl<P: Platform> AppBackend for AppCore<P> {
         Ok(())
     }
 
-    fn wake_pc(&self) -> BackendResult<()> {
+    fn wake_peer(&self) -> BackendResult<()> {
         self.inner.wake_pc()
     }
 
@@ -144,10 +144,14 @@ impl<P: Platform> AppBackend for AppCore<P> {
         self.inner.media.audio_devices()
     }
 
-    fn set_audio_streams(&self, mac_to_pc: bool) -> BackendResult<()> {
-        self.inner
-            .mutate(|s| s.status.audio = relay_core::types::AudioState { mac_to_pc });
-        self.inner.media.set_audio_streams(mac_to_pc);
+    fn set_audio_streams(&self, mic_to_peer: bool) -> BackendResult<()> {
+        self.inner.mutate(|s| {
+            s.status.audio = relay_core::types::AudioState {
+                mic_to_peer,
+                mic_from_peer: false,
+            }
+        });
+        self.inner.media.set_audio_streams(mic_to_peer);
         Ok(())
     }
 

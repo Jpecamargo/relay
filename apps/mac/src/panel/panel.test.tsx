@@ -20,9 +20,10 @@ vi.mock("@relay/protocol-types", () => ({
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.2.0" }));
 
 const STATUS: StatusSnapshot = {
-  status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false,
-  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false },
+  status: "Connected", peer_name: "Desktop", focus: "Local", locked: false, paused: false,
+  secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false },
   peer_version: null, version_sync: "InSync",
+  local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: null, layout_host: "Local", layout_editable: true,
 };
 
 let sendResult: unknown;
@@ -48,7 +49,7 @@ beforeEach(() => {
       case "get_status": return STATUS;
       case "check_permissions": return { accessibility: "Granted", input_monitoring: "Granted" };
       case "get_config": return { audio: { jitter_target_ms: 20, mac_input_id: null }, hotkeys, layout: { profiles: PROFILES, active: "Casa" } };
-      case "get_displays": return { mac: [info("mac", "MacBook", "Mac")], windows: [info("d1", "Dell 1", "Windows"), info("d2", "Dell 2", "Windows")] };
+      case "get_displays": return { local: [info("mac", "MacBook", "Mac")], peer: [info("d1", "Dell 1", "Windows"), info("d2", "Dell 2", "Windows")] };
       case "get_layout": return { name: "Casa", displays: [placed("mac", "Mac", 0), placed("d1", "Windows", 100), placed("d2", "Windows", 200)] };
       case "send_command":
         if (args?.command === "ListOutputDevices") return { id: 5, ok: true, output: { Devices: DEVICES }, error: null };
@@ -118,7 +119,7 @@ test("cabeçalho mostra o PC pareado e onde está o foco", async () => {
   await ready();
   expect(screen.getByText("Desktop")).toBeTruthy();
   expect(screen.getByText("Foco: Mac")).toBeTruthy();
-  await emit("relay:status", { ...STATUS, focus: "Windows" });
+  await emit("relay:status", { ...STATUS, focus: "Peer" });
   expect(screen.getByText("Foco: Windows")).toBeTruthy();
 });
 
@@ -178,7 +179,7 @@ test("PC visto mas sem resposta explica o firewall; sem o flag, nada", async () 
   await ready();
   emit("relay:status", { ...STATUS, status: "Connecting" });
   expect(screen.queryByText(/firewall do Windows/)).toBeNull();
-  emit("relay:status", { ...STATUS, status: "Connecting", pc_unreachable: true });
+  emit("relay:status", { ...STATUS, status: "Connecting", peer_unreachable: true });
   expect((await screen.findByText(/O PC está na rede mas não responde/)).textContent).toContain("isolando o Wi-Fi do cabo");
 });
 
@@ -199,7 +200,7 @@ test("relay:command-result de áudio mostra toast e desliga o toggle", async () 
   await emit("relay:command-result", { id: 0, ok: false, output: null, error: "vbcable_missing" });
   expect((await screen.findByRole("alert")).textContent).toContain("VB-CABLE");
   await waitFor(() =>
-    expect(bridge.invoke).toHaveBeenCalledWith("set_audio_streams", { mac_to_pc: false }),
+    expect(bridge.invoke).toHaveBeenCalledWith("set_audio_streams", { mic_to_peer: false }),
   );
 });
 

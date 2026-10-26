@@ -20,7 +20,7 @@ const config = {
   general: { launch_at_login: false },
 };
 
-function setup(snapshot: Record<string, unknown> = { status: "Connected", peer_name: "MacBook", focus: "Mac" }) {
+function setup(snapshot: Record<string, unknown> = { status: "Connected", peer_name: "MacBook", focus: "Peer" }) {
   bridge.invoke.mockImplementation(async (name: string) => {
     switch (name) {
       case "agent_get_status":
@@ -87,7 +87,7 @@ test("revogar exige confirmação", async () => {
 });
 
 test("relay:pairing paired fecha o fluxo e esconde o código", async () => {
-  setup({ status: "Pairing", peer_name: null, focus: "Windows" });
+  setup({ status: "Pairing", peer_name: null, focus: "Local" });
   render(<UpdaterProvider><App /></UpdaterProvider>);
   await act(async () => {});
   expect(screen.getByLabelText("Código de pareamento")).toBeTruthy();
@@ -107,7 +107,7 @@ test("Ajustes traz o bloco Sobre com a atualização manual desabilitada fora do
 });
 
 test("sem Mac pareado o código aparece grande, dígito a dígito, com a contagem, antes do status", async () => {
-  setup({ status: "Pairing", peer_name: null, focus: "Windows" });
+  setup({ status: "Pairing", peer_name: null, focus: "Local" });
   render(<UpdaterProvider><App /></UpdaterProvider>);
   await act(async () => {});
   expect(screen.getByRole("heading", { name: "Conecte seu Mac" })).toBeTruthy();

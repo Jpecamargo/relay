@@ -111,10 +111,7 @@ mod tests {
     fn a_mac_older_than_0_3_0_is_never_asked_to_update() {
         // 0.2.x do Mac não trata RequestUpdate (D49), mesmo sendo >= UPDATE_REQUEST_MIN_PEER.
         assert_eq!(update_request("0.3.0", Some("0.2.0"), Os::Mac), None);
-        assert_eq!(
-            update_request("0.3.1", Some("0.3.0"), Os::Mac).is_some(),
-            true
-        );
+        assert!(update_request("0.3.1", Some("0.3.0"), Os::Mac).is_some());
         // O PC 0.2 continua recebendo o pedido (regra de UPDATE_REQUEST_MIN_PEER).
         assert!(update_request("0.3.0", Some("0.2.0"), Os::Windows).is_some());
         assert_eq!(update_request("0.3.0", Some("0.1.7"), Os::Windows), None);

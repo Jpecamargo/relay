@@ -493,7 +493,7 @@ impl Worker {
             // Sem mensagem nova (contrato no mural): estado real + `CommandResult` de id 0.
             self.send(Message::AudioControl {
                 pc_to_mac: false,
-                mac_to_pc: o.state.mac_to_pc,
+                mac_to_pc: o.state.mic_from_peer,
             });
             self.send(Message::CommandResult {
                 id: 0,

@@ -87,7 +87,7 @@ export function App() {
         {connected ? (
           <dl className="facts">
             <dt>Foco</dt>
-            <dd>{snapshot?.focus === "Windows" ? "Este PC" : "Mac"}</dd>
+            <dd>{snapshot?.focus === "Local" ? "Este PC" : "Mac"}</dd>
             <dt>Latência</dt>
             <dd>{latency ? `${latency.rtt_ms.toFixed(1)} ms (jitter ${latency.jitter_ms.toFixed(1)} ms)` : "medindo…"}</dd>
           </dl>

@@ -15,8 +15,8 @@ use relay_core::layout;
 use relay_core::net::FastSender;
 use relay_core::platform::{CaptureError, DisplaySource, InputCapture, LoopWaker};
 use relay_core::types::{
-    AudioState, CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, HotkeyAction,
-    InputEvent, KeyCode, LayoutProfile, Machine, Message, MouseButton, PermissionKind,
+    AudioState, CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, Host,
+    HotkeyAction, InputEvent, KeyCode, LayoutProfile, Message, MouseButton, PermissionKind,
     PermissionState, PermissionsStatus, RemoteCommand,
 };
 use rtrb::{Consumer, RingBuffer};
@@ -330,8 +330,8 @@ impl<P: Platform> Core<P> {
         let payload = {
             let st = self.inner.st();
             DisplaysPayload {
-                mac: st.local.clone(),
-                windows: st.remote.clone(),
+                local: st.local.clone(),
+                peer: st.remote.clone(),
             }
         };
         self.inner.events.displays(&payload);
@@ -441,7 +441,7 @@ impl<P: Platform> Core<P> {
         }
         self.drain_events(true);
         self.ctl = None;
-        self.inner.mutate(|s| s.status.focus = Machine::Mac);
+        self.inner.mutate(|s| s.status.focus = Host::Local);
     }
 
     /// Pausa efetiva = pausa do usuário, sem PC conectado (nunca engolir input sem destino) ou o
@@ -470,11 +470,7 @@ impl<P: Platform> Core<P> {
             match e {
                 EngineEvent::FocusChanged { remote } => {
                     self.inner.mutate(|s| {
-                        s.status.focus = if remote {
-                            Machine::Windows
-                        } else {
-                            Machine::Mac
-                        };
+                        s.status.focus = if remote { Host::Peer } else { Host::Local };
                     });
                     self.inner.media.focus_changed(remote, self.left_down);
                 }
@@ -687,8 +683,12 @@ impl<P: Platform> Core<P> {
             }
             // Estado real do áudio no PC (pode ter recusado um dos sentidos).
             Message::AudioControl { mac_to_pc, .. } => {
-                self.inner
-                    .mutate(|s| s.status.audio = AudioState { mac_to_pc });
+                self.inner.mutate(|s| {
+                    s.status.audio = AudioState {
+                        mic_to_peer: mac_to_pc,
+                        mic_from_peer: false,
+                    }
+                });
                 self.inner.media.on_message(&Message::AudioControl {
                     pc_to_mac: false,
                     mac_to_pc,

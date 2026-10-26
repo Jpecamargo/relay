@@ -13,7 +13,9 @@ import type {
   Config,
   DiscoveredPeer,
   DisplaysPayload,
+  Host,
   LatencyStats,
+  LayoutBook,
   LayoutProfile,
   NewPairingCode,
   PairingEvent,
@@ -36,11 +38,18 @@ export type WindowLabel = "panel" | "main";
 export interface MacCommandMap {
   get_status: { args: void; result: StatusSnapshot };
   list_discovered: { args: void; result: DiscoveredPeer[] };
-  pair_with_code: { args: { code: string; address?: string }; result: void };
+  /** `layout_host`: quem edita os layouts neste pareamento (padrão: este computador). */
+  pair_with_code: { args: { code: string; address?: string; layout_host?: Host }; result: void };
+  /** Esta máquina mostra o código e escuta como Listener (120 s). */
+  new_pairing_code: { args: void; result: NewPairingCode };
   unpair: { args: void; result: void };
   set_manual_address: { args: { address?: string }; result: void };
   get_displays: { args: void; result: DisplaysPayload };
   get_layout: { args: void; result: LayoutProfile };
+  /** Livro de layouts oficial (perfis, ativo, host e revisão). */
+  get_layout_book: { args: void; result: LayoutBook };
+  /** Muda o host dos layouts; `Err("layout_read_only")` quando a edição não é permitida. */
+  set_layout_host: { args: { host: Host }; result: void };
   save_layout: { args: { profile: LayoutProfile }; result: SaveLayoutResult };
   /** Lista de perfis do usuário (criar, renomear, excluir) e o perfil em uso, pelo nome. */
   set_layout_profiles: { args: { profiles: LayoutProfile[]; active: string }; result: void };
@@ -54,11 +63,12 @@ export interface MacCommandMap {
   clipboard_send_now: { args: void; result: void };
   set_clipboard_sync: { args: { enabled: boolean }; result: void };
   receive_remote_files: { args: void; result: void };
-  wake_pc: { args: void; result: void };
-  /** Derruba e refaz a sessão com o PC (também sai de versão incompatível). */
+  /** `Err("unsupported")` quando o par não tem WOL_TARGET. */
+  wake_peer: { args: void; result: void };
+  /** Derruba e refaz a sessão com o par (também sai de versão incompatível). */
   reconnect: { args: void; result: void };
   list_audio_devices: { args: void; result: AudioDevices };
-  set_audio_streams: { args: { mac_to_pc: boolean }; result: void };
+  set_audio_streams: { args: { mic_to_peer: boolean }; result: void };
   set_audio_devices: { args: { input_id?: string }; result: void };
   check_permissions: { args: void; result: PermissionsStatus };
   open_permission_settings: { args: { kind: PermissionKind }; result: void };
@@ -66,6 +76,10 @@ export interface MacCommandMap {
   open_window: { args: { label: WindowLabel }; result: void };
   /** Encerra o app (linha "Encerrar" do painel). */
   quit_app: { args: void; result: void };
+  /** Estado do serviço (no Mac, o padrão). */
+  get_service_status: { args: void; result: ServiceStatus };
+  /** Avisa a bandeja que há (ou não há mais) atualização. */
+  set_update_available: { args: { version: string | null }; result: void };
 }
 
 /** Comandos do agente Windows: argumentos e retorno. */
@@ -91,10 +105,13 @@ export const COMMANDS = {
   get_status: "get_status",
   list_discovered: "list_discovered",
   pair_with_code: "pair_with_code",
+  new_pairing_code: "new_pairing_code",
   unpair: "unpair",
   set_manual_address: "set_manual_address",
   get_displays: "get_displays",
   get_layout: "get_layout",
+  get_layout_book: "get_layout_book",
+  set_layout_host: "set_layout_host",
   save_layout: "save_layout",
   set_layout_profiles: "set_layout_profiles",
   get_config: "get_config",
@@ -106,7 +123,7 @@ export const COMMANDS = {
   clipboard_send_now: "clipboard_send_now",
   set_clipboard_sync: "set_clipboard_sync",
   receive_remote_files: "receive_remote_files",
-  wake_pc: "wake_pc",
+  wake_peer: "wake_peer",
   reconnect: "reconnect",
   list_audio_devices: "list_audio_devices",
   set_audio_streams: "set_audio_streams",
@@ -116,6 +133,8 @@ export const COMMANDS = {
   set_launch_at_login: "set_launch_at_login",
   open_window: "open_window",
   quit_app: "quit_app",
+  get_service_status: "get_service_status",
+  set_update_available: "set_update_available",
   agent_get_status: "agent_get_status",
   agent_new_pairing_code: "agent_new_pairing_code",
   agent_revoke_pair: "agent_revoke_pair",
@@ -132,6 +151,7 @@ export interface EventMap {
   /** No máximo 2 Hz. */
   "relay:latency": LatencyStats;
   "relay:displays": DisplaysPayload;
+  "relay:layout": LayoutBook;
   "relay:command-result": CommandResult;
   /** No máximo 10 Hz. */
   "relay:transfer-progress": TransferProgress;

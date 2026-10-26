@@ -23,9 +23,10 @@ vi.mock("@tauri-apps/plugin-updater", () => ({ check: m.check }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: async () => undefined }));
 
 const STATUS: StatusSnapshot = {
-  status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false,
-  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false },
+  status: "Connected", peer_name: "Desktop", focus: "Local", locked: false, paused: false,
+  secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false },
   peer_version: "0.2.0", version_sync: "LocalBehind",
+  local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: null, layout_host: "Local", layout_editable: true,
 };
 
 beforeEach(() => {

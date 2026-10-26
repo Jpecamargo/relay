@@ -349,7 +349,7 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     })
     .await;
     assert!(!pc.saw(|m| matches!(m, Message::FocusEnter { .. })));
-    assert_eq!(core.status().focus, Machine::Mac);
+    assert_eq!(core.status().focus, Host::Local);
     wait_until("ClipboardSwitch ao perder o foco", 3000, || {
         media.0.load(Ordering::SeqCst) == 1
     })
@@ -381,7 +381,7 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     })
     .await;
     wait_until("foco no Windows", 2000, || {
-        core.status().focus == Machine::Windows
+        core.status().focus == Host::Peer
     })
     .await;
 
@@ -395,7 +395,7 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
     .await;
     wait_until("PC voltou", 3000, || !pc.remote.load(Ordering::SeqCst)).await;
     assert_eq!(platform.injected.lock().unwrap().len(), injected);
-    assert_eq!(core.status().focus, Machine::Windows);
+    assert_eq!(core.status().focus, Host::Peer);
     core.shutdown();
 }
 
@@ -471,7 +471,7 @@ async fn sessao_reversa_pela_borda_e_depois_o_mac_ainda_cruza_para_o_pc() {
     })
     .await;
     wait_until("foco no Windows", 2000, || {
-        core.status().focus == Machine::Windows
+        core.status().focus == Host::Peer
     })
     .await;
     core.shutdown();

@@ -2,9 +2,10 @@ import type { ConnectionStatus, StatusSnapshot } from "@relay/protocol-types";
 import type { StatusTone } from "@relay/ui";
 
 export const EMPTY_STATUS: StatusSnapshot = {
-  status: "Disconnected", peer_name: null, focus: "Mac", locked: false, paused: false,
-  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false },
+  status: "Disconnected", peer_name: null, focus: "Local", locked: false, paused: false,
+  secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false },
   peer_version: null, version_sync: "InSync",
+  local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: null, layout_host: "Local", layout_editable: true,
 };
 
 export const STATUS_LABELS: Record<string, string> = {

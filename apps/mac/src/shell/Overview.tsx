@@ -34,7 +34,7 @@ export function Overview({ act, status, latency, history, metrics, transfers }: 
             {STATUS_LABELS[key] ?? key}
           </div>
           <p className={styles.heroSub}>
-            {status.peer_name ? `${status.peer_name} · ` : ""}foco no {status.focus === "Mac" ? "Mac" : "Windows"}
+            {status.peer_name ? `${status.peer_name} · ` : ""}foco no {status.focus === "Local" ? "Mac" : "Windows"}
           </p>
         </div>
         {latency && online ? (
@@ -123,7 +123,7 @@ function Utilities({ act, online }: { act: Act; online: boolean }) {
 
   useEffect(() => {
     void invokeCommand("get_displays")
-      .then((d) => { setDisplays(d.windows); setDisplay(d.windows[0]?.id ?? ""); })
+      .then((d) => { setDisplays(d.peer); setDisplay(d.peer[0]?.id ?? ""); })
       .catch(() => undefined);
   }, []);
 

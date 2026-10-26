@@ -48,7 +48,7 @@ pub fn run() {
             controls::set_cursor_lock,
             controls::set_sharing_paused,
             controls::jump_to,
-            controls::wake_pc,
+            controls::wake_peer,
             controls::reconnect,
             clipboard::clipboard_send_now,
             clipboard::set_clipboard_sync,

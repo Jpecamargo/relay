@@ -344,7 +344,7 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
         .await
         .unwrap();
     eventually("Mac no controle", || {
-        ra.agent.core.status().focus == Machine::Windows
+        ra.agent.core.status().focus == Host::Local
     })
     .await;
     mac.received.clear();
@@ -364,7 +364,7 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
         })
         .await
         .unwrap();
-    eventually("PC livre", || ra.agent.core.status().focus == Machine::Mac).await;
+    eventually("PC livre", || ra.agent.core.status().focus == Host::Peer).await;
     sleep(Duration::from_millis(50)).await;
     ra.push_left_edge();
     mac.pump_until("PC assumiu de novo", |m| m.rx.is_active())
@@ -408,7 +408,7 @@ async fn quem_atravessa_a_borda_manda_nos_dois_sentidos() {
         .await
         .unwrap();
     eventually("Mac no controle", || {
-        ra.agent.core.status().focus == Machine::Windows
+        ra.agent.core.status().focus == Host::Local
     })
     .await;
     sleep(Duration::from_millis(50)).await;
@@ -437,7 +437,7 @@ async fn quem_atravessa_a_borda_manda_nos_dois_sentidos() {
         })
         .await
         .unwrap();
-    eventually("PC livre", || ra.agent.core.status().focus == Machine::Mac).await;
+    eventually("PC livre", || ra.agent.core.status().focus == Host::Peer).await;
     sleep(Duration::from_millis(50)).await;
 
     // 2. O PC controla o Mac e alguém mexe no Mac: o PC devolve e para de engolir o input.
@@ -508,7 +508,7 @@ async fn volta_pela_borda_do_mac_devolve_mouse_e_teclado_ao_pc() {
         !ra.swallow.load(Ordering::SeqCst)
     })
     .await;
-    assert_eq!(ra.agent.core.status().focus, Machine::Mac);
+    assert_eq!(ra.agent.core.status().focus, Host::Peer);
 
     // O teclado do PC não vai mais ao Mac.
     let before = mac.events().len();

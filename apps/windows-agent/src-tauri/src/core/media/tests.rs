@@ -258,7 +258,7 @@ fn mic_from_mac_reaches_cable_input_through_the_jitter_buffer() {
         mac_to_pc: true,
     });
     wait("mic ligado", || {
-        r.media.audio_state().mac_to_pc.then_some(())
+        r.media.audio_state().mic_from_peer.then_some(())
     });
     assert!(host.events().contains(&"render:cab".to_string()));
     let port = wait("porta do mic", || r.media.addrs().mic).port();

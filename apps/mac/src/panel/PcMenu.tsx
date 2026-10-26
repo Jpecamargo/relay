@@ -26,7 +26,7 @@ export function PcMenu({ act, online, canWake, wakeShortcut }: { act: Act; onlin
           <MenuRow nested label="Desligar" icon="power" disabled={!online} onClick={() => setPending("Shutdown")} />
           <MenuRow
             nested label="Ligar o PC" icon="wifi" disabled={!canWake} shortcut={wakeShortcut}
-            onClick={() => void act("Ligar o PC", () => invokeCommand("wake_pc"))}
+            onClick={() => void act("Ligar o PC", () => invokeCommand("wake_peer"))}
           />
         </>
       ) : null}

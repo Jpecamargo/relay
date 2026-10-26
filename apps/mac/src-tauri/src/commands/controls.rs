@@ -54,8 +54,8 @@ pub fn set_sharing_paused(
 }
 
 #[tauri::command(rename_all = "snake_case", async)]
-pub fn wake_pc(state: State<'_, AppState>) -> Result<(), String> {
-    state.backend.wake_pc()
+pub fn wake_peer(state: State<'_, AppState>) -> Result<(), String> {
+    state.backend.wake_peer()
 }
 
 #[tauri::command(rename_all = "snake_case", async)]

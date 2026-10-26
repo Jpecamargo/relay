@@ -70,7 +70,7 @@ export function Panel() {
     if (!firstTime(r)) return;
     if (r.error === "vbcable_missing") {
       // O microfone não subiu no PC: desliga o toggle e relê o status.
-      void invokeCommand("set_audio_streams", { mac_to_pc: false }).then(refresh, () => undefined);
+      void invokeCommand("set_audio_streams", { mic_to_peer: false }).then(refresh, () => undefined);
     }
     if (!r.ok) show(errorText(r.error ?? "falhou"), "danger");
   });
@@ -113,7 +113,7 @@ export function Panel() {
   const retry = (
     <Button variant="ghost" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
   );
-  const mic = status.audio.mac_to_pc;
+  const mic = status.audio.mic_to_peer;
 
   return (
     <main ref={root} className={styles.panel}>
@@ -125,11 +125,11 @@ export function Panel() {
         <div className={styles.subRow}>
           <StatusDot tone={statusTone(key)} label={STATUS_LABELS[key] ?? key} />
           <span>{firstUse ? "Nenhum PC pareado" : `${STATUS_LABELS[key] ?? key}${latency && online ? ` · ${decimal(latency.rtt_ms)} ms` : ""}`}</span>
-          {firstUse ? null : <span className={styles.focus}>{status.focus === "Mac" ? "Foco: Mac" : "Foco: Windows"}</span>}
+          {firstUse ? null : <span className={styles.focus}>{status.focus === "Local" ? "Foco: Mac" : "Foco: Windows"}</span>}
         </div>
       </header>
 
-      {secure || missing.length > 0 || incompatible || status.pc_unreachable || key === "Reconnecting" || pcUpdate ? (
+      {secure || missing.length > 0 || incompatible || status.peer_unreachable || key === "Reconnecting" || pcUpdate ? (
         <div className={styles.banners}>
           {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
           {missing.map(([kind, label]) => (
@@ -141,7 +141,7 @@ export function Panel() {
             </Banner>
           ))}
           {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
-          {status.pc_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O roteador pode estar isolando o Wi-Fi do cabo: tente a outra banda do Wi-Fi (2.4/5 GHz) ou ligue o Mac por cabo.</Banner> : null}
+          {status.peer_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O roteador pode estar isolando o Wi-Fi do cabo: tente a outra banda do Wi-Fi (2.4/5 GHz) ou ligue o Mac por cabo.</Banner> : null}
           {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
           {pcUpdate ? <Banner variant="line">{pcUpdate}</Banner> : null}
         </div>
@@ -172,7 +172,7 @@ export function Panel() {
           />
           <MenuRow
             label="Microfone do Mac no PC" icon="mic" checked={mic}
-            onClick={() => void act("Microfone do Mac no PC", () => invokeCommand("set_audio_streams", { mac_to_pc: !mic })).then(refresh)}
+            onClick={() => void act("Microfone do Mac no PC", () => invokeCommand("set_audio_streams", { mic_to_peer: !mic })).then(refresh)}
           />
         </div>
         <hr className={styles.sep} />

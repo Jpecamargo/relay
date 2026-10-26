@@ -51,8 +51,8 @@ beforeEach(() => {
   bridge.invoke.mockReset();
   bridge.invoke.mockImplementation(async (name: string) => {
     if (name === "get_status")
-      return { status: "Connected", peer_name: bridge.peer, focus: "Mac", locked: false, paused: false, secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false }, peer_version: null, version_sync: "InSync" };
-    if (name === "get_displays") return { mac: [], windows: [] };
+      return { status: "Connected", peer_name: bridge.peer, focus: "Local", locked: false, paused: false, secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false }, peer_version: null, version_sync: "InSync", local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: null, layout_host: "Local", layout_editable: true };
+    if (name === "get_displays") return { local: [], peer: [] };
     if (name === "get_config") return structuredClone(CONFIG);
     if (name === "list_discovered") return [PC];
     return undefined;
@@ -160,6 +160,6 @@ test("depois de revogar, o app volta à tela de primeiro uso", async () => {
   render(<Main />);
   await screen.findByRole("heading", { name: "Visão geral" });
   bridge.peer = null;
-  await act(async () => bridge.listeners.get("relay:status")?.({ status: "Disconnected", peer_name: null, focus: "Mac", audio: { mac_to_pc: false } }));
+  await act(async () => bridge.listeners.get("relay:status")?.({ status: "Disconnected", peer_name: null, focus: "Local", audio: { mic_to_peer: false, mic_from_peer: false } }));
   expect(await screen.findByRole("heading", { name: "Conecte seu PC" })).toBeTruthy();
 });

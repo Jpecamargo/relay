@@ -37,7 +37,7 @@ beforeEach(() => {
   m.invoke.mockReset().mockImplementation(async (name: string) => {
     switch (name) {
       case "agent_get_status":
-        return { status: "Connected", peer_name: "MacBook", focus: "Mac", peer_version: "0.2.0", version_sync: "LocalBehind" };
+        return { status: "Connected", peer_name: "MacBook", focus: "Peer", peer_version: "0.2.0", version_sync: "LocalBehind" };
       case "agent_get_service_status":
         return { installed: true, running: true, helper_active: true, vbcable_detected: false };
       case "agent_get_config":

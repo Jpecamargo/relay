@@ -784,7 +784,7 @@ mod appcore {
 
         // Microfone: o pedido vira AudioControl no agente.
         core.set_audio_streams(true).unwrap();
-        assert!(core.status().audio.mac_to_pc);
+        assert!(core.status().audio.mic_to_peer);
         until("AudioControl no agente", || {
             agent.saw(|m| {
                 matches!(

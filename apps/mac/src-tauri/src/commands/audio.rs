@@ -14,10 +14,10 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> AudioDevices {
 pub fn set_audio_streams(
     app: AppHandle,
     state: State<'_, AppState>,
-    mac_to_pc: bool,
+    mic_to_peer: bool,
 ) -> Result<(), String> {
-    tracing::info!(mac_to_pc, "comando set_audio_streams");
-    state.backend.set_audio_streams(mac_to_pc)?;
+    tracing::info!(mic_to_peer, "comando set_audio_streams");
+    state.backend.set_audio_streams(mic_to_peer)?;
     emit_status(&app, &state.backend.get_status());
     Ok(())
 }

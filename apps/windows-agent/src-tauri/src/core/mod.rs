@@ -32,7 +32,7 @@ use relay_core::platform::{
     CommandExecutor, CursorControl, DisplaySource, InputInjector, KeyStore,
 };
 use relay_core::types::{
-    AudioState, Config, ConnectionStatus, LatencyStats, Machine, Message, NewPairingCode,
+    AudioState, Caps, Config, ConnectionStatus, Host, LatencyStats, Message, NewPairingCode, Os,
     PairingEvent, ServiceStatus, StatusSnapshot,
 };
 use tokio::sync::mpsc;
@@ -151,15 +151,21 @@ fn initial_snapshot(config: &Config) -> StatusSnapshot {
     StatusSnapshot {
         status: ConnectionStatus::Disconnected,
         peer_name: None,
-        focus: Machine::Windows,
+        focus: Host::Local,
         locked: false,
         paused: false,
         secure_input: false,
-        pc_unreachable: false,
+        peer_unreachable: false,
         peer_version: None,
         version_sync: Default::default(),
         clipboard_sync: config.clipboard.enabled,
         audio: AudioState::default(),
+        local_os: Os::Windows,
+        peer_os: None,
+        local_caps: Caps::baseline(Os::Windows),
+        peer_caps: None,
+        layout_host: Host::Peer,
+        layout_editable: false,
     }
 }
 

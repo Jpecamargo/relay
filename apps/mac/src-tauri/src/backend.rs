@@ -7,10 +7,10 @@ use std::pin::Pin;
 use std::sync::Mutex;
 
 use relay_core::types::{
-    AudioDevice, AudioDevices, AudioState, CommandOutput, CommandResult, Config, ConnectionStatus,
-    DiscoveredPeer, DisplayInfo, DisplaysPayload, LatencyStats, LayoutProfile, Machine,
-    PermissionKind, PermissionState, PermissionsStatus, PlacedDisplay, ProfileKey, RectMm,
-    RemoteCommand, SaveLayoutResult, StatusSnapshot,
+    AudioDevice, AudioDevices, AudioState, Caps, CommandOutput, CommandResult, Config,
+    ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host, LatencyStats,
+    LayoutProfile, Machine, Os, PermissionKind, PermissionState, PermissionsStatus, PlacedDisplay,
+    ProfileKey, RectMm, RemoteCommand, SaveLayoutResult, StatusSnapshot,
 };
 
 pub type BackendResult<T> = Result<T, String>;
@@ -44,11 +44,11 @@ pub trait AppBackend: Send + Sync {
     fn clipboard_send_now(&self) -> BackendResult<()>;
     fn set_clipboard_sync(&self, enabled: bool) -> BackendResult<()>;
     fn receive_remote_files(&self) -> BackendResult<()>;
-    fn wake_pc(&self) -> BackendResult<()>;
+    fn wake_peer(&self) -> BackendResult<()>;
     /// Derruba e refaz a sessão com o PC (também sai de `IncompatibleVersion`).
     fn reconnect(&self) -> BackendResult<()>;
     fn list_audio_devices(&self) -> AudioDevices;
-    fn set_audio_streams(&self, mac_to_pc: bool) -> BackendResult<()>;
+    fn set_audio_streams(&self, mic_to_peer: bool) -> BackendResult<()>;
     fn set_audio_devices(&self, input_id: Option<String>) -> BackendResult<()>;
     fn check_permissions(&self) -> PermissionsStatus;
     fn open_permission_settings(&self, kind: PermissionKind) -> BackendResult<()>;
@@ -92,7 +92,7 @@ fn display(
 
 pub fn mock_displays() -> DisplaysPayload {
     DisplaysPayload {
-        mac: vec![display(
+        local: vec![display(
             "mac-builtin",
             "MacBook Pro",
             Machine::Mac,
@@ -101,7 +101,7 @@ pub fn mock_displays() -> DisplaysPayload {
             (302.0, 196.0),
             true,
         )],
-        windows: vec![
+        peer: vec![
             display(
                 "win-dell-1",
                 "Dell U2723QE",
@@ -155,15 +155,21 @@ impl Default for MockBackend {
                 status: StatusSnapshot {
                     status: ConnectionStatus::Connected,
                     peer_name: Some("DESKTOP-RELAY".into()),
-                    focus: Machine::Mac,
+                    focus: Host::Local,
                     locked: false,
                     paused: false,
                     secure_input: false,
-                    pc_unreachable: false,
+                    peer_unreachable: false,
                     peer_version: None,
                     version_sync: Default::default(),
                     clipboard_sync: true,
-                    audio: AudioState { mac_to_pc: false },
+                    audio: AudioState::default(),
+                    local_os: Os::Mac,
+                    peer_os: None,
+                    local_caps: Caps::baseline(Os::Mac),
+                    peer_caps: None,
+                    layout_host: Host::Local,
+                    layout_editable: true,
                 },
                 config: Config::default(),
                 layout: mock_layout(),
@@ -197,6 +203,8 @@ impl AppBackend for MockBackend {
             port: relay_core::types::consts::PORT_CONTROL,
             device_id: "a1b2c3d4e5f60718".into(),
             protocol_version: relay_core::types::consts::PROTOCOL_VERSION,
+            os: None,
+            app_version: None,
         }]
     }
     fn pair_with_code(
@@ -276,7 +284,7 @@ impl AppBackend for MockBackend {
     fn receive_remote_files(&self) -> BackendResult<()> {
         Ok(())
     }
-    fn wake_pc(&self) -> BackendResult<()> {
+    fn wake_peer(&self) -> BackendResult<()> {
         Ok(())
     }
     fn reconnect(&self) -> BackendResult<()> {
@@ -291,8 +299,13 @@ impl AppBackend for MockBackend {
             inputs: vec![device("mac-mic", "Microfone do MacBook", true)],
         }
     }
-    fn set_audio_streams(&self, mac_to_pc: bool) -> BackendResult<()> {
-        self.with(|s| s.status.audio = AudioState { mac_to_pc });
+    fn set_audio_streams(&self, mic_to_peer: bool) -> BackendResult<()> {
+        self.with(|s| {
+            s.status.audio = AudioState {
+                mic_to_peer,
+                mic_from_peer: false,
+            }
+        });
         Ok(())
     }
     fn set_audio_devices(&self, input_id: Option<String>) -> BackendResult<()> {
@@ -329,7 +342,7 @@ mod tests {
     fn mock_has_three_displays_and_connected_status() {
         let b = MockBackend::default();
         let d = b.get_displays();
-        let all: Vec<_> = d.mac.iter().chain(d.windows.iter()).collect();
+        let all: Vec<_> = d.local.iter().chain(d.peer.iter()).collect();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].size_mm, Some((302.0, 196.0)));
         assert_eq!(all[1].size_mm, Some((597.0, 336.0)));

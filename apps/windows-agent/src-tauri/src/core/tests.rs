@@ -551,7 +551,7 @@ async fn loopback_pareia_conecta_injeta_e_devolve_pela_borda() {
     mac.mv(5, 0);
     assert!(mac.ctl.is_remote());
     mac.pump_until("FocusEnter aplicado", |_| {
-        agent.core.status().focus == Machine::Windows && *agent.cursor.lock().unwrap() != (0, 0)
+        agent.core.status().focus == Host::Local && *agent.cursor.lock().unwrap() != (0, 0)
     })
     .await;
     let entry = *agent.cursor.lock().unwrap();
@@ -595,7 +595,7 @@ async fn loopback_pareia_conecta_injeta_e_devolve_pela_borda() {
         agent.injected().contains(&InputEvent::Key {
             scan: KEY_A,
             down: false,
-        }) && agent.core.status().focus == Machine::Mac
+        }) && agent.core.status().focus == Host::Peer
     })
     .await;
 
@@ -651,7 +651,7 @@ async fn queda_com_o_mac_no_controle_chama_focus_lost() {
         agent.injected().contains(&InputEvent::Key {
             scan: KEY_A,
             down: false,
-        }) && agent.core.status().focus == Machine::Mac
+        }) && agent.core.status().focus == Host::Peer
     })
     .await;
     agent.core.shutdown();
@@ -814,10 +814,8 @@ async fn pausar_com_o_mac_no_controle_devolve_o_foco() {
     sleep(Duration::from_millis(100)).await;
     mac.mv(5, 0);
     assert!(mac.ctl.is_remote());
-    mac.pump_until("agente ativo", |_| {
-        agent.core.status().focus == Machine::Windows
-    })
-    .await;
+    mac.pump_until("agente ativo", |_| agent.core.status().focus == Host::Local)
+        .await;
     agent.core.set_paused(true).unwrap();
     mac.pump_until("Mac recebeu o foco de volta", |m| !m.ctl.is_remote())
         .await;

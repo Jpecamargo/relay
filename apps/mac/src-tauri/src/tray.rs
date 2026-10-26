@@ -142,7 +142,7 @@ fn perform(backend: &dyn AppBackend, id: &str) -> Option<CommandResult> {
             let _ = backend.clipboard_send_now();
         }
         "pc_wake" => {
-            let _ = backend.wake_pc();
+            let _ = backend.wake_peer();
         }
         "reconnect" => {
             let _ = backend.reconnect();
@@ -271,7 +271,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 mod tests {
     use super::*;
     use crate::backend::{AppBackend, MockBackend};
-    use relay_core::types::Machine;
+    use relay_core::types::Host;
 
     #[test]
     fn status_label_names_the_peer_when_connected() {
@@ -287,9 +287,9 @@ mod tests {
         let mut a = Applied::default();
         let mut s = MockBackend::default().get_status();
         assert!(a.update(&s).icon);
-        s.focus = Machine::Windows;
+        s.focus = Host::Peer;
         assert_eq!(a.update(&s), Changes::default());
-        s.focus = Machine::Mac;
+        s.focus = Host::Local;
         assert_eq!(a.update(&s), Changes::default());
         s.status = ConnectionStatus::Reconnecting;
         let c = a.update(&s);

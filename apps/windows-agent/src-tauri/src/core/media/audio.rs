@@ -171,7 +171,8 @@ impl AudioEngine {
 
     pub fn state(&self) -> AudioState {
         AudioState {
-            mac_to_pc: self.mic.is_some(),
+            mic_to_peer: false,
+            mic_from_peer: self.mic.is_some(),
         }
     }
 

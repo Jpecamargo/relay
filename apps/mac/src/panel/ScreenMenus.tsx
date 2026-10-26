@@ -19,10 +19,10 @@ function useTargets(open: boolean): { targets: Target[]; windows: DisplayInfo[] 
   useEffect(() => {
     if (!open) return;
     void Promise.all([invokeCommand("get_displays"), invokeCommand("get_layout")]).then(([d, layout]) => {
-      const names = new Map([...d.mac, ...d.windows].map((x) => [x.id, x.name]));
+      const names = new Map([...d.local, ...d.peer].map((x) => [x.id, x.name]));
       const order = jumpIds(layout.displays);
       const targets = [...order].map(([id, n]) => ({ n, id, name: names.get(id) ?? id })).sort((a, b) => a.n - b.n);
-      setData({ targets, windows: d.windows });
+      setData({ targets, windows: d.peer });
     }).catch(() => undefined);
   }, [open]);
   return data;

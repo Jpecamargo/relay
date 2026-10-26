@@ -43,13 +43,13 @@ export function LiveAudio({ act, online, audio, refresh }: {
     }).catch(() => undefined);
   }, [online]);
 
-  const streams = (label: string, next: AudioState) =>
-    void act(label, () => invokeCommand("set_audio_streams", next)).then(refresh);
+  const streams = (label: string, micToPeer: boolean) =>
+    void act(label, () => invokeCommand("set_audio_streams", { mic_to_peer: micToPeer })).then(refresh);
 
   return (
     <>
       <Section title="Microfone" grouped>
-        <Toggle label="Microfone do Mac no PC" checked={audio.mac_to_pc} onChange={(v) => streams("Microfone do Mac no PC", { mac_to_pc: v })} />
+        <Toggle label="Microfone do Mac no PC" checked={audio.mic_to_peer} onChange={(v) => streams("Microfone do Mac no PC", v)} />
       </Section>
       <Section title="Dispositivos" grouped>
         <Select

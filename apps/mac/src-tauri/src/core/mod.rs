@@ -31,8 +31,8 @@ use std::time::{Duration, Instant};
 use relay_core::config;
 use relay_core::platform::{DisplaySource, KeyStore, LoopWaker};
 use relay_core::types::{
-    AudioState, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload,
-    LatencyStats, LayoutProfile, Machine, PairedPeer, PermissionsStatus, Ports, SaveLayoutResult,
+    AudioState, Caps, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host,
+    LatencyStats, LayoutProfile, Os, PairedPeer, PermissionsStatus, Ports, SaveLayoutResult,
     StatusSnapshot,
 };
 use relay_core::version::{APP_VERSION, version_sync};
@@ -127,7 +127,7 @@ pub(crate) fn pc_unreachable(status: ConnectionStatus, dialing_for: Option<Durat
 impl State {
     fn derive(&mut self) {
         self.status.status = derive_status(self.peer.is_some(), self.pairing, self.session);
-        self.status.pc_unreachable =
+        self.status.peer_unreachable =
             pc_unreachable(self.status.status, self.dialing_since.map(|t| t.elapsed()));
         self.status.peer_name = self.peer.as_ref().map(|p| p.name.clone());
         let connected = self.status.status == ConnectionStatus::Connected;
@@ -281,15 +281,21 @@ impl<P: Platform> AppCore<P> {
         let status = StatusSnapshot {
             status: ConnectionStatus::Disconnected,
             peer_name: None,
-            focus: Machine::Mac,
+            focus: Host::Local,
             locked: false,
             paused: false,
             secure_input: false,
-            pc_unreachable: false,
+            peer_unreachable: false,
             peer_version: None,
             version_sync: Default::default(),
             clipboard_sync: config.clipboard.enabled,
             audio: AudioState::default(),
+            local_os: Os::Mac,
+            peer_os: None,
+            local_caps: Caps::baseline(Os::Mac),
+            peer_caps: None,
+            layout_host: Host::Local,
+            layout_editable: true,
         };
         let inner = Arc::new(Inner {
             platform: platform.clone(),
@@ -352,8 +358,8 @@ impl<P: Platform> AppCore<P> {
     pub fn displays(&self) -> DisplaysPayload {
         let st = self.inner.st();
         DisplaysPayload {
-            mac: st.local.clone(),
-            windows: st.remote.clone(),
+            local: st.local.clone(),
+            peer: st.remote.clone(),
         }
     }
 
