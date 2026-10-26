@@ -74,6 +74,11 @@ impl LayoutHostState {
         }
     }
 
+    /// Host gravado no livro (sem o ajuste do peer 0.2 conectado).
+    pub fn host(&self) -> Machine {
+        self.host
+    }
+
     /// Host efetivo: com peer 0.2 conectado é sempre o Mac.
     fn effective_host(&self) -> Machine {
         match self.peer {

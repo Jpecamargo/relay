@@ -35,11 +35,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             status::get_status,
             status::list_discovered,
+            status::get_service_status,
             pairing::pair_with_code,
             pairing::unpair,
             pairing::set_manual_address,
             layout::get_displays,
             layout::get_layout,
+            layout::get_layout_book,
+            layout::set_layout_host,
             layout::save_layout,
             layout::set_layout_profiles,
             config::get_config,
@@ -61,6 +64,7 @@ pub fn run() {
             system::set_launch_at_login,
             system::open_window,
             system::quit_app,
+            system::set_update_available,
         ])
         .on_window_event(|window, event| match (window.label(), event) {
             ("panel", WindowEvent::Focused(false)) => {

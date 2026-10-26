@@ -17,8 +17,9 @@ use relay_core::platform::{CaptureError, DisplaySource, InputCapture, LoopWaker}
 use relay_core::types::{
     AudioState, CapturedEvent, CommandResult, Config, DisplayInfo, DisplaysPayload, Host,
     HotkeyAction, InputEvent, KeyCode, LayoutProfile, Message, MouseButton, PermissionKind,
-    PermissionState, PermissionsStatus, RemoteCommand,
+    PermissionState, PermissionsStatus, RemoteCommand, error_code,
 };
+use relay_core::version::peer_is_symmetric;
 use rtrb::{Consumer, RingBuffer};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -48,6 +49,8 @@ pub(crate) enum CoreCmd {
     JumpTo(u8),
     ApplyConfig(Box<Config>),
     ProfilesChanged,
+    /// Mensagem para o peer, vinda de fora da thread do core (efeitos do livro de layouts).
+    Send(Message),
     DisplaysChanged,
     Command {
         cmd: RemoteCommand,
@@ -126,6 +129,8 @@ pub(crate) fn spawn<P: Platform>(
         left_down: false,
         rev,
         rev_active: false,
+        layout_ready: false,
+        early_book: None,
     };
     std::thread::Builder::new()
         .name("relay-core".into())
@@ -160,6 +165,11 @@ struct Core<P: Platform> {
     /// Sentido inverso: o PC controla o Mac (R1).
     rev: MacReverse<P>,
     rev_active: bool,
+    /// A troca inicial de livros desta conexão já aconteceu (ou o peer é 0.2): só então o
+    /// conjunto de telas pode criar perfil.
+    layout_ready: bool,
+    /// Livro do peer que chegou antes de a sessão ser dada como de pé (corrida com `Link`).
+    early_book: Option<relay_core::types::LayoutBook>,
 }
 
 impl<P: Platform> Core<P> {
@@ -337,15 +347,15 @@ impl<P: Platform> Core<P> {
         self.inner.events.displays(&payload);
     }
 
-    /// Perfil em uso (o ativo do usuário, adaptado às telas conectadas). Combinação nova de
-    /// telas não cria perfil: só o usuário cria, no editor.
+    /// Perfil em uso (o ativo do livro, do host local ou do peer, adaptado às telas conectadas).
+    /// Combinação nova de telas só cria perfil no host (`layout_displays_changed`).
     fn refresh_profile(&mut self) {
         let profile = {
             let mut st = self.inner.st();
             let combined: Vec<DisplayInfo> = st.local.iter().chain(&st.remote).cloned().collect();
-            let layout = &st.config.layout;
+            let book = st.layout.book();
             let Some(profile) =
-                layout::select_profile(&layout.profiles, layout.active.as_deref(), &combined)
+                layout::select_profile(&book.profiles, book.active.as_deref(), &combined)
             else {
                 st.profile = None;
                 return;
@@ -365,14 +375,73 @@ impl<P: Platform> Core<P> {
         }
     }
 
+    /// `LayoutSync` do perfil em uso, só para peer 0.2: o 0.3 recebe o livro (`LayoutBookSync`).
     fn send_layout(&self) {
-        if !self.link {
+        if !self.link || self.peer_symmetric() {
             return;
         }
         let profile = self.inner.st().profile.clone();
         if let Some(p) = profile {
             self.send(Message::LayoutSync(p));
         }
+    }
+
+    fn on_book_sync(&mut self, book: relay_core::types::LayoutBook) {
+        let first = !self.layout_ready;
+        let effects = self.inner.mutate(|s| s.layout.on_book_sync(book));
+        self.inner.apply_layout(effects);
+        if first {
+            self.layout_exchanged();
+        }
+    }
+
+    fn peer_symmetric(&self) -> bool {
+        peer_is_symmetric(self.inner.st().peer_version.as_deref())
+    }
+
+    /// O conjunto de telas (local + peer) mudou: o host cria o perfil se faltar (regra do I4).
+    fn layout_displays_changed(&mut self) {
+        if !self.link || !self.layout_ready {
+            return;
+        }
+        let effects = self.inner.mutate(|s| {
+            if s.remote.is_empty() {
+                return Vec::new();
+            }
+            let combined: Vec<DisplayInfo> = s.local.iter().chain(&s.remote).cloned().collect();
+            s.layout.on_displays(&combined)
+        });
+        self.inner.apply_layout(effects);
+    }
+
+    /// A troca de livros desta conexão terminou: aplica a escolha de host do pareamento novo
+    /// (D44) e confere as telas.
+    fn layout_exchanged(&mut self) {
+        self.layout_ready = true;
+        let pending = self.inner.mutate(|s| s.pending_layout_host.take());
+        if let Some(host) = pending {
+            let effects = self.inner.mutate(|s| s.layout.on_new_pairing(host));
+            self.inner.apply_layout(effects);
+        }
+        self.layout_displays_changed();
+    }
+
+    /// Sessão `Connected`: o livro vai ao peer 0.3 (e espera o dele); o 0.2 recebe `LayoutSync`.
+    fn layout_link_up(&mut self) {
+        let symmetric = self.peer_symmetric();
+        let effects = self.inner.mutate(|s| s.layout.peer_connected(symmetric));
+        self.inner.apply_layout(effects);
+        if symmetric {
+            if let Some(book) = self.early_book.take() {
+                self.on_book_sync(book);
+            }
+            return;
+        }
+        // Peer 0.2 sempre usa o Mac como host: a escolha do pareamento não se aplica (D43).
+        self.inner.mutate(|s| s.pending_layout_host = None);
+        self.layout_ready = true;
+        self.send_layout();
+        self.layout_displays_changed();
     }
 
     fn on_displays_changed(&mut self) {
@@ -394,6 +463,7 @@ impl<P: Platform> Core<P> {
             self.send_layout();
         }
         self.publish_displays();
+        self.layout_displays_changed();
     }
 
     // ---- sessão e Controller ----
@@ -551,6 +621,9 @@ impl<P: Platform> Core<P> {
             }
             CoreCmd::SessionDown => {
                 self.link = false;
+                self.layout_ready = false;
+                self.early_book = None;
+                self.inner.mutate(|s| s.layout.peer_disconnected());
                 self.rev.focus_lost();
                 self.teardown_controller();
                 self.out = None;
@@ -569,7 +642,11 @@ impl<P: Platform> Core<P> {
                 self.sync_pause();
                 if up {
                     self.send(Message::Displays(self.local_displays()));
+                    self.layout_link_up();
                 } else {
+                    self.layout_ready = false;
+                    self.early_book = None;
+                    self.inner.mutate(|s| s.layout.peer_disconnected());
                     self.fail_waiters();
                 }
                 self.inner.media.link_changed(up);
@@ -610,6 +687,7 @@ impl<P: Platform> Core<P> {
                 self.refresh_profile();
                 self.send_layout();
             }
+            CoreCmd::Send(m) => self.send(m),
             CoreCmd::DisplaysChanged => self.on_displays_changed(),
             CoreCmd::Command { cmd, reply } => {
                 let fail = reply.clone();
@@ -641,7 +719,19 @@ impl<P: Platform> Core<P> {
                 self.refresh_profile();
                 self.send_layout();
                 self.publish_displays();
+                self.layout_displays_changed();
             }
+            Message::LayoutBookSync(book) if !self.link => self.early_book = Some(book),
+            Message::LayoutBookSync(book) => self.on_book_sync(book),
+            Message::LayoutBookEdit(book) => {
+                let effects = self.inner.mutate(|s| s.layout.on_book_edit(book));
+                self.inner.apply_layout(effects);
+            }
+            // O Mac não executa comandos remotos na 0.3 (D46): responde para o PC não esperar.
+            Message::Command { id, .. } => self.send(Message::CommandResult {
+                id,
+                result: CommandResult::err(id, error_code::UNSUPPORTED),
+            }),
             // Sentido inverso: o PC pede o foco, manda input e devolve (R1). Com o PC no controle
             // o `FocusReturn` é dele (confirmação), senão é pedido de retorno ao Controller.
             m @ (Message::FocusEnter { .. } | Message::Input { .. }) => {

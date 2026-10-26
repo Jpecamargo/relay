@@ -6,8 +6,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use relay_core::types::{
-    AudioDevices, CommandResult, Config, DiscoveredPeer, DisplaysPayload, LatencyStats,
-    LayoutProfile, PermissionKind, PermissionsStatus, RemoteCommand, SaveLayoutResult,
+    AudioDevices, CommandResult, Config, DiscoveredPeer, DisplaysPayload, Host, LatencyStats,
+    LayoutBook, LayoutProfile, PermissionKind, PermissionsStatus, RemoteCommand, SaveLayoutResult,
     StatusSnapshot,
 };
 use tokio::sync::oneshot;
@@ -62,6 +62,14 @@ impl<P: Platform> AppBackend for AppCore<P> {
 
     fn get_layout(&self) -> LayoutProfile {
         self.layout()
+    }
+
+    fn get_layout_book(&self) -> LayoutBook {
+        self.layout_book()
+    }
+
+    fn set_layout_host(&self, host: Host) -> BackendResult<()> {
+        AppCore::set_layout_host(self, host)
     }
 
     fn save_layout(&self, profile: LayoutProfile) -> BackendResult<SaveLayoutResult> {

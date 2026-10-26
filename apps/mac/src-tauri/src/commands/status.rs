@@ -1,5 +1,5 @@
 //! dono: MI1 (casco: MAC1)
-use relay_core::types::{DiscoveredPeer, StatusSnapshot};
+use relay_core::types::{DiscoveredPeer, ServiceStatus, StatusSnapshot};
 use tauri::State;
 
 use crate::state::AppState;
@@ -12,4 +12,10 @@ pub fn get_status(state: State<'_, AppState>) -> StatusSnapshot {
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_discovered(state: State<'_, AppState>) -> Vec<DiscoveredPeer> {
     state.backend.list_discovered()
+}
+
+/// O Mac não tem serviço do sistema: devolve o padrão (tudo falso).
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_service_status() -> ServiceStatus {
+    ServiceStatus::default()
 }
