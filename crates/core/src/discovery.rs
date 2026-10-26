@@ -71,13 +71,7 @@ impl Advertiser {
         input_port: u16,
     ) -> Result<Self, DiscoveryError> {
         let daemon = ServiceDaemon::new()?;
-        let props = [
-            ("id", device_id.to_string()),
-            ("pv", PROTOCOL_VERSION.to_string()),
-            ("udp", input_port.to_string()),
-            ("os", Os::current().as_txt().to_string()),
-            ("v", APP_VERSION.to_string()),
-        ];
+        let props = txt_props(device_id, input_port);
         let host = format!("{instance}.local.");
         let info = ServiceInfo::new(
             MDNS_SERVICE_TYPE,
@@ -92,6 +86,17 @@ impl Advertiser {
         daemon.register(info)?;
         Ok(Self { daemon, fullname })
     }
+}
+
+/// TXT do anúncio mDNS: quem somos, protocolo, porta UDP, sistema e versão do app.
+fn txt_props(device_id: &str, input_port: u16) -> [(&'static str, String); 5] {
+    [
+        ("id", device_id.to_string()),
+        ("pv", PROTOCOL_VERSION.to_string()),
+        ("udp", input_port.to_string()),
+        ("os", Os::current().as_txt().to_string()),
+        ("v", APP_VERSION.to_string()),
+    ]
 }
 
 impl Drop for Advertiser {
@@ -269,6 +274,18 @@ mod tests {
         .unwrap();
         assert_eq!(p.os, Some(Os::Linux));
         assert_eq!(p.app_version.as_deref(), Some("0.3.0"));
+    }
+
+    #[test]
+    fn announces_itself_as_symmetric() {
+        let props = txt_props("d1", 47801);
+        let v = props
+            .iter()
+            .find(|(k, _)| *k == "v")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(v, Some(APP_VERSION));
+        assert!(crate::version::peer_is_symmetric(Some(APP_VERSION)));
+        assert!(crate::version::peer_is_symmetric(v));
     }
 
     #[test]

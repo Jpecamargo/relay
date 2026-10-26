@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Atualiza a versão do Relay em todos os lugares de uma vez:
 #   [workspace.package] do Cargo.toml raiz (herdada pelos crates), tauri.conf.json do Mac e do agente
-#   Windows, e o Cargo.lock. Uso: scripts/bump-version.sh 0.2.0   (sem o "v")
+#   Windows, package.json dos apps e pacotes, e o Cargo.lock. Uso: scripts/bump-version.sh 0.2.0   (sem o "v")
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 v="${1:-}"
@@ -13,6 +13,11 @@ awk -v v="$v" '!d && /^version = "/ { print "version = \"" v "\""; d=1; next } {
 mv Cargo.toml.new Cargo.toml
 
 for f in apps/mac/src-tauri/tauri.conf.json apps/windows-agent/src-tauri/tauri.conf.json; do
+  awk -v v="$v" '!d && /^  "version": "/ { print "  \"version\": \"" v "\","; d=1; next } { print }' "$f" > "$f.new"
+  mv "$f.new" "$f"
+done
+
+for f in apps/mac/package.json apps/windows-agent/package.json packages/protocol-types/package.json packages/ui/package.json; do
   awk -v v="$v" '!d && /^  "version": "/ { print "  \"version\": \"" v "\","; d=1; next } { print }' "$f" > "$f.new"
   mv "$f.new" "$f"
 done

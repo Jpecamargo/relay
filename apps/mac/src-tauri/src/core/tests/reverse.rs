@@ -158,6 +158,8 @@ async fn pc_main(
         },
     );
     cfg.bind_ip = LO;
+    // O PC deste teste é 0.2 (recebe `LayoutSync`, não o livro); sem isso herdaria a versão do build.
+    cfg.app_version = "0.2.0".into();
     let mut listener = SessionListener::start(cfg, Box::new(|_| {})).await.unwrap();
     listener.open_pairing(code, Duration::from_secs(120));
     ports_tx

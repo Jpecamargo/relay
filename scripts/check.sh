@@ -9,6 +9,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 bash scripts/check-windows.sh
 pnpm install --frozen-lockfile
+bash scripts/check-ipc.sh
 # Tipos TS gerados precisam estar commitados e em dia com o Rust.
 bash scripts/gen-types.sh >/dev/null
 git diff --exit-code -- packages/protocol-types/src/generated
