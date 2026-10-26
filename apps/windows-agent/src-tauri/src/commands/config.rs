@@ -22,6 +22,19 @@ pub fn set_clipboard_sync(state: State<'_, AgentState>, enabled: bool) -> Result
     state.backend.save_config(config).map_err(|e| e.to_string())
 }
 
-/// O PC não escolhe o endereço do Mac: é o Mac que disca. Aceita e ignora.
+/// Endereço manual do Mac (`ip:porta`): alvo do pareamento quando o mDNS não acha o Mac.
 #[tauri::command(rename_all = "snake_case")]
-pub fn set_manual_address(_address: Option<String>) {}
+pub fn set_manual_address(
+    state: State<'_, AgentState>,
+    address: Option<String>,
+) -> Result<(), String> {
+    let address = address
+        .map(|a| a.trim().to_owned())
+        .filter(|a| !a.is_empty());
+    if let Some(a) = &address {
+        relay_core::discovery::parse_manual_address(a).map_err(|e| e.to_string())?;
+    }
+    let mut config = state.backend.config();
+    config.network.manual_address = address;
+    state.backend.save_config(config).map_err(|e| e.to_string())
+}

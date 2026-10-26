@@ -663,7 +663,7 @@ impl<P: Platform> AppCore<P> {
         Ok(NewPairingCode { code, expires_at })
     }
 
-    /// Host do layout escolhido na tela de pareamento: I10 o consome depois do pareamento.
+    /// Host do layout escolhido na tela de pareamento: o layout o aplica depois do pareamento.
     pub fn set_pending_layout_host(&self, host: Option<Host>) {
         self.inner.st().pending_layout_host = host;
     }

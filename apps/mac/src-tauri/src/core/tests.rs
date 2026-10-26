@@ -667,7 +667,7 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
             .any(|d| d.peer.len() == 1)
     })
     .await;
-    // Conjunto de telas novo: o Mac, host, cria o perfil e grava (regra do I4).
+    // Conjunto de telas novo: o Mac, host, cria o perfil e grava.
     assert_eq!(core.config().layout.profiles, vec![layout.clone()]);
     assert_eq!(core.layout_book().profiles, vec![layout.clone()]);
 
@@ -1084,7 +1084,7 @@ async fn pc_antigo_demais_para_o_pedido_fica_para_atualizar_a_mao_sem_pedido() {
     core.shutdown();
 }
 
-// ---- layouts pelo LayoutHostState (I10) ----
+// ---- layouts pelo LayoutHostState ----
 
 fn book(host: Machine, revision: u64) -> LayoutBook {
     LayoutBook {

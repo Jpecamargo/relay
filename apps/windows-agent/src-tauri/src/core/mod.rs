@@ -159,8 +159,6 @@ pub(crate) enum Cmd {
     ConfigChanged,
     /// Efeitos de uma edição de layout feita pela UI (o estado já foi alterado em `Shared`).
     LayoutEffects(Vec<LayoutEffect>),
-    /// Escolha de host de um pareamento novo, aplicada depois da primeira troca de livros.
-    SetPendingLayoutHost(Host),
     Shutdown,
 }
 
@@ -437,7 +435,8 @@ impl AgentBackend for AgentCore {
     }
 
     fn get_layout(&self) -> LayoutProfile {
-        layout_state::active_profile(&self.shared.layout().book())
+        let displays = self.get_displays();
+        layout_state::effective_profile(&self.shared.layout().book(), &displays)
             .unwrap_or_else(layout_state::empty_profile)
     }
 
@@ -478,7 +477,10 @@ impl AgentBackend for AgentCore {
         self.shared.config().clone()
     }
 
-    fn save_config(&self, config: Config) -> AgentResult<()> {
+    /// O layout (perfis, host, revisão) é do `LayoutHostState`: a UI lê o config uma vez só e
+    /// devolveria uma cópia velha, então ele nunca vem daqui.
+    fn save_config(&self, mut config: Config) -> AgentResult<()> {
+        config.layout = self.shared.layout().to_config();
         self.shared.save_config(&config);
         *self.shared.config() = config;
         self.send(Cmd::ConfigChanged)
@@ -490,13 +492,6 @@ fn read_only(_: HostLayoutError) -> AgentError {
 }
 
 impl AgentCore {
-    /// Registra a escolha de host do pareamento novo (D44): `on_new_pairing` a consome quando a
-    /// primeira troca de livros da conexão termina.
-    #[cfg_attr(not(test), allow(dead_code))] // quem chama é o pareamento (I11)
-    pub(crate) fn set_pending_layout_host(&self, host: Host) -> AgentResult<()> {
-        self.send(Cmd::SetPendingLayoutHost(host))
-    }
-
     fn edit_layout(&self, profiles: Vec<LayoutProfile>, active: Option<String>) -> AgentResult<()> {
         let fx = self
             .shared

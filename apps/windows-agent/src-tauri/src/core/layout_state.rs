@@ -2,9 +2,9 @@
 //! Lógica pura dos layouts no agente (livro, perfil ativo, validação das edições da UI), sem
 //! estado nem I/O: roda nos testes do Mac. O estado vivo é o `LayoutHostState` do core.
 
-use relay_core::layout::{DEFAULT_PROFILE_NAME, profile_key, validate};
+use relay_core::layout::{DEFAULT_PROFILE_NAME, profile_key, select_profile, validate};
 use relay_core::node::layout_host::LayoutHostState;
-use relay_core::types::{Host, LayoutBook, LayoutConfig, LayoutProfile, Machine};
+use relay_core::types::{DisplaysPayload, Host, LayoutBook, LayoutConfig, LayoutProfile, Machine};
 
 pub(super) const LOCAL: Machine = Machine::Windows;
 
@@ -24,6 +24,25 @@ pub(super) fn active_profile(book: &LayoutBook) -> Option<LayoutProfile> {
         .and_then(|n| book.profiles.iter().find(|p| p.name == n))
         .or(book.profiles.first())
         .cloned()
+}
+
+/// Perfil que o Receiver e o Controller reverso usam: o mesmo cálculo do Mac (o ativo adaptado às
+/// telas conectadas, com as telas do Mac seguindo o arranjo atual do macOS). Sem as telas do Mac
+/// ainda não há conjunto para casar: vale o ativo como gravado (retorno na primeira conexão).
+pub(super) fn effective_profile(
+    book: &LayoutBook,
+    displays: &DisplaysPayload,
+) -> Option<LayoutProfile> {
+    if displays.peer.is_empty() {
+        return active_profile(book);
+    }
+    let all: Vec<_> = displays
+        .local
+        .iter()
+        .chain(&displays.peer)
+        .cloned()
+        .collect();
+    select_profile(&book.profiles, book.active.as_deref(), &all).or_else(|| active_profile(book))
 }
 
 pub(super) fn empty_profile() -> LayoutProfile {
@@ -127,6 +146,69 @@ mod tests {
         assert_eq!(active_profile(&book).unwrap().name, "b");
         book.active = Some("gone".into());
         assert_eq!(active_profile(&book).unwrap().name, "a");
+    }
+
+    #[test]
+    fn effective_profile_follows_the_macos_arrangement() {
+        use relay_core::engine::testutil::{dell_display, display};
+        use relay_core::types::{PlacedDisplay, RectMm};
+        let mac = |id: &str, x: i32, primary: bool| {
+            let mut d = display(id, Machine::Mac, (1440, 900), (300.0, 190.0), primary);
+            d.origin_px = (x, 0);
+            d
+        };
+        let placed = |id: &str, machine, x: f32| PlacedDisplay {
+            display_id: id.into(),
+            machine,
+            rect_mm: RectMm {
+                x,
+                y: 0.0,
+                w: 300.0,
+                h: 190.0,
+            },
+            sensitivity: 1.0,
+            rotation: None,
+        };
+        // Gravado: D2 à direita de D1. O macOS agora a põe à esquerda.
+        let saved = LayoutProfile {
+            key: ProfileKey(vec!["d1".into(), "d2".into(), "dell".into()]),
+            name: "p".into(),
+            displays: vec![
+                placed("d1", Machine::Mac, 0.0),
+                placed("d2", Machine::Mac, 300.0),
+                placed("dell", Machine::Windows, 600.0),
+            ],
+            windows_detached: false,
+        };
+        let book = LayoutBook {
+            revision: 1,
+            host: Machine::Mac,
+            profiles: vec![saved],
+            active: Some("p".into()),
+        };
+        let displays = DisplaysPayload {
+            local: vec![dell_display()],
+            peer: vec![mac("d1", 0, true), mac("d2", -1440, false)],
+        };
+        let x = |p: &LayoutProfile, id: &str| {
+            p.displays
+                .iter()
+                .find(|d| d.display_id == id)
+                .unwrap()
+                .rect_mm
+                .x
+        };
+        let eff = effective_profile(&book, &displays).unwrap();
+        assert!(
+            x(&eff, "d2") < x(&eff, "d1"),
+            "D2 deve ficar à esquerda de D1"
+        );
+        // Sem as telas do Mac, vale o gravado.
+        let none = DisplaysPayload {
+            peer: vec![],
+            ..displays
+        };
+        assert_eq!(x(&effective_profile(&book, &none).unwrap(), "d2"), 300.0);
     }
 
     #[test]

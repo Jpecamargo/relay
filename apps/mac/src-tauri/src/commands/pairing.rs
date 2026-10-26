@@ -13,7 +13,8 @@ pub async fn pair_with_code(
     layout_host: Option<Host>,
 ) -> Result<(), String> {
     let backend = state.backend.clone();
-    backend.set_pending_layout_host(layout_host);
+    // Sem escolha, o padrão é este computador (D44).
+    backend.set_pending_layout_host(Some(layout_host.unwrap_or(Host::Local)));
     backend.pair_with_code(code, address).await
 }
 

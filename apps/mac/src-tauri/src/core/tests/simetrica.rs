@@ -1,4 +1,3 @@
-//! dono: I9
 //! Sessão simétrica do app Mac em loopback: o PC disca no Mac (escuta), o Mac disca num PC 0.2
 //! ou 0.3 descoberto, par salvo no formato da 0.2, Caps nos dois sentidos, sessão duplicada e
 //! `RequestUpdate` recebido.

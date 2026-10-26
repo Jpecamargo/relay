@@ -406,7 +406,6 @@ impl<P: Platform> Manager<P> {
             granted: false,
             last_up: false,
             peer: None,
-            renew: false,
         };
         self.inner.st().pumps.push((epoch, ctl_tx.clone()));
         // A `Session` não é `Sync`: a bomba (que a empresta entre awaits) não pode ir para o
@@ -842,8 +841,6 @@ struct Pump<P: Platform> {
     granted: bool,
     last_up: bool,
     peer: Option<PairedPeer>,
-    /// A escuta perdeu o canal rápido para o Controller de outra sessão: refaz-se.
-    renew: bool,
 }
 
 impl<P: Platform> Pump<P> {
@@ -1049,7 +1046,6 @@ impl<P: Platform> Pump<P> {
                     // O canal rápido já foi para outra sessão: refaz-se o transporte.
                     self.granted = false;
                     self.inner.release(self.epoch);
-                    self.renew = true;
                     return false;
                 }
             }

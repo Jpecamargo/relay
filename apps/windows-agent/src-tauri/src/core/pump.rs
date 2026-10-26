@@ -259,7 +259,10 @@ impl Pump {
         let (rev, rev_out) = match reverse.zip(listener.take_input_producer()) {
             Some((rdeps, fast)) => {
                 let (tx, rx) = mpsc::unbounded_channel();
-                let profile = layout_state::active_profile(&shared.layout().book());
+                let profile = layout_state::effective_profile(
+                    &shared.layout().book(),
+                    &shared.displays.lock().unwrap_or_else(|e| e.into_inner()),
+                );
                 let cfg = shared.config().clone();
                 (
                     Some(ReverseHandle::spawn(
@@ -289,7 +292,10 @@ impl Pump {
             rx.set_event_handler(h);
         }
         // Cópia do layout já guardada: o retorno funciona logo na primeira conexão (D11).
-        let profile = layout_state::active_profile(&shared.layout().book());
+        let profile = layout_state::effective_profile(
+            &shared.layout().book(),
+            &shared.displays.lock().unwrap_or_else(|e| e.into_inner()),
+        );
         if let Some(p) = profile {
             rx.set_profile(p);
         }
@@ -1018,16 +1024,30 @@ impl Pump {
         }
         if emit {
             let book = self.shared.layout().book();
-            // Receiver e Controller reverso passam a usar o perfil ativo do livro.
-            if let Some(p) = layout_state::active_profile(&book) {
-                self.rx.set_profile(p.clone());
-                if let Some(rev) = &self.rev {
-                    rev.set_profile(p);
-                }
-            }
+            self.refresh_profile();
             self.events.layout(&book);
         }
         self.publish();
+    }
+
+    /// Receiver e Controller reverso passam a usar o perfil que o Mac também calcularia: o ativo do
+    /// livro adaptado às telas conectadas (as do Mac seguem o arranjo atual do macOS). Chamado
+    /// quando o livro ou as telas mudam.
+    fn refresh_profile(&mut self) {
+        let profile = {
+            let displays = self
+                .shared
+                .displays
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            layout_state::effective_profile(&self.shared.layout().book(), &displays)
+        };
+        if let Some(p) = profile {
+            self.rx.set_profile(p.clone());
+            if let Some(rev) = &self.rev {
+                rev.set_profile(p);
+            }
+        }
     }
 
     /// Telas deste PC mudaram: atualiza o payload e a UI.
@@ -1040,7 +1060,7 @@ impl Pump {
     }
 
     /// Conjunto de telas (PC + Mac) mudou: emite `relay:displays` e deixa o host criar o perfil
-    /// do conjunto novo (regra de I4). Sem as telas do Mac não há conjunto para casar.
+    /// do conjunto novo. Sem as telas do Mac não há conjunto para casar.
     fn on_displays_changed(&mut self, out: &mut Vec<Message>) {
         let payload = self
             .shared
@@ -1049,6 +1069,7 @@ impl Pump {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         self.events.displays(&payload);
+        self.refresh_profile();
         if self.connected() && !payload.peer.is_empty() {
             let all: Vec<_> = payload.local.iter().chain(&payload.peer).cloned().collect();
             let fx = self.shared.layout().on_displays(&all);
@@ -1154,7 +1175,6 @@ impl Pump {
                 }
                 self.send_all(out).await;
             }
-            Cmd::SetPendingLayoutHost(host) => self.pending_layout_host = Some(host),
             Cmd::LayoutEffects(fx) => {
                 let mut out = Vec::new();
                 self.apply_layout(fx, &mut out);

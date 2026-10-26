@@ -219,25 +219,17 @@ async fn telas_novas_criam_perfil_quando_o_pc_e_host() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn escolha_de_host_do_pareamento_novo_e_consumida_depois_da_troca() {
-    let agent = start_agent();
-    let id = identity();
-    let peer = pair(&agent, &id).await;
-    // I11 preenche ao parear; aqui o PC pede para ser o host.
-    agent.core.set_pending_layout_host(Host::Local).unwrap();
-    let mut mac = connect_as(&agent, &id, peer, MAC_03).await;
-    mac.pump_until("livro inicial", |m| {
-        m.got(|x| matches!(x, Message::LayoutBookSync(_)))
-    })
-    .await;
-    mac.dialer
-        .send(Message::LayoutBookSync(book(0, Machine::Mac)))
-        .await
-        .unwrap();
-    mac.pump_until("PC host anunciado", |m| {
-        m.got(|x| matches!(x, Message::LayoutBookSync(b) if b.host == Machine::Windows && b.revision == 1))
-    })
-    .await;
-    assert_eq!(agent.core.status().layout_host, Host::Local);
+async fn save_config_with_a_stale_copy_does_not_revert_the_layout() {
+    let (agent, _mac) = host_pc_with_mac03().await;
+    let stale = agent.core.config();
+    agent.core.save_layout(pc_profile("novo")).unwrap();
+    agent.core.set_layout_host(Host::Peer).unwrap();
+    eventually("host passado", || agent.core.config().layout.revision == 6).await;
+    agent.core.save_config(stale).unwrap();
+    let cfg = agent.core.config();
+    assert_eq!((cfg.layout.revision, cfg.layout.host), (6, Machine::Mac));
+    assert_eq!(agent.core.get_layout_book().revision, 6);
+    let on_disk = relay_core::config::load_or_default(&agent.config_path).unwrap();
+    assert_eq!(on_disk.layout.revision, 6);
     agent.core.shutdown();
 }

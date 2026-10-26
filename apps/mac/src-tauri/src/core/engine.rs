@@ -399,7 +399,7 @@ impl<P: Platform> Core<P> {
         peer_is_symmetric(self.inner.st().peer_version.as_deref())
     }
 
-    /// O conjunto de telas (local + peer) mudou: o host cria o perfil se faltar (regra do I4).
+    /// O conjunto de telas (local + peer) mudou: o host cria o perfil se faltar.
     fn layout_displays_changed(&mut self) {
         if !self.link || !self.layout_ready {
             return;

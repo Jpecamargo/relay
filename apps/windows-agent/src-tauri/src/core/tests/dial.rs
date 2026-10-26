@@ -1,4 +1,3 @@
-//! dono: I11
 //! O PC como Dialer (D41): pareamento discando, discagem pelo mDNS, sessão duplicada e a
 //! compatibilidade com o Mac 0.2 (que só disca). O "Mac" aqui é um `SessionListener` real.
 
@@ -415,4 +414,43 @@ fn handshake_sends_caps_to_a_03_peer_and_asks_it_to_update_only_if_it_can() {
     // Mac 0.2: nada (não entende Caps nem RequestUpdate; ele mesmo mostra "atualize").
     assert!(handshake_messages(caps, "0.3.0", Some("0.2.9"), Os::Mac).is_empty());
     assert!(handshake_messages(caps, "0.3.0", None, Os::Mac).is_empty());
+}
+
+/// D44 pelo caminho real: `pair_with_code` guarda a escolha e, depois da primeira troca de
+/// livros da sessão discada, o PC se declara host (revisão +1).
+#[tokio::test(flavor = "multi_thread")]
+async fn host_choice_of_a_new_pairing_is_applied_after_the_first_book_exchange() {
+    let agent = start_agent();
+    let mac_id = identity();
+    let mut mac = mac_listening(&mac_id, vec![]).await;
+    mac.listener
+        .open_pairing("123456".into(), Duration::from_secs(30));
+    tokio::task::block_in_place(|| {
+        agent.core.pair_with_code(
+            "123456".into(),
+            Some(format!("127.0.0.1:{}", mac.port())),
+            Host::Local,
+        )
+    })
+    .expect("pareamento discando");
+    mac.pump_until("livro inicial do PC", |m| {
+        m.got(|x| matches!(x, Message::LayoutBookSync(_)))
+    })
+    .await;
+    mac.listener
+        .send(Message::LayoutBookSync(LayoutBook {
+            revision: 0,
+            host: Machine::Mac,
+            profiles: vec![],
+            active: None,
+        }))
+        .await
+        .unwrap();
+    mac.pump_until("PC host anunciado", |m| {
+        m.got(|x| matches!(x, Message::LayoutBookSync(b) if b.host == Machine::Windows && b.revision == 1))
+    })
+    .await;
+    assert_eq!(agent.core.status().layout_host, Host::Local);
+    assert_eq!(agent.pending_layout_host(), None);
+    agent.core.shutdown();
 }
