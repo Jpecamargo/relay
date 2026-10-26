@@ -2,8 +2,31 @@
 //! da base 0.2.0 (`testdata/v02_messages.hex`). Um peer 0.2 derruba a sessão ao ver bytes
 //! diferentes dos que conhece, então estes testes não podem ter o fixture regerado.
 
+use crate::types::{Message, Os, Role};
+use crate::version::peer_is_symmetric;
+
+/// Gate único do canal de controle (D40): as variantes da 0.3 (`Caps`, `LayoutBookSync`,
+/// `LayoutBookEdit`) só vão a peer simétrico. Variante desconhecida derruba a sessão de um 0.2.
+pub fn allowed_for_peer(msg: &Message, peer_app_version: Option<&str>) -> bool {
+    match msg {
+        Message::Caps(_) | Message::LayoutBookSync(_) | Message::LayoutBookEdit(_) => {
+            peer_is_symmetric(peer_app_version)
+        }
+        _ => true,
+    }
+}
+
+/// SO de um peer 0.2, que não o anuncia: quem disca era o Mac e quem escuta, o PC.
+pub fn legacy_peer_os(peer_role: Role) -> Os {
+    match peer_role {
+        Role::Dialer => Os::Mac,
+        Role::Listener => Os::Windows,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::protocol::{FrameReader, FrameWriter};
     use crate::types::*;
 
@@ -212,6 +235,59 @@ mod tests {
                 (name.to_owned(), hex.trim().to_owned())
             })
             .collect()
+    }
+
+    fn book() -> LayoutBook {
+        LayoutBook {
+            revision: 1,
+            host: Machine::Mac,
+            profiles: Vec::new(),
+            active: None,
+        }
+    }
+
+    #[test]
+    fn new_variants_only_go_to_symmetric_peers() {
+        let caps = Message::Caps(Caps::baseline(Os::Mac));
+        let new = [
+            caps,
+            Message::LayoutBookSync(book()),
+            Message::LayoutBookEdit(book()),
+        ];
+        for msg in &new {
+            assert!(!allowed_for_peer(msg, None));
+            assert!(!allowed_for_peer(msg, Some("0.2.0")));
+            assert!(!allowed_for_peer(msg, Some("lixo")));
+            assert!(allowed_for_peer(msg, Some("0.3.0")));
+        }
+    }
+
+    #[test]
+    fn every_0_2_variant_is_allowed_for_any_peer() {
+        for (name, msg) in samples() {
+            assert!(allowed_for_peer(&msg, None), "{name}");
+            assert!(allowed_for_peer(&msg, Some("0.2.0")), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_legacy_peer_is_a_mac_when_it_dialed_and_a_pc_when_it_listened() {
+        assert_eq!(legacy_peer_os(Role::Dialer), Os::Mac);
+        assert_eq!(legacy_peer_os(Role::Listener), Os::Windows);
+    }
+
+    #[test]
+    fn new_variants_come_after_request_update_without_moving_the_old_ones() {
+        // Índice do enum = primeiro byte do payload (varint): RequestUpdate é a 23a (22), e as
+        // novas seguem na ordem Caps, LayoutBookSync, LayoutBookEdit.
+        let first_byte = |m: &Message| encode(m)[4];
+        let update = Message::RequestUpdate {
+            version: "x".into(),
+        };
+        assert_eq!(first_byte(&update), 22);
+        assert_eq!(first_byte(&Message::Caps(Caps::baseline(Os::Mac))), 23);
+        assert_eq!(first_byte(&Message::LayoutBookSync(book())), 24);
+        assert_eq!(first_byte(&Message::LayoutBookEdit(book())), 25);
     }
 
     #[test]

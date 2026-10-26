@@ -2,6 +2,7 @@
 //! Tipos compartilhados do contrato: domínio, protocolo, config e payloads de UI.
 //! Só o F2 edita este diretório. Todos derivam serde + ts-rs (`#[ts(export)]`).
 
+pub mod caps;
 pub mod clipboard;
 pub mod command;
 pub mod config;
@@ -11,9 +12,11 @@ pub mod hotkey;
 pub mod input;
 pub mod ipc;
 pub mod message;
+pub mod os;
 pub mod peer;
 pub mod status;
 
+pub use caps::*;
 pub use clipboard::*;
 pub use command::*;
 pub use config::*;
@@ -22,6 +25,7 @@ pub use hotkey::*;
 pub use input::*;
 pub use ipc::*;
 pub use message::*;
+pub use os::*;
 pub use peer::*;
 pub use status::*;
 

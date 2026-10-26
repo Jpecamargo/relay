@@ -4,7 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::display::Machine;
+use super::caps::Caps;
+use super::os::{Host, Os};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -40,7 +41,8 @@ pub enum VersionSync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AudioState {
-    pub mac_to_pc: bool,
+    pub mic_to_peer: bool,
+    pub mic_from_peer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -48,19 +50,27 @@ pub struct AudioState {
 pub struct StatusSnapshot {
     pub status: ConnectionStatus,
     pub peer_name: Option<String>,
-    /// Máquina que recebe o input agora.
-    pub focus: Machine,
+    /// Lado que recebe o input agora.
+    pub focus: Host,
     pub locked: bool,
     pub paused: bool,
     pub secure_input: bool,
-    /// O PC é conhecido (mDNS ou endereço manual) mas o TCP de controle não responde há tempo
+    /// O par é conhecido (mDNS ou endereço manual) mas o TCP de controle não responde há tempo
     /// demais: no Windows, em geral o firewall.
-    pub pc_unreachable: bool,
+    pub peer_unreachable: bool,
     pub clipboard_sync: bool,
     pub audio: AudioState,
     /// Versão do app do par, só com a sessão de pé e se ele a informou.
     pub peer_version: Option<String>,
     pub version_sync: VersionSync,
+    pub local_os: Os,
+    pub peer_os: Option<Os>,
+    pub local_caps: Caps,
+    pub peer_caps: Option<Caps>,
+    /// Quem é o host dos layouts, visto daqui.
+    pub layout_host: Host,
+    /// Este lado pode editar o layout.
+    pub layout_editable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]

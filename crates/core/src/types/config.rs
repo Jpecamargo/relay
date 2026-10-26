@@ -6,10 +6,10 @@ use ts_rs::TS;
 
 use super::clipboard::ClipboardFormat;
 use super::consts::*;
-use super::display::LayoutProfile;
+use super::display::{LayoutProfile, Machine};
 use super::hotkey::{HotkeyAction, HotkeyBinding, KeyCombo, Modifier};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 4;
+pub const CONFIG_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
@@ -242,7 +242,7 @@ impl Default for AudioConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
 pub struct LayoutConfig {
@@ -250,6 +250,28 @@ pub struct LayoutConfig {
     pub profiles: Vec<LayoutProfile>,
     /// Nome do perfil em uso; `None` (ou um nome que não existe mais) = o primeiro.
     pub active: Option<String>,
+    /// Quem edita os layouts (D42). A migração para a v5 põe `Mac` nas duas máquinas.
+    #[serde(default = "default_layout_host")]
+    pub host: Machine,
+    /// Revisão do livro: a maior vence na sincronização.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub revision: u64,
+}
+
+fn default_layout_host() -> Machine {
+    Machine::Mac
+}
+
+impl Default for LayoutConfig {
+    fn default() -> Self {
+        Self {
+            profiles: Vec::new(),
+            active: None,
+            host: default_layout_host(),
+            revision: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]

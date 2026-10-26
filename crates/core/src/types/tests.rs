@@ -49,6 +49,15 @@ fn profile() -> LayoutProfile {
     }
 }
 
+fn book() -> LayoutBook {
+    LayoutBook {
+        revision: u64::MAX,
+        host: Machine::Windows,
+        profiles: vec![profile()],
+        active: Some("Setup completo".into()),
+    }
+}
+
 /// Exaustivo de propósito: variante nova em `Message` quebra a compilação aqui, lembrando de
 /// incluí-la em `all_messages`.
 fn variant_name(m: &Message) -> &'static str {
@@ -76,6 +85,9 @@ fn variant_name(m: &Message) -> &'static str {
         Message::Unpair => "Unpair",
         Message::Bye => "Bye",
         Message::RequestUpdate { .. } => "RequestUpdate",
+        Message::Caps(_) => "Caps",
+        Message::LayoutBookSync(_) => "LayoutBookSync",
+        Message::LayoutBookEdit(_) => "LayoutBookEdit",
     }
 }
 
@@ -176,6 +188,9 @@ fn all_messages() -> Vec<Message> {
         Message::RequestUpdate {
             version: "0.2.0".into(),
         },
+        Message::Caps(Caps::baseline(Os::Windows)),
+        Message::LayoutBookSync(book()),
+        Message::LayoutBookEdit(book()),
     ]
 }
 
@@ -190,7 +205,7 @@ fn message_variants_roundtrip_bincode() {
         all.len(),
         "uma amostra por variante, sem repetição"
     );
-    assert_eq!(all.len(), 23);
+    assert_eq!(all.len(), 26);
     for m in &all {
         bincode_roundtrip(m);
     }

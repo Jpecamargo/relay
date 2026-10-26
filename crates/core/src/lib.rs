@@ -13,6 +13,7 @@ pub mod input_shaping;
 pub mod keymap;
 pub mod layout;
 pub mod net;
+pub mod node;
 pub mod platform;
 pub mod protocol;
 pub mod transfer;

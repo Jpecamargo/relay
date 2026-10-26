@@ -2,7 +2,7 @@
 
 use semver::Version;
 
-use crate::types::{Message, VersionSync};
+use crate::types::{Message, Os, VersionSync};
 
 /// Versão deste build; os apps herdam a do workspace.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -10,6 +10,10 @@ pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Primeira versão do agente que decodifica `Message::RequestUpdate`. Variante desconhecida
 /// derruba a sessão, então o Mac não envia o pedido a quem é anterior a esta.
 pub const UPDATE_REQUEST_MIN_PEER: &str = "0.1.8";
+
+/// Primeira versão com o núcleo simétrico (Caps, livro de layouts, descoberta nos dois sentidos).
+/// Tudo que é novo na 0.3 só vai a peer nesta versão ou acima.
+pub const SYMMETRIC_MIN_PEER: &str = "0.3.0";
 
 /// Versão informada no Hello, ou `None` se vazia ou que não seja semver (peer que não informa).
 pub fn parse_version(raw: &str) -> Option<Version> {
@@ -36,9 +40,24 @@ pub fn version_sync(local: &str, peer: Option<&str>) -> VersionSync {
     }
 }
 
-/// Pedido que o Mac manda ao agente ao conectar, se (e só se) o agente está atrás e sabe recebê-lo.
-pub fn update_request(local: &str, peer: Option<&str>) -> Option<Message> {
-    (version_sync(local, peer) == VersionSync::PeerBehind).then(|| Message::RequestUpdate {
+/// `true` se o peer é >= `SYMMETRIC_MIN_PEER`. Sem versão, ou com versão ilegível, é `false`.
+pub fn peer_is_symmetric(peer_version: Option<&str>) -> bool {
+    match (
+        peer_version.and_then(parse_version),
+        parse_version(SYMMETRIC_MIN_PEER),
+    ) {
+        (Some(peer), Some(min)) => peer >= min,
+        _ => false,
+    }
+}
+
+/// Pedido de atualização ao par, se (e só se) ele está atrás e sabe recebê-lo. Um Mac < 0.3.0 não
+/// trata `RequestUpdate` (D49): ele mesmo mostra "atualize" ao ver a versão maior.
+pub fn update_request(local: &str, peer_version: Option<&str>, peer_os: Os) -> Option<Message> {
+    if peer_os == Os::Mac && !peer_is_symmetric(peer_version) {
+        return None;
+    }
+    (version_sync(local, peer_version) == VersionSync::PeerBehind).then(|| Message::RequestUpdate {
         version: local.to_owned(),
     })
 }
@@ -69,11 +88,36 @@ mod tests {
         let asked = Some(Message::RequestUpdate {
             version: "0.2.0".into(),
         });
-        assert_eq!(update_request("0.2.0", Some("0.1.8")), asked);
-        assert_eq!(update_request("0.2.0", Some("0.1.7")), None);
-        assert_eq!(update_request("0.2.0", Some("0.2.0")), None);
-        assert_eq!(update_request("0.2.0", Some("0.3.0")), None);
-        assert_eq!(update_request("0.2.0", None), None);
+        assert_eq!(update_request("0.2.0", Some("0.1.8"), Os::Windows), asked);
+        assert_eq!(update_request("0.2.0", Some("0.1.7"), Os::Windows), None);
+        assert_eq!(update_request("0.2.0", Some("0.2.0"), Os::Windows), None);
+        assert_eq!(update_request("0.2.0", Some("0.3.0"), Os::Windows), None);
+        assert_eq!(update_request("0.2.0", None, Os::Windows), None);
+    }
+
+    #[test]
+    fn symmetric_means_a_readable_version_from_0_3_0() {
+        assert!(peer_is_symmetric(Some("0.3.0")));
+        assert!(peer_is_symmetric(Some(" v0.3.1 ")));
+        assert!(peer_is_symmetric(Some("1.0.0")));
+        assert!(!peer_is_symmetric(Some("0.2.9")));
+        assert!(!peer_is_symmetric(Some("0.3.0-beta.1")));
+        assert!(!peer_is_symmetric(Some("fake")));
+        assert!(!peer_is_symmetric(Some("")));
+        assert!(!peer_is_symmetric(None));
+    }
+
+    #[test]
+    fn a_mac_older_than_0_3_0_is_never_asked_to_update() {
+        // 0.2.x do Mac não trata RequestUpdate (D49), mesmo sendo >= UPDATE_REQUEST_MIN_PEER.
+        assert_eq!(update_request("0.3.0", Some("0.2.0"), Os::Mac), None);
+        assert_eq!(
+            update_request("0.3.1", Some("0.3.0"), Os::Mac).is_some(),
+            true
+        );
+        // O PC 0.2 continua recebendo o pedido (regra de UPDATE_REQUEST_MIN_PEER).
+        assert!(update_request("0.3.0", Some("0.2.0"), Os::Windows).is_some());
+        assert_eq!(update_request("0.3.0", Some("0.1.7"), Os::Windows), None);
     }
 
     #[test]

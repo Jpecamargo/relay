@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
 
-use crate::types::DiscoveredPeer;
 use crate::types::consts::{MDNS_SERVICE_TYPE, PORT_CONTROL, PORT_INPUT, PROTOCOL_VERSION};
+use crate::types::{DiscoveredPeer, Os};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
@@ -158,12 +158,16 @@ fn peer_from_service(svc: &ResolvedService) -> Option<DiscoveredPeer> {
         .map(|a| a.to_string())
         .collect();
     addrs.sort();
+    let os = svc.get_property_val_str("os").and_then(Os::from_txt);
+    let app_version = svc.get_property_val_str("v").map(str::to_owned);
     Some(DiscoveredPeer {
         name,
         addrs,
         port: svc.port,
         device_id,
         protocol_version,
+        os,
+        app_version,
     })
 }
 

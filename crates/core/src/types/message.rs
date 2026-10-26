@@ -4,9 +4,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::caps::Caps;
 use super::clipboard::{ClipboardFormat, FileEntry};
 use super::command::{CommandResult, RemoteCommand};
-use super::display::{DisplayInfo, LayoutProfile};
+use super::display::{DisplayInfo, LayoutBook, LayoutProfile};
 use super::input::InputEvent;
 use super::status::SystemMetrics;
 
@@ -106,4 +107,11 @@ pub enum Message {
     RequestUpdate {
         version: String,
     },
+    /// Capacidades do peer, enviadas depois do `HelloAck`. Só a peer >= `SYMMETRIC_MIN_PEER`
+    /// (ver `compat::v02::allowed_for_peer`).
+    Caps(Caps),
+    /// Livro de layouts oficial (D42). Só a peer >= `SYMMETRIC_MIN_PEER`.
+    LayoutBookSync(LayoutBook),
+    /// Proposta de edição do livro pelo lado que não é o host. Só a peer >= `SYMMETRIC_MIN_PEER`.
+    LayoutBookEdit(LayoutBook),
 }

@@ -72,6 +72,17 @@ pub struct LayoutProfile {
     pub windows_detached: bool,
 }
 
+/// Conjunto oficial de layouts trocado entre os dois lados (D42).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LayoutBook {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub host: Machine,
+    pub profiles: Vec<LayoutProfile>,
+    pub active: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum Side {

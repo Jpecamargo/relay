@@ -4,4 +4,4 @@ import type { DisplayInfo } from "./DisplayInfo";
 /**
  * Payload de `relay:displays` e retorno de `get_displays`.
  */
-export type DisplaysPayload = { mac: Array<DisplayInfo>, windows: Array<DisplayInfo>, };
+export type DisplaysPayload = { local: Array<DisplayInfo>, peer: Array<DisplayInfo>, };

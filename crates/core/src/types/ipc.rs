@@ -11,8 +11,8 @@ use super::display::{DisplayInfo, LayoutWarning};
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DisplaysPayload {
-    pub mac: Vec<DisplayInfo>,
-    pub windows: Vec<DisplayInfo>,
+    pub local: Vec<DisplayInfo>,
+    pub peer: Vec<DisplayInfo>,
 }
 
 /// Retorno de `save_layout`.
@@ -57,7 +57,7 @@ pub struct PairingEvent {
     pub expires_at: Option<u64>,
 }
 
-/// Retorno de `agent_new_pairing_code`. `expires_at`: epoch em milissegundos (120 s de validade).
+/// Retorno de `new_pairing_code`. `expires_at`: epoch em milissegundos (120 s de validade).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct NewPairingCode {
@@ -66,7 +66,7 @@ pub struct NewPairingCode {
     pub expires_at: u64,
 }
 
-/// Retorno de `agent_get_service_status`.
+/// Retorno de `get_service_status`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ServiceStatus {

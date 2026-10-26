@@ -132,6 +132,20 @@ pub fn migrate(table: &mut Table) {
                 }
                 table.insert("schema_version".into(), Value::Integer(4));
             }
+            // v4 -> v5: o livro de layouts ganha host e revisão (D42). Nas duas máquinas o host
+            // é o Mac, onde os layouts já estavam na 0.2.
+            4 => {
+                let layout = table
+                    .entry("layout")
+                    .or_insert_with(|| Value::Table(Table::new()));
+                if let Value::Table(layout) = layout {
+                    layout
+                        .entry("host")
+                        .or_insert_with(|| Value::String("Mac".into()));
+                    layout.entry("revision").or_insert(Value::Integer(0));
+                }
+                table.insert("schema_version".into(), Value::Integer(5));
+            }
             _ => break,
         }
         version += 1;
@@ -301,13 +315,13 @@ mod tests {
     fn migra_v0_sem_campo_para_v1() {
         let mut t: Table = "[transition]\ndwell_ms = 200\n".parse().unwrap();
         migrate(&mut t);
-        assert_eq!(t["schema_version"].as_integer(), Some(4));
+        assert_eq!(t["schema_version"].as_integer(), Some(5));
 
         let d = dir();
         let p = d.path().join("config.toml");
         fs::write(&p, "[transition]\ndwell_ms = 200\n").unwrap();
         let c = load_or_default(&p).unwrap();
-        assert_eq!(c.schema_version, 4);
+        assert_eq!(c.schema_version, 5);
         assert_eq!(c.transition.dwell_ms, 200);
         assert!(!d.path().join("config.toml.bak").exists());
     }
@@ -321,9 +335,9 @@ mod tests {
             load_or_default(&p).unwrap()
         };
         let c = load("schema_version = 1\n[transition]\ndwell_ms = 100\n");
-        assert_eq!((c.schema_version, c.transition.dwell_ms), (4, 0));
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (5, 0));
         let c = load("schema_version = 1\n[transition]\ndwell_ms = 250\n");
-        assert_eq!((c.schema_version, c.transition.dwell_ms), (4, 250));
+        assert_eq!((c.schema_version, c.transition.dwell_ms), (5, 250));
         // Já na v2: 100 é escolha do usuário e fica.
         let c = load("schema_version = 2\n[transition]\ndwell_ms = 100\n");
         assert_eq!(c.transition.dwell_ms, 100);
@@ -341,9 +355,60 @@ mod tests {
         )
         .unwrap();
         let c = load_or_default(&p).unwrap();
-        assert_eq!(c.schema_version, 4);
+        assert_eq!(c.schema_version, 5);
         assert_eq!(c.audio.jitter_target_ms, 30);
         assert_eq!(c.network.ports.control, 9);
+    }
+
+    /// Config v4 gravado por um app em `machine` (0.2.x): perfil "Principal" ativo.
+    fn v4_config(machine: &str) -> String {
+        format!(
+            "schema_version = 4
+[layout]
+active = \"Principal\"
+[[layout.profiles]]
+key = [\"d1\", \"w1\"]
+name = \"Principal\"
+windows_detached = false
+[[layout.profiles.displays]]
+display_id = \"d1\"
+machine = \"Mac\"
+sensitivity = 1.0
+[layout.profiles.displays.rect_mm]
+x = 0.0
+y = 0.0
+w = 300.0
+h = 200.0
+[[layout.profiles.displays]]
+display_id = \"w1\"
+machine = \"Windows\"
+sensitivity = 1.0
+[layout.profiles.displays.rect_mm]
+x = 300.0
+y = 0.0
+w = 597.0
+h = 336.0
+[general]
+launch_at_login = {}
+",
+            machine == "Windows"
+        )
+    }
+
+    #[test]
+    fn migra_v4_para_v5_com_host_mac_nas_duas_maquinas() {
+        use crate::types::Machine;
+        for machine in ["Mac", "Windows"] {
+            let c = parse(&v4_config(machine)).unwrap();
+            assert_eq!(c.schema_version, 5, "{machine}");
+            assert_eq!(c.layout.host, Machine::Mac, "{machine}");
+            assert_eq!(c.layout.revision, 0, "{machine}");
+            assert_eq!(c.layout.active.as_deref(), Some("Principal"), "{machine}");
+            assert_eq!(c.layout.profiles.len(), 1, "{machine}");
+            assert_eq!(c.layout.profiles[0].name, "Principal");
+            assert_eq!(c.layout.profiles[0].displays.len(), 2);
+            assert_eq!(c.general.launch_at_login, machine == "Windows");
+        }
     }
 
     #[test]
@@ -354,7 +419,7 @@ mod tests {
             (n.control, n.input, n.audio_mac_to_pc, n.transfer),
             (47800, 47801, 47803, 47804)
         );
-        assert_eq!(c.schema_version, 4);
+        assert_eq!(c.schema_version, 5);
         assert_eq!(c.transition.dwell_ms, 0);
         assert_eq!(c.transition.edge_resistance_pt, 8.0);
         assert_eq!(c.transition.corner_dead_zone_mm, 10.0);
