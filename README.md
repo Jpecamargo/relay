@@ -17,9 +17,9 @@
 
 ---
 
-O Relay transforma o teclado e o trackpad do seu Mac no controle do seu PC Windows. Leve o cursor
-até a borda da tela do MacBook e ele simplesmente continua no monitor do PC; o teclado vai junto,
-com os atalhos que você já sabe de cor. Sem cabo extra, sem switch físico, sem streaming de vídeo:
+O Relay transforma o teclado e o trackpad de um computador no controle do outro: hoje, entre o seu Mac
+e o seu PC Windows. Leve o cursor até a borda da tela do MacBook e ele simplesmente continua no monitor
+do PC (e vice-versa); o teclado vai junto, com os atalhos que você já sabe de cor. Sem cabo extra, sem switch físico, sem streaming de vídeo:
 cada tela continua mostrando o próprio computador, e o Relay só move o seu input entre eles.
 
 ## Por que o Relay
@@ -32,14 +32,20 @@ cada tela continua mostrando o próprio computador, e o Relay só move o seu inp
   (no Windows Terminal, ⌘C copia e Ctrl+C continua interrompendo).
 - **Latência que não se sente.** O movimento do mouse vai por UDP, um evento por pacote, em threads
   dedicadas — cerca de 60 µs de ida e volta em loopback. Em rede cabeada, o atraso é o da própria rede.
+- **O mesmo app nas duas máquinas.** O Relay é um só, com a mesma interface no Mac e no PC: painel na
+  barra de menus ou na bandeja, editor de layout e Ajustes. Qualquer um dos dois pode parear, editar
+  o layout e controlar o outro.
 - **O PC na sua barra de menus.** Volume, mudo, mídia, bloquear, suspender, reiniciar, desligar e até
   ligar o PC (Wake-on-LAN), sem tirar a mão do Mac. CPU, RAM, GPU e temperatura do PC à vista.
 - **Clipboard e arquivos sem fronteira.** Copie no Mac e cole no Windows — texto, rich text, imagens.
   Copie arquivos no Finder e cole no Explorer, ou arraste um arquivo da janela do Mac até o monitor do PC.
 - **O microfone do Mac no PC.** O microfone do Mac vira o microfone do PC: Discord no PC, fone
   conectado no Mac.
+- **Cada máquina oferece o que ela pode.** O Relay mostra só os recursos que o outro lado suporta: o Mac
+  não recebe microfone, captura de tela nem comandos de energia (volume, bloquear, suspender, desligar).
+  O PC controla e é controlado como antes.
 - **Funciona onde outros param.** Um serviço do Windows leva o seu input até o prompt do UAC e a tela de
-  bloqueio. E o caminho inverso também existe: o teclado e o mouse do PC podem controlar o Mac.
+  bloqueio. E o caminho inverso também existe: o teclado e o mouse do PC controlam o Mac.
 - **Privado por padrão.** Pareamento por código de 6 dígitos, todo o tráfego cifrado (Noise + ChaCha20-
   Poly1305), chaves no Keychain e no Credential Manager. Nada passa por servidor: é direto, na sua rede.
 
@@ -56,23 +62,45 @@ Baixe a versão mais recente em **[Releases](https://github.com/Jpecamargo/relay
 As atualizações chegam sozinhas: o Relay procura uma versão nova ao abrir e a cada 6 horas, mostra o
 que mudou e só instala quando você clica em **Atualizar e reiniciar**.
 
+**Vindo da 0.2.x?** A atualização é automática e você não precisa parear de novo. Se um dos lados ainda
+estiver na 0.2, o Relay continua funcionando até ele se atualizar; o lado 0.3 pede a atualização (um Mac
+na 0.2 já avisa sozinho).
+
 > Os builds ainda não têm assinatura de desenvolvedor. No Mac, mova o Relay para Aplicativos e, na
 > primeira abertura, use Ajustes do Sistema › Privacidade e Segurança › **Abrir mesmo assim**. No
 > Windows, o SmartScreen pode avisar: **Mais informações › Executar assim mesmo**.
 
 ## Primeiros passos
 
-1. **No PC:** abra o Relay Agent pelo ícone na bandeja. Ele mostra um código de 6 dígitos.
-2. **No Mac:** clique no ícone do Relay na barra de menus › **Ajustes…** › **Conexão e pareamento**,
-   escolha o PC na lista e digite o código. (Não apareceu? Informe o IP do PC no campo manual.)
+1. **Em qualquer um dos dois:** abra o Relay (ícone na barra de menus do Mac ou na bandeja do Windows)
+   › **Ajustes…** › **Conexão e pareamento**. O pareamento pode começar de qualquer lado:
+   - **Mostrar código:** esta máquina exibe um código de 6 dígitos;
+   - **Digitar código:** escolha o outro computador na lista e digite o código que ele mostra. (Não
+     apareceu? Informe o IP no campo manual.) Aqui você também escolhe **Guardar os layouts em: este
+     computador / no outro computador** (padrão: este computador).
+2. Faça um lado **Mostrar código** e o outro **Digitar código**.
 3. Conceda ao Relay **Acessibilidade** e **Monitoramento de Entrada** quando o macOS pedir, e permita o
    acesso à rede local.
 4. Em **Telas**, posicione os monitores do PC em volta do MacBook como estão na sua mesa.
 5. Leve o cursor até a borda. Para voltar ao Mac a qualquer momento: **⌃⌥1**.
 
+### Layouts: quem guarda a versão oficial
+
+O computador escolhido como **host** guarda a versão oficial dos layouts, e as duas máquinas podem editar
+(a edição de quem não é host é enviada ao host). A troca de host fica em **Ajustes**. Sem o host
+conectado, a outra máquina mostra os layouts em modo só-leitura; o host continua editando normalmente.
+Pareamentos feitos na 0.2 mantêm o Mac como host.
+
 Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência). O microfone do Mac no PC usa o
 [VB-CABLE](https://vb-audio.com/Cable/), driver da VB-Audio distribuído como donationware: o instalador do
-Relay Agent oferece instalá-lo.
+Relay oferece instalá-lo.
+
+## Roteiro
+
+- **0.3** (esta versão): app único e simétrico no Mac e no Windows, compatível com a 0.2.x.
+- **0.4:** PC x PC e Mac x Mac.
+- **0.5:** Linux (X11).
+- **0.6:** Linux (Wayland).
 
 <details>
 <summary><strong>Atalhos do Mac no Windows</strong></summary>
@@ -132,7 +160,7 @@ pnpm dev:mock   # o mesmo, com backend simulado (3 telas, conectado), sem pedir 
 | `crates/platform-windows` | Hooks, SendInput, telas (EDID), Core Audio, clipboard, serviço |
 | `crates/latency-bench` | `relay-bench`: latência ponta a ponta (p50/p95/p99) |
 | `apps/mac` | App do Mac (menu bar + janela) |
-| `apps/windows-agent` | Agente do Windows (bandeja) |
+| `apps/windows-agent` | App do Windows (bandeja); mesma interface do Mac |
 | `apps/windows-service` | Serviço SYSTEM para UAC e tela de bloqueio |
 | `packages/ui` | Componentes React compartilhados e atualizador |
 | `packages/protocol-types` | Tipos TS gerados do core (`pnpm gen:types`) |
