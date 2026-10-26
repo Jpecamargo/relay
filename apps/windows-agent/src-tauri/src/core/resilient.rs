@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use relay_core::types::{
-    Caps, Config, ConnectionStatus, Host, NewPairingCode, Os, ServiceStatus, StatusSnapshot,
+    Caps, Config, ConnectionStatus, DisplaysPayload, Host, LayoutBook, LayoutProfile,
+    NewPairingCode, Os, SaveLayoutResult, ServiceStatus, StatusSnapshot,
 };
 
 use super::AgentCore;
@@ -158,6 +159,40 @@ impl AgentBackend for ResilientBackend {
             .as_ref()
             .map(|c| c.service_status())
             .unwrap_or_default()
+    }
+
+    fn get_displays(&self) -> DisplaysPayload {
+        lock(&self.core)
+            .as_ref()
+            .map(|c| c.get_displays())
+            .unwrap_or_default()
+    }
+
+    fn get_layout(&self) -> LayoutProfile {
+        match lock(&self.core).as_ref() {
+            Some(c) => c.get_layout(),
+            None => super::layout_state::active_profile(&self.get_layout_book())
+                .unwrap_or_else(super::layout_state::empty_profile),
+        }
+    }
+
+    fn get_layout_book(&self) -> LayoutBook {
+        match lock(&self.core).as_ref() {
+            Some(c) => c.get_layout_book(),
+            None => super::layout_state::book_of(&lock(&self.config).layout),
+        }
+    }
+
+    fn save_layout(&self, profile: LayoutProfile) -> AgentResult<SaveLayoutResult> {
+        self.core()?.save_layout(profile)
+    }
+
+    fn set_layout_profiles(&self, profiles: Vec<LayoutProfile>, active: String) -> AgentResult<()> {
+        self.core()?.set_layout_profiles(profiles, active)
+    }
+
+    fn set_layout_host(&self, host: Host) -> AgentResult<()> {
+        self.core()?.set_layout_host(host)
     }
 
     fn config(&self) -> Config {

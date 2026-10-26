@@ -5,6 +5,7 @@
 pub mod audio;
 pub mod config;
 pub mod controls;
+pub mod layout;
 pub mod pairing;
 pub mod status;
 pub mod system;

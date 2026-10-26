@@ -20,19 +20,22 @@ use relay_core::platform::{
     InputInjector, KeyStore, PlatformError,
 };
 use relay_core::types::{
-    CapturedEvent, Config, ConnectionStatus, DisplayInfo, InputEvent, KeyCode, LatencyStats,
-    LayoutProfile, Machine, Message, PairedPeer, PairingEvent, PairingState, PlacedDisplay, Ports,
-    ProfileKey, RectMm, StatusSnapshot, VersionSync,
+    CapturedEvent, Config, ConnectionStatus, DisplayInfo, DisplaysPayload, InputEvent, KeyCode,
+    LatencyStats, LayoutBook, LayoutProfile, Machine, Message, PairedPeer, PairingEvent,
+    PairingState, PlacedDisplay, Ports, ProfileKey, RectMm, StatusSnapshot, VersionSync,
 };
 use rtrb::{Consumer, RingBuffer};
 use tokio::time::{sleep, timeout};
 
 use super::*;
 
+mod layout;
 mod reverse;
 
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 const KEY_A: u16 = 0x1E;
+/// O agente anuncia 0.3.0 nos testes: o peer fake só envia as mensagens da 0.3 a quem é simétrico.
+const AGENT_VERSION: &str = "0.3.0";
 
 // ---- mock do lado Windows ----
 
@@ -42,11 +45,19 @@ struct Rec {
     pairing: Mutex<Vec<PairingEvent>>,
     latency: AtomicUsize,
     update_requests: Mutex<Vec<String>>,
+    layouts: Mutex<Vec<LayoutBook>>,
+    displays: Mutex<Vec<DisplaysPayload>>,
 }
 
 impl UiEvents for Rec {
     fn update_requested(&self, version: &str) {
         self.update_requests.lock().unwrap().push(version.into());
+    }
+    fn layout(&self, b: &LayoutBook) {
+        self.layouts.lock().unwrap().push(b.clone());
+    }
+    fn displays(&self, d: &DisplaysPayload) {
+        self.displays.lock().unwrap().push(d.clone());
     }
     fn status(&self, s: &StatusSnapshot) {
         self.status.lock().unwrap().push(s.clone());
@@ -176,6 +187,14 @@ fn start_agent_full(
     store: Arc<MemoryKeyStore>,
     executor: Option<Box<dyn relay_core::platform::CommandExecutor>>,
 ) -> Agent {
+    start_agent_cfg(store, executor, |_| {})
+}
+
+fn start_agent_cfg(
+    store: Arc<MemoryKeyStore>,
+    executor: Option<Box<dyn relay_core::platform::CommandExecutor>>,
+    tweak: impl FnOnce(&mut Config),
+) -> Agent {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
     let injected = Events::default();
@@ -197,6 +216,7 @@ fn start_agent_full(
     };
     config.transition.dwell_ms = 0;
     config.transition.edge_resistance_pt = 0.0;
+    tweak(&mut config);
 
     let (eng, live) = (engaged.clone(), live_guards.clone());
     let pipe: SharedPipe = Arc::new(Mutex::new(Box::new(MockPipe {
@@ -236,6 +256,7 @@ fn start_agent_full(
         message_hook: None,
         engine_events: None,
         media: None,
+        app_version: Some(AGENT_VERSION.into()),
     };
     let core = AgentCore::start(deps, config, rec.clone()).unwrap();
     Agent {
