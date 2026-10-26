@@ -106,6 +106,7 @@ fn start_reverse_agent() -> RevAgent {
         foreground: None,
         executor: None,
         media: None,
+        app_version: None,
         pointer_guard: Box::new(|| Box::new(())),
         service_probe: Box::new(|helper_active| ServiceStatus {
             installed: true,

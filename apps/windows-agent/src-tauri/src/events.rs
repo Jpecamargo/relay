@@ -1,7 +1,7 @@
 //! dono: WI1
 //! Eventos core→UI do agente (nomes do glossário) emitidos pelo Tauri.
 
-use relay_core::types::{LatencyStats, PairingEvent, StatusSnapshot};
+use relay_core::types::{DisplaysPayload, LatencyStats, LayoutBook, PairingEvent, StatusSnapshot};
 use tauri::{AppHandle, Emitter};
 
 use crate::core::UiEvents;
@@ -19,6 +19,14 @@ impl UiEvents for TauriEvents {
 
     fn pairing(&self, event: &PairingEvent) {
         let _ = self.0.emit("relay:pairing", event);
+    }
+
+    fn layout(&self, book: &LayoutBook) {
+        let _ = self.0.emit("relay:layout", book);
+    }
+
+    fn displays(&self, displays: &DisplaysPayload) {
+        let _ = self.0.emit("relay:displays", displays);
     }
 
     fn update_requested(&self, _version: &str) {

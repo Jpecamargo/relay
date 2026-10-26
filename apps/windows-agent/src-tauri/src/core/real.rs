@@ -95,6 +95,7 @@ pub fn real_deps() -> AgentDeps {
         message_hook: Some(media.hook()),
         engine_events: Some(media.engine_events()),
         media: Some(Box::new(media)),
+        app_version: None,
         keystore,
         injector: Box::new(WindowsInjector::default()),
         pipe: Some(pipe),

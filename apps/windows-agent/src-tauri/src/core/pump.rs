@@ -8,16 +8,18 @@ use relay_core::crypto::{forget_active_peer, remove_peer, save_active_peer};
 use relay_core::discovery::Advertiser;
 use relay_core::engine::Receiver;
 use relay_core::net::{SessionEvent, SessionListener};
+use relay_core::node::layout_host::LayoutEffect;
 use relay_core::platform::{DisplaySource, KeyStore};
 use relay_core::types::{
     Caps, ConnectionStatus, Host, Message, Os, PairedPeer, PairingEvent, PairingState,
     StatusSnapshot, VersionSync,
 };
-use relay_core::version::{APP_VERSION, version_sync};
+use relay_core::version::{APP_VERSION, peer_is_symmetric, version_sync};
 use tokio::sync::{mpsc, watch};
 
 use tokio::time::{Interval, MissedTickBehavior, interval};
 
+use super::layout_state;
 use super::media::{MediaOut, MediaPort};
 use super::reverse::{ReverseDeps, ReverseHandle};
 use super::routed::{BoxCursor, RoutedInjector};
@@ -71,6 +73,9 @@ pub(super) struct Pump {
     cmd_worker: Option<std::sync::mpsc::Sender<(u32, relay_core::types::RemoteCommand)>>,
     cmd_out: Option<mpsc::UnboundedReceiver<Message>>,
     rev_out: Option<mpsc::UnboundedReceiver<Message>>,
+    /// Escolha de host de um pareamento novo (I11 preenche ao parear); consumida por
+    /// `on_new_pairing` assim que a primeira troca de livros da conexão termina.
+    pending_layout_host: Option<Host>,
 }
 
 /// Próxima mensagem do Controller reverso; sem sentido inverso nunca resolve.
@@ -143,10 +148,15 @@ impl Pump {
             })
         };
         let local = deps.displays.list().unwrap_or_default();
+        shared
+            .displays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .local = local.clone();
         let (rev, rev_out) = match reverse.zip(listener.take_input_producer()) {
             Some((rdeps, fast)) => {
                 let (tx, rx) = mpsc::unbounded_channel();
-                let profile = shared.config().layout.profiles.first().cloned();
+                let profile = layout_state::active_profile(&shared.layout().book());
                 let cfg = shared.config().clone();
                 (
                     Some(ReverseHandle::spawn(
@@ -176,7 +186,7 @@ impl Pump {
             rx.set_event_handler(h);
         }
         // Cópia do layout já guardada: o retorno funciona logo na primeira conexão (D11).
-        let profile = shared.config().layout.profiles.first().cloned();
+        let profile = layout_state::active_profile(&shared.layout().book());
         if let Some(p) = profile {
             rx.set_profile(p);
         }
@@ -209,6 +219,7 @@ impl Pump {
             cmd_worker,
             cmd_out,
             rev_out,
+            pending_layout_host: None,
         }
     }
 
@@ -304,6 +315,11 @@ impl Pump {
     fn publish(&mut self) {
         let status = *self.status_rx.borrow();
         let peer_version = self.listener.peer_version();
+        let (layout_host, layout_editable) = layout_state::status_fields(
+            &self.shared.layout(),
+            status == ConnectionStatus::Connected,
+            peer_is_symmetric(peer_version.as_deref()),
+        );
         let snap = StatusSnapshot {
             status: if status != ConnectionStatus::Connected && self.pairing_until.is_some() {
                 ConnectionStatus::Pairing
@@ -332,8 +348,8 @@ impl Pump {
             peer_os: None,
             local_caps: Caps::baseline(Os::Windows),
             peer_caps: None,
-            layout_host: Host::Peer,
-            layout_editable: false,
+            layout_host,
+            layout_editable,
         };
         let mut cur = self.shared.snapshot();
         if *cur != snap {
@@ -361,6 +377,7 @@ impl Pump {
             if let Some(rev) = &self.rev {
                 rev.set_link(false);
             }
+            self.shared.layout().peer_disconnected();
         }
         // Sessão de pé: a mídia recebe IP do Mac e chaves de áudio; caiu: desliga o áudio.
         let link = self
@@ -403,7 +420,14 @@ impl Pump {
             rev.set_local_displays(local.clone());
             rev.set_link(true);
         }
+        self.set_local_displays(local.clone());
         let mut out = vec![Message::Displays(local)];
+        // Livro de layouts: o estado manda o dele (peer 0.3) ou nada (peer 0.2: o Mac é o host).
+        let fx = self
+            .shared
+            .layout()
+            .peer_connected(peer_is_symmetric(self.listener.peer_version().as_deref()));
+        self.apply_layout(fx, &mut out);
         if let Some(exe) = &self.foreground {
             out.push(Message::ForegroundApp { exe: exe.clone() });
         }
@@ -447,8 +471,32 @@ impl Pump {
             None => Vec::new(),
         };
         match &msg {
-            Message::Displays(d) => self.mac_displays = d.clone(),
-            Message::LayoutSync(profile) => self.persist_layout(profile),
+            Message::Displays(d) => {
+                self.mac_displays = d.clone();
+                self.shared
+                    .displays
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .peer = d.clone();
+                self.on_displays_changed(&mut out);
+            }
+            Message::LayoutSync(profile) => {
+                let fx = self.shared.layout().on_layout_sync(profile.clone());
+                self.apply_layout(fx, &mut out);
+            }
+            Message::LayoutBookSync(book) => {
+                let fx = self.shared.layout().on_book_sync(book.clone());
+                self.apply_layout(fx, &mut out);
+                // Primeira troca da conexão resolvida: aplica a escolha de host do pareamento novo.
+                if let Some(choice) = self.pending_layout_host.take() {
+                    let fx = self.shared.layout().on_new_pairing(choice);
+                    self.apply_layout(fx, &mut out);
+                }
+            }
+            Message::LayoutBookEdit(book) => {
+                let fx = self.shared.layout().on_book_edit(book.clone());
+                self.apply_layout(fx, &mut out);
+            }
             Message::Unpair => {
                 self.forget_peer();
                 self.rx.focus_lost();
@@ -468,7 +516,6 @@ impl Pump {
         if let Some(rev) = &self.rev {
             match &msg {
                 Message::Displays(_) => rev.send(msg.clone()),
-                Message::LayoutSync(p) => rev.set_profile(p.clone()),
                 Message::TakeControl => {
                     rev.send(msg.clone());
                     to_controller = true;
@@ -502,19 +549,65 @@ impl Pump {
         self.send_all(out).await;
     }
 
-    /// `LayoutSync` recebido vira a cópia única no Config do agente: o perfil em uso no Mac,
-    /// usado no retorno antes da primeira sincronização (D11).
-    fn persist_layout(&self, profile: &relay_core::types::LayoutProfile) {
-        let snapshot = {
-            let mut cfg = self.shared.config();
-            if cfg.layout.profiles.as_slice() == std::slice::from_ref(profile) {
-                return;
+    /// Aplica os efeitos do estado de layouts: grava no config, avisa a UI e o engine e acumula as
+    /// mensagens a enviar em `out`. Grava e emite o livro ATUAL (não o do efeito): edições da UI e
+    /// mensagens do peer chegam por caminhos diferentes e o último estado é o que vale.
+    fn apply_layout(&mut self, fx: Vec<LayoutEffect>, out: &mut Vec<Message>) {
+        let (mut persist, mut emit) = (false, false);
+        for e in fx {
+            match e {
+                LayoutEffect::Send(m) => out.push(m),
+                LayoutEffect::Persist(_) => persist = true,
+                LayoutEffect::Emit(_) => emit = true,
             }
-            cfg.layout.profiles = vec![profile.clone()];
-            cfg.layout.active = None;
-            cfg.clone()
-        };
-        self.shared.save_config(&snapshot);
+        }
+        if persist {
+            let snapshot = {
+                let layout = self.shared.layout().to_config();
+                let mut cfg = self.shared.config();
+                cfg.layout = layout;
+                cfg.clone()
+            };
+            self.shared.save_config(&snapshot);
+        }
+        if emit {
+            let book = self.shared.layout().book();
+            // Receiver e Controller reverso passam a usar o perfil ativo do livro.
+            if let Some(p) = layout_state::active_profile(&book) {
+                self.rx.set_profile(p.clone());
+                if let Some(rev) = &self.rev {
+                    rev.set_profile(p);
+                }
+            }
+            self.events.layout(&book);
+        }
+        self.publish();
+    }
+
+    /// Telas deste PC mudaram: atualiza o payload e a UI.
+    fn set_local_displays(&mut self, local: Vec<relay_core::types::DisplayInfo>) {
+        self.shared
+            .displays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .local = local;
+    }
+
+    /// Conjunto de telas (PC + Mac) mudou: emite `relay:displays` e deixa o host criar o perfil
+    /// do conjunto novo (regra de I4). Sem as telas do Mac não há conjunto para casar.
+    fn on_displays_changed(&mut self, out: &mut Vec<Message>) {
+        let payload = self
+            .shared
+            .displays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        self.events.displays(&payload);
+        if self.connected() && !payload.peer.is_empty() {
+            let all: Vec<_> = payload.local.iter().chain(&payload.peer).cloned().collect();
+            let fx = self.shared.layout().on_displays(&all);
+            self.apply_layout(fx, out);
+        }
     }
 
     // ---- comandos da UI e do sistema ----
@@ -585,9 +678,19 @@ impl Pump {
                 if let Some(rev) = &self.rev {
                     rev.set_local_displays(local.clone());
                 }
+                self.set_local_displays(local.clone());
+                let mut out = Vec::new();
+                self.on_displays_changed(&mut out);
                 if self.connected() {
-                    self.send_all(vec![Message::Displays(local)]).await;
+                    out.insert(0, Message::Displays(local));
                 }
+                self.send_all(out).await;
+            }
+            Cmd::SetPendingLayoutHost(host) => self.pending_layout_host = Some(host),
+            Cmd::LayoutEffects(fx) => {
+                let mut out = Vec::new();
+                self.apply_layout(fx, &mut out);
+                self.send_all(out).await;
             }
             Cmd::Foreground(exe) => {
                 self.foreground = Some(exe.clone());

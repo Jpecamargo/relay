@@ -2,7 +2,13 @@
 //! Contrato entre o casco Tauri e o núcleo do agente. O casco só conhece este trait; o `AgentCore`
 //! real (WI1) o implementa e o `MockBackend` (só `#[cfg(test)]`) serve aos testes.
 
-use relay_core::types::{Config, NewPairingCode, ServiceStatus, StatusSnapshot};
+use relay_core::types::{
+    Config, DisplaysPayload, Host, LayoutBook, LayoutProfile, NewPairingCode, SaveLayoutResult,
+    ServiceStatus, StatusSnapshot,
+};
+
+/// Erro exato que o front reconhece quando a edição de layouts não é permitida (só-leitura).
+pub const LAYOUT_READ_ONLY: &str = "layout_read_only";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
@@ -28,6 +34,15 @@ pub trait AgentBackend: Send + Sync {
     fn service_status(&self) -> ServiceStatus;
     fn config(&self) -> Config;
     fn save_config(&self, config: Config) -> AgentResult<()>;
+    /// Telas deste PC e as últimas recebidas do Mac.
+    fn get_displays(&self) -> DisplaysPayload;
+    /// Perfil em uso do livro de layouts.
+    fn get_layout(&self) -> LayoutProfile;
+    fn get_layout_book(&self) -> LayoutBook;
+    /// Grava o perfil (um por nome) e o torna o ativo. `Err("layout_read_only")` em só-leitura.
+    fn save_layout(&self, profile: LayoutProfile) -> AgentResult<SaveLayoutResult>;
+    fn set_layout_profiles(&self, profiles: Vec<LayoutProfile>, active: String) -> AgentResult<()>;
+    fn set_layout_host(&self, host: Host) -> AgentResult<()>;
     /// Mensagem de erro quando o núcleo não subiu (bandeja em estado de erro); `None` = ok.
     fn error(&self) -> Option<String> {
         None
@@ -42,9 +57,10 @@ pub use mock::MockBackend;
 mod mock {
     use std::sync::Mutex;
 
-    use super::{AgentBackend, AgentResult};
+    use super::{AgentBackend, AgentError, AgentResult};
     use relay_core::types::{
-        Caps, Config, ConnectionStatus, Host, NewPairingCode, Os, ServiceStatus, StatusSnapshot,
+        Caps, Config, ConnectionStatus, DisplaysPayload, Host, LayoutBook, LayoutProfile,
+        NewPairingCode, Os, ProfileKey, SaveLayoutResult, ServiceStatus, StatusSnapshot,
     };
 
     /// Validade do código de pareamento (D5).
@@ -151,6 +167,41 @@ mod mock {
 
         fn service_status(&self) -> ServiceStatus {
             ServiceStatus::default()
+        }
+
+        fn get_displays(&self) -> DisplaysPayload {
+            DisplaysPayload::default()
+        }
+
+        fn get_layout(&self) -> LayoutProfile {
+            LayoutProfile {
+                key: ProfileKey(Vec::new()),
+                name: String::new(),
+                displays: Vec::new(),
+                windows_detached: false,
+            }
+        }
+
+        fn get_layout_book(&self) -> LayoutBook {
+            let l = self.lock().config.layout.clone();
+            LayoutBook {
+                revision: l.revision,
+                host: l.host,
+                profiles: l.profiles,
+                active: l.active,
+            }
+        }
+
+        fn save_layout(&self, _: LayoutProfile) -> AgentResult<SaveLayoutResult> {
+            Err(AgentError::Backend(super::LAYOUT_READ_ONLY.into()))
+        }
+
+        fn set_layout_profiles(&self, _: Vec<LayoutProfile>, _: String) -> AgentResult<()> {
+            Err(AgentError::Backend(super::LAYOUT_READ_ONLY.into()))
+        }
+
+        fn set_layout_host(&self, _: Host) -> AgentResult<()> {
+            Err(AgentError::Backend(super::LAYOUT_READ_ONLY.into()))
         }
 
         fn config(&self) -> Config {

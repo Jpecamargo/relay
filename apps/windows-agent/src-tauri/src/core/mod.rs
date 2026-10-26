@@ -8,6 +8,7 @@
 //! controla este lado). A UI (`AgentBackend`) só enfileira comandos e lê o snapshot.
 
 pub mod executor;
+mod layout_state;
 pub mod media;
 mod pump;
 pub mod real;
@@ -28,16 +29,20 @@ use relay_core::crypto::{
 use relay_core::discovery::Advertiser;
 use relay_core::engine::EventHandler;
 use relay_core::net::{ListenerConfig, PAIRING_CODE_TTL, SessionListener};
+use relay_core::node::layout_host::{
+    LayoutEffect, LayoutError as HostLayoutError, LayoutHostState,
+};
 use relay_core::platform::{
     CommandExecutor, CursorControl, DisplaySource, InputInjector, KeyStore,
 };
 use relay_core::types::{
-    AudioState, Caps, Config, ConnectionStatus, Host, LatencyStats, Message, NewPairingCode, Os,
-    PairingEvent, ServiceStatus, StatusSnapshot,
+    AudioState, Caps, Config, ConnectionStatus, DisplaysPayload, Host, LatencyStats, LayoutBook,
+    LayoutProfile, Message, NewPairingCode, Os, PairingEvent, SaveLayoutResult, ServiceStatus,
+    StatusSnapshot,
 };
 use tokio::sync::mpsc;
 
-use crate::backend::{AgentBackend, AgentError, AgentResult};
+use crate::backend::{AgentBackend, AgentError, AgentResult, LAYOUT_READ_ONLY};
 pub use resilient::ResilientBackend;
 pub use reverse::{ReverseDeps, ReverseHandle};
 pub use routed::{BoxCursor, PipeInjector, RoutedInjector, SharedPipe};
@@ -51,6 +56,10 @@ pub trait UiEvents: Send + Sync {
     /// No máximo 2 Hz.
     fn latency(&self, stats: &LatencyStats);
     fn pairing(&self, event: &PairingEvent);
+    /// `relay:layout`: o livro de layouts mudou (edição, sincronização ou perfil novo).
+    fn layout(&self, book: &LayoutBook);
+    /// `relay:displays`: telas deste PC ou do Mac mudaram.
+    fn displays(&self, displays: &DisplaysPayload);
     /// O Mac, numa versão mais nova, pede que este agente se atualize: a UI procura a atualização
     /// e abre o modal (quem decide instalar é a pessoa).
     fn update_requested(&self, version: &str);
@@ -92,10 +101,16 @@ pub struct AgentDeps {
     pub engine_events: Option<EventHandler>,
     /// Mídia (WI3): áudio, clipboard e arquivos. `None` = sem mídia.
     pub media: Option<Box<dyn media::MediaPort>>,
+    /// Versão anunciada no Hello (`None` = a do pacote). Só os testes a trocam, para simular o
+    /// agente de uma versão que o peer fake enxerga como simétrica.
+    pub app_version: Option<String>,
 }
 
 pub(crate) enum Cmd {
-    OpenPairing { code: String, expires_at_ms: u64 },
+    OpenPairing {
+        code: String,
+        expires_at_ms: u64,
+    },
     Revoke,
     SetPaused(bool),
     SetLocked(bool),
@@ -106,6 +121,10 @@ pub(crate) enum Cmd {
     Foreground(String),
     Fast(relay_core::net::FastEvent),
     ConfigChanged,
+    /// Efeitos de uma edição de layout feita pela UI (o estado já foi alterado em `Shared`).
+    LayoutEffects(Vec<LayoutEffect>),
+    /// Escolha de host de um pareamento novo, aplicada depois da primeira troca de livros.
+    SetPendingLayoutHost(Host),
     Shutdown,
 }
 
@@ -113,6 +132,10 @@ pub(crate) enum Cmd {
 pub(crate) struct Shared {
     pub snapshot: Mutex<StatusSnapshot>,
     pub config: Mutex<Config>,
+    /// Livro de layouts (D42). O pump e os comandos da UI o alteram sob este lock; os efeitos
+    /// (enviar, gravar, emitir) são aplicados pelo pump.
+    pub layout: Mutex<LayoutHostState>,
+    pub displays: Mutex<DisplaysPayload>,
     pub tx: mpsc::UnboundedSender<Cmd>,
     pub pipe: Option<SharedPipe>,
     pub service_probe: Box<dyn Fn(bool) -> ServiceStatus + Send + Sync>,
@@ -126,6 +149,10 @@ impl Shared {
 
     pub fn config(&self) -> MutexGuard<'_, Config> {
         self.config.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn layout(&self) -> MutexGuard<'_, LayoutHostState> {
+        self.layout.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn save_config(&self, config: &Config) {
@@ -152,6 +179,11 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 fn initial_snapshot(config: &Config) -> StatusSnapshot {
+    let (layout_host, layout_editable) = layout_state::status_fields(
+        &LayoutHostState::new(layout_state::LOCAL, config.layout.clone()),
+        false,
+        false,
+    );
     StatusSnapshot {
         status: ConnectionStatus::Disconnected,
         peer_name: None,
@@ -168,8 +200,8 @@ fn initial_snapshot(config: &Config) -> StatusSnapshot {
         peer_os: None,
         local_caps: Caps::baseline(Os::Windows),
         peer_caps: None,
-        layout_host: Host::Peer,
-        layout_editable: false,
+        layout_host,
+        layout_editable,
     }
 }
 
@@ -204,6 +236,11 @@ impl AgentCore {
             snapshot: Mutex::new(initial_snapshot(&config)),
             pipe: deps.pipe.clone(),
             config_path: deps.config_path.clone(),
+            layout: Mutex::new(LayoutHostState::new(
+                layout_state::LOCAL,
+                config.layout.clone(),
+            )),
+            displays: Mutex::default(),
             config: Mutex::new(config),
             tx,
             service_probe: probe,
@@ -321,6 +358,43 @@ impl AgentBackend for AgentCore {
         self.send(Cmd::Revoke)
     }
 
+    fn get_displays(&self) -> DisplaysPayload {
+        self.shared
+            .displays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn get_layout(&self) -> LayoutProfile {
+        layout_state::active_profile(&self.shared.layout().book())
+            .unwrap_or_else(layout_state::empty_profile)
+    }
+
+    fn get_layout_book(&self) -> LayoutBook {
+        self.shared.layout().book()
+    }
+
+    /// Valida, faz o upsert no livro e o torna ativo. Avisos de Dock só existem no Mac (D47).
+    fn save_layout(&self, profile: LayoutProfile) -> AgentResult<SaveLayoutResult> {
+        let current = self.shared.layout().book().profiles;
+        let (profiles, active) =
+            layout_state::upsert(&current, profile).map_err(AgentError::Backend)?;
+        self.edit_layout(profiles, Some(active))?;
+        Ok(SaveLayoutResult::default())
+    }
+
+    fn set_layout_profiles(&self, profiles: Vec<LayoutProfile>, active: String) -> AgentResult<()> {
+        let (profiles, active) =
+            layout_state::check_profiles(profiles, &active).map_err(AgentError::Backend)?;
+        self.edit_layout(profiles, Some(active))
+    }
+
+    fn set_layout_host(&self, host: Host) -> AgentResult<()> {
+        let fx = self.shared.layout().set_host(host).map_err(read_only)?;
+        self.send(Cmd::LayoutEffects(fx))
+    }
+
     fn service_status(&self) -> ServiceStatus {
         let helper_active = self
             .shared
@@ -338,6 +412,28 @@ impl AgentBackend for AgentCore {
         self.shared.save_config(&config);
         *self.shared.config() = config;
         self.send(Cmd::ConfigChanged)
+    }
+}
+
+fn read_only(_: HostLayoutError) -> AgentError {
+    AgentError::Backend(LAYOUT_READ_ONLY.into())
+}
+
+impl AgentCore {
+    /// Registra a escolha de host do pareamento novo (D44): `on_new_pairing` a consome quando a
+    /// primeira troca de livros da conexão termina.
+    #[cfg_attr(not(test), allow(dead_code))] // quem chama é o pareamento (I11)
+    pub(crate) fn set_pending_layout_host(&self, host: Host) -> AgentResult<()> {
+        self.send(Cmd::SetPendingLayoutHost(host))
+    }
+
+    fn edit_layout(&self, profiles: Vec<LayoutProfile>, active: Option<String>) -> AgentResult<()> {
+        let fx = self
+            .shared
+            .layout()
+            .edit(profiles, active)
+            .map_err(read_only)?;
+        self.send(Cmd::LayoutEffects(fx))
     }
 }
 
@@ -366,6 +462,9 @@ async fn setup(
     let ports = shared.config().network.ports.clone();
     let mut lcfg = ListenerConfig::new(identity, device, peers.clone(), ports);
     lcfg.bind_ip = deps.bind_ip;
+    if let Some(v) = deps.app_version.clone() {
+        lcfg.app_version = v;
+    }
 
     let fast_tx = shared.tx.clone();
     let listener = SessionListener::start(
