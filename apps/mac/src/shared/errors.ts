@@ -5,6 +5,7 @@ const MENSAGENS: Record<string, string> = {
   timeout: "O PC não respondeu a tempo.",
   confirmation_required: "Ação precisa de confirmação.",
   vbcable_missing: "Microfone do Mac no PC indisponível: instale o VB-CABLE no PC (vb-audio.com/Cable).",
+  layout_read_only: "Os layouts estão no outro computador: conecte-o para editar.",
   unsupported: "Não suportado neste sistema.",
 };
 

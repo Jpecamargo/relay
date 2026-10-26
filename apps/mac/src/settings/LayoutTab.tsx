@@ -2,7 +2,7 @@
 import { invokeCommand, type Host } from "@relay/protocol-types";
 import { Banner, Section, Select } from "@relay/ui";
 import { useState } from "react";
-import { errorMessage } from "../shared/errors";
+import { errorText } from "../shared/errors";
 import { useStatus } from "../shared/useStatus";
 import styles from "./settings.module.css";
 
@@ -23,7 +23,7 @@ export function LayoutTab() {
     try {
       await invokeCommand("set_layout_host", { host });
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorText(e));
     } finally {
       setPending(null);
     }

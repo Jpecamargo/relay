@@ -1,5 +1,5 @@
 // Janela principal "Relay": sidebar de seções (estilo Ajustes do Sistema) + conteúdo.
-import { invokeCommand, type TransferProgress } from "@relay/protocol-types";
+import { CAPS, hasCap, invokeCommand, type TransferProgress } from "@relay/protocol-types";
 import { Icon, StatusDot, updateOf, UpdaterProvider, useRelayEvent, useUpdate, type IconName } from "@relay/ui";
 import { listen } from "@tauri-apps/api/event";
 import { Fragment, useCallback, useEffect, useState } from "react";
@@ -145,7 +145,7 @@ function MainShell() {
             {section === "clipboard" ? (
               <>
                 <SettingsPane views={["clipboard"]} />
-                <ClipboardNow act={act} />
+                <ClipboardNow act={act} canPull={hasCap(status.local_caps, CAPS.FILE_PULL)} />
               </>
             ) : null}
             {section === "connection" ? <SettingsPane views={["connection"]} /> : null}
@@ -160,7 +160,7 @@ function MainShell() {
   );
 }
 
-function ClipboardNow({ act }: { act: ReturnType<typeof useActions>["act"] }) {
+function ClipboardNow({ act, canPull }: { act: ReturnType<typeof useActions>["act"]; canPull: boolean }) {
   return (
     <div className={styles.inlineAction}>
       <button
@@ -169,12 +169,14 @@ function ClipboardNow({ act }: { act: ReturnType<typeof useActions>["act"] }) {
       >
         <Icon name="send" /> Enviar clipboard agora
       </button>
+      {canPull ? (
       <button
         type="button" className={styles.linkAction}
         onClick={() => void act("Receber arquivos", () => invokeCommand("receive_remote_files"))}
       >
         <Icon name="download" /> Receber arquivos do outro computador
       </button>
+      ) : null}
     </div>
   );
 }

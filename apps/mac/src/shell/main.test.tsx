@@ -11,7 +11,8 @@ const bridge = vi.hoisted(() => ({
   peer: "Desktop" as string | null,
 }));
 
-vi.mock("@relay/protocol-types", () => ({
+vi.mock("@relay/protocol-types", async (importActual) => ({
+  ...(await importActual<typeof import("@relay/protocol-types")>()),
   listenEvent: async (name: string, cb: (p: unknown) => void) => {
     const prev = bridge.listeners.get(name);
     bridge.listeners.set(name, (p) => {
@@ -51,7 +52,7 @@ beforeEach(() => {
   bridge.invoke.mockReset();
   bridge.invoke.mockImplementation(async (name: string) => {
     if (name === "get_status")
-      return { status: "Connected", peer_name: bridge.peer, focus: "Local", locked: false, paused: false, secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false }, peer_version: null, version_sync: "InSync", local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: null, layout_host: "Local", layout_editable: true };
+      return { status: "Connected", peer_name: bridge.peer, focus: "Local", locked: false, paused: false, secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false }, peer_version: null, version_sync: "InSync", local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: { os: "Windows", features: 8 }, layout_host: "Local", layout_editable: true };
     if (name === "get_displays") return { local: [], peer: [] };
     if (name === "get_config") return structuredClone(CONFIG);
     if (name === "list_discovered") return [PC];

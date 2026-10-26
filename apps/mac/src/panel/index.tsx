@@ -107,9 +107,9 @@ export function Panel() {
   const incompatible = typeof status.status === "object" ? status.status.IncompatibleVersion : undefined;
   const pcUpdate = !online
     ? null
-    : status.version_sync === "PeerBehind"
+    : status.version_sync === "PeerBehind" && status.peer_os !== "Mac"
       ? `Atualizando ${peer} para a versão ${updater.version || "nova"}…`
-      : status.version_sync === "PeerBehindManual"
+      : status.version_sync === "PeerBehindManual" || status.version_sync === "PeerBehind"
         ? `Atualize o Relay no ${peer} para ${updater.version || "a versão mais nova"}.`
         : null;
 

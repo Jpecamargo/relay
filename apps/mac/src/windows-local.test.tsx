@@ -197,3 +197,36 @@ test("janela principal no Windows: nenhuma seção nomeia os lados por Mac/PC", 
     expect(text(), section).not.toMatch(/Bloquear|Reiniciar|Saída de som|Capturar tela/);
   }
 });
+
+test("janela principal: Windows local não mostra ferramentas, métricas nem receber arquivos; Mac local mostra", async () => {
+  const hidden = /Ferramentas do outro computador|Receber arquivos|Sem métricas|Capturar tela/;
+  render(<Main />);
+  await screen.findByRole("heading", { name: "Visão geral" });
+  await new Promise((r) => setTimeout(r, 30));
+  expect(text()).not.toMatch(hidden);
+  fireEvent.click(screen.getByRole("button", { name: "Clipboard e arquivos" }));
+  await screen.findByRole("heading", { name: "Clipboard e arquivos" });
+  expect(text()).not.toMatch(/Receber arquivos/);
+  cleanup();
+
+  status = { ...MAC_STATUS, peer_caps: { os: "Windows", features: (1 << 10) - 1 } } as unknown as StatusSnapshot;
+  render(<Main />);
+  await screen.findByRole("heading", { name: "Visão geral" });
+  expect(await screen.findByText(/Ferramentas do outro computador/)).toBeTruthy();
+  expect(text()).toMatch(/Sem métricas/);
+  expect(text()).toMatch(/Receber arquivos/);
+});
+
+test("painel num PC ligado a Mac 0.2 atrasado pede atualização manual, sem dizer que atualiza", async () => {
+  status = { ...WINDOWS_STATUS, version_sync: "PeerBehind" } as unknown as StatusSnapshot;
+  render(<Panel />);
+  expect(await screen.findByText(new RegExp(`Atualize o Relay no ${PEER}`))).toBeTruthy();
+  expect(text()).not.toMatch(/Atualizando/);
+});
+
+test("editor no Windows manda segurar Alt", async () => {
+  render(<Editor />);
+  await screen.findByTestId("display-m1");
+  expect(text()).toMatch(/segure Alt para/);
+  expect(text()).not.toMatch(/Option para/);
+});
