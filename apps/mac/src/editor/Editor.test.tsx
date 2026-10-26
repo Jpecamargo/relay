@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { LayoutProfile } from "@relay/protocol-types";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { Editor } from "./index";
 
@@ -14,10 +14,13 @@ class TestPointerEvent extends MouseEvent {
 }
 vi.stubGlobal("PointerEvent", TestPointerEvent);
 
-const mock = vi.hoisted(() => ({ invoke: vi.fn() }));
+const mock = vi.hoisted(() => ({ invoke: vi.fn(), handlers: new Map<string, (p: unknown) => void>() }));
 vi.mock("@relay/protocol-types", () => ({
   invokeCommand: mock.invoke,
-  listenEvent: async () => () => undefined,
+  listenEvent: async (name: string, cb: (p: unknown) => void) => {
+    mock.handlers.set(name, cb);
+    return () => mock.handlers.delete(name);
+  },
 }));
 
 const info = (id: string, name: string, machine: string, mm: [number, number]) => ({
@@ -33,12 +36,15 @@ const profile: LayoutProfile = {
   windows_detached: false,
 } as LayoutProfile;
 
+let status: Record<string, unknown> = {};
+
 function backend(warnings: unknown[] = []) {
   mock.invoke.mockImplementation(async (name: string) => {
     if (name === "get_displays")
       return { local: [info("mac", "MacBook Pro", "Mac", [302, 196])], peer: [info("d1", "Dell 1", "Windows", [597, 336]), info("d2", "Dell 2", "Windows", [597, 336])] };
     if (name === "get_layout") return profile;
-    if (name === "get_config") return { layout: { profiles: [] } };
+    if (name === "get_layout_book") return { revision: 1, host: "Mac", profiles: [], active: null };
+    if (name === "get_status") return { peer_name: "Dell-PC", peer_version: "0.3.0", layout_host: "Local", layout_editable: true, ...status };
     if (name === "save_layout") return { warnings };
   });
 }
@@ -46,6 +52,8 @@ function backend(warnings: unknown[] = []) {
 afterEach(() => {
   cleanup();
   mock.invoke.mockReset();
+  mock.handlers.clear();
+  status = {};
 });
 
 const rectOf = (id: string) => screen.getByTestId(`display-${id}`).querySelector("rect")!;
@@ -144,4 +152,58 @@ test("salvar com outro nome renomeia o perfil em vez de criar outro", async () =
   const rename = mock.invoke.mock.calls.find((c) => c[0] === "set_layout_profiles")!;
   expect(rename[1]).toEqual({ profiles: [{ ...profile, name: "Escritório" }], active: "Escritório" });
   expect(mock.invoke.mock.calls.find((c) => c[0] === "save_layout")![1].profile.name).toBe("Escritório");
+});
+
+test("editável (Mac): selo Este computador na tela local e sem aviso", async () => {
+  backend();
+  render(<Editor />);
+  await screen.findByTestId("display-mac");
+  expect(screen.getByTestId("display-mac").textContent).toContain("Este computador");
+  expect(screen.getByTestId("display-d1").textContent).not.toContain("Este computador");
+  expect(screen.queryByText(/Os layouts ficam em/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Salvar" })).toBeTruthy();
+});
+
+async function readOnly(extra: Record<string, unknown>) {
+  status = { layout_host: "Peer", layout_editable: false, ...extra };
+  backend();
+  render(<Editor />);
+  await screen.findByTestId("display-mac");
+  await screen.findByText(/Dell-PC/);
+}
+
+test("só-leitura com host offline: avisa, desabilita controles e não arrasta", async () => {
+  await readOnly({ peer_version: null });
+  expect(screen.getByText(/Os layouts ficam em Dell-PC. Conecte-o/)).toBeTruthy();
+  for (const n of ["Novo perfil", "Excluir perfil", "Alinhar pelo topo", "Salvar"])
+    expect(screen.getByRole("button", { name: n })).toHaveProperty("disabled", true);
+  expect(screen.getByLabelText("Nome do perfil")).toHaveProperty("disabled", true);
+  for (const sl of screen.getAllByRole("slider")) expect(sl).toHaveProperty("disabled", true);
+  const dell = screen.getByTestId("display-d1");
+  fireEvent.pointerDown(dell, { clientX: 100, clientY: 100, pointerId: 1 });
+  fireEvent.pointerMove(dell, { clientX: 102, clientY: 237, pointerId: 1 });
+  fireEvent.pointerUp(dell, { pointerId: 1 });
+  expect(rectOf("d1").getAttribute("y")).toBe("0");
+});
+
+test("só-leitura com peer 0.2: pede para atualizar o Relay no peer", async () => {
+  await readOnly({ peer_version: "0.2.4" });
+  expect(screen.getByText(/Atualize o Relay em Dell-PC/)).toBeTruthy();
+});
+
+test("relay:layout recarrega o livro, mantém a tela selecionada e descarta o arraste", async () => {
+  backend();
+  render(<Editor />);
+  await screen.findByTestId("display-mac");
+  fireEvent.click(screen.getByRole("button", { name: /Dell 2/ }));
+  const dell = screen.getByTestId("display-d1");
+  fireEvent.pointerDown(dell, { clientX: 100, clientY: 100, pointerId: 1 });
+  fireEvent.pointerMove(dell, { clientX: 102, clientY: 237, pointerId: 1 });
+  expect(rectOf("d1").getAttribute("y")).not.toBe("0");
+  const before = mock.invoke.mock.calls.filter((c) => c[0] === "get_layout_book").length;
+  await waitFor(() => expect(mock.handlers.has("relay:layout")).toBe(true));
+  act(() => mock.handlers.get("relay:layout")!({ revision: 2, host: "Mac", profiles: [], active: null }));
+  await waitFor(() => expect(mock.invoke.mock.calls.filter((c) => c[0] === "get_layout_book").length).toBe(before + 1));
+  await waitFor(() => expect(rectOf("d1").getAttribute("y")).toBe("0"));
+  expect(screen.getByRole("button", { name: /Dell 1/ }).parentElement!.getAttribute("data-selected")).toBe("true");
 });
