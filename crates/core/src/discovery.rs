@@ -8,6 +8,7 @@ use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo};
 
 use crate::types::consts::{MDNS_SERVICE_TYPE, PORT_CONTROL, PORT_INPUT, PROTOCOL_VERSION};
 use crate::types::{DiscoveredPeer, Os};
+use crate::version::APP_VERSION;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
@@ -37,7 +38,7 @@ pub fn local_hostname() -> String {
         .unwrap_or_else(|| "relay".to_string())
 }
 
-/// Anuncia `_relay._tcp.local.` (instância = hostname; TXT id, pv, udp). Para ao ser descartado.
+/// Anuncia `_relay._tcp.local.` (instância = hostname; TXT id, pv, udp, os, v). Para ao ser descartado.
 pub struct Advertiser {
     daemon: ServiceDaemon,
     fullname: String,
@@ -74,6 +75,8 @@ impl Advertiser {
             ("id", device_id.to_string()),
             ("pv", PROTOCOL_VERSION.to_string()),
             ("udp", input_port.to_string()),
+            ("os", Os::current().as_txt().to_string()),
+            ("v", APP_VERSION.to_string()),
         ];
         let host = format!("{instance}.local.");
         let info = ServiceInfo::new(
@@ -227,6 +230,46 @@ fn valid_hostname(h: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn service(props: &[(&str, &str)]) -> ResolvedService {
+        let props: Vec<(String, String)> = props
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        ServiceInfo::new(
+            MDNS_SERVICE_TYPE,
+            "pc",
+            "pc.local.",
+            "192.168.0.10",
+            PORT_CONTROL,
+            &props[..],
+        )
+        .unwrap()
+        .as_resolved_service()
+    }
+
+    #[test]
+    fn txt_v02_sem_os_nem_versao() {
+        let p =
+            peer_from_service(&service(&[("id", "d1"), ("pv", "1"), ("udp", "47801")])).unwrap();
+        assert_eq!(p.device_id, "d1");
+        assert_eq!(p.os, None);
+        assert_eq!(p.app_version, None);
+    }
+
+    #[test]
+    fn txt_v03_com_os_e_versao() {
+        let p = peer_from_service(&service(&[
+            ("id", "d1"),
+            ("pv", "1"),
+            ("udp", "47801"),
+            ("os", "linux"),
+            ("v", "0.3.0"),
+        ]))
+        .unwrap();
+        assert_eq!(p.os, Some(Os::Linux));
+        assert_eq!(p.app_version.as_deref(), Some("0.3.0"));
+    }
 
     #[test]
     fn manual_address_valid() {
