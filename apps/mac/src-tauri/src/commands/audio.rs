@@ -14,11 +14,10 @@ pub fn list_audio_devices(state: State<'_, AppState>) -> AudioDevices {
 pub fn set_audio_streams(
     app: AppHandle,
     state: State<'_, AppState>,
-    pc_to_mac: bool,
     mac_to_pc: bool,
 ) -> Result<(), String> {
-    tracing::info!(pc_to_mac, mac_to_pc, "comando set_audio_streams");
-    state.backend.set_audio_streams(pc_to_mac, mac_to_pc)?;
+    tracing::info!(mac_to_pc, "comando set_audio_streams");
+    state.backend.set_audio_streams(mac_to_pc)?;
     emit_status(&app, &state.backend.get_status());
     Ok(())
 }
@@ -26,13 +25,7 @@ pub fn set_audio_streams(
 #[tauri::command(rename_all = "snake_case")]
 pub fn set_audio_devices(
     state: State<'_, AppState>,
-    output_id: Option<String>,
     input_id: Option<String>,
 ) -> Result<(), String> {
-    state.backend.set_audio_devices(output_id, input_id)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub fn set_stream_volume(state: State<'_, AppState>, volume: f32) -> Result<(), String> {
-    state.backend.set_stream_volume(volume)
+    state.backend.set_audio_devices(input_id)
 }

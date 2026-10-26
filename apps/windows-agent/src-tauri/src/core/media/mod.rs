@@ -399,10 +399,7 @@ impl Worker {
 
     fn on_message(&mut self, msg: Message) {
         match msg {
-            Message::AudioControl {
-                pc_to_mac,
-                mac_to_pc,
-            } => self.on_audio_control(pc_to_mac, mac_to_pc),
+            Message::AudioControl { mac_to_pc, .. } => self.on_audio_control(mac_to_pc),
             Message::FileOffer { offer_id, files } => self.remember_offer(offer_id, files),
             Message::DropFiles { offer_id, .. } => self.on_drop(offer_id),
             other => {
@@ -484,9 +481,8 @@ impl Worker {
         });
     }
 
-    fn on_audio_control(&mut self, pc: bool, mic: bool) {
+    fn on_audio_control(&mut self, mic: bool) {
         let o = self.audio.apply(
-            pc,
             mic,
             self.link.as_ref(),
             &self.config.audio,
@@ -496,7 +492,7 @@ impl Worker {
         if let Some(err) = o.error {
             // Sem mensagem nova (contrato no mural): estado real + `CommandResult` de id 0.
             self.send(Message::AudioControl {
-                pc_to_mac: o.state.pc_to_mac,
+                pc_to_mac: false,
                 mac_to_pc: o.state.mac_to_pc,
             });
             self.send(Message::CommandResult {

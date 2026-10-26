@@ -19,13 +19,6 @@ import { VolumeBlock } from "./VolumeBlock";
 
 const WIDTH = 360;
 
-/** Erros de áudio do PC e o toggle que eles desfazem. */
-const AUDIO_ERRORS: Record<string, "pc_to_mac" | "mac_to_pc"> = {
-  vbcable_missing: "mac_to_pc",
-  virtual_output_missing: "pc_to_mac",
-  process_not_found: "pc_to_mac",
-};
-
 /** Abre a janela principal já com o modal da atualização e some com o painel. */
 function openUpdateFromPanel(matchPeer?: MatchPeer) {
   void openMain()
@@ -75,14 +68,9 @@ export function Panel() {
 
   useRelayEvent("relay:command-result", (r) => {
     if (!firstTime(r)) return;
-    const audio = r.error ? AUDIO_ERRORS[r.error] : undefined;
-    if (audio) {
-      // O stream não subiu: desliga o toggle correspondente e relê o status.
-      const a = statusRef.current.audio;
-      void invokeCommand("set_audio_streams", {
-        pc_to_mac: audio === "pc_to_mac" ? false : a.pc_to_mac,
-        mac_to_pc: audio === "mac_to_pc" ? false : a.mac_to_pc,
-      }).then(refresh, () => undefined);
+    if (r.error === "vbcable_missing") {
+      // O microfone não subiu no PC: desliga o toggle e relê o status.
+      void invokeCommand("set_audio_streams", { mac_to_pc: false }).then(refresh, () => undefined);
     }
     if (!r.ok) show(errorText(r.error ?? "falhou"), "danger");
   });
@@ -125,9 +113,7 @@ export function Panel() {
   const retry = (
     <Button variant="ghost" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
   );
-  const audio = status.audio;
-  const setAudio = (label: string, next: { pc_to_mac: boolean; mac_to_pc: boolean }) =>
-    void act(label, () => invokeCommand("set_audio_streams", next)).then(refresh);
+  const mic = status.audio.mac_to_pc;
 
   return (
     <main ref={root} className={styles.panel}>
@@ -185,12 +171,8 @@ export function Panel() {
             onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused })).then(refresh)}
           />
           <MenuRow
-            label="Som do PC no Mac" icon="volume" checked={audio.pc_to_mac}
-            onClick={() => setAudio("Som do PC no Mac", { ...audio, pc_to_mac: !audio.pc_to_mac })}
-          />
-          <MenuRow
-            label="Microfone do Mac no PC" icon="mic" checked={audio.mac_to_pc}
-            onClick={() => setAudio("Microfone do Mac no PC", { ...audio, mac_to_pc: !audio.mac_to_pc })}
+            label="Microfone do Mac no PC" icon="mic" checked={mic}
+            onClick={() => void act("Microfone do Mac no PC", () => invokeCommand("set_audio_streams", { mac_to_pc: !mic })).then(refresh)}
           />
         </div>
         <hr className={styles.sep} />
@@ -198,7 +180,7 @@ export function Panel() {
         <div className={styles.group}>
           {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={() => openUpdateFromPanel()} /> : null}
           <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
-          <SoundMenu act={act} online={online} streamToMac={audio.pc_to_mac} />
+          <SoundMenu act={act} online={online} />
           <LayoutMenu act={act} />
           <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />
           {online ? <CaptureMenu show={show} firstTime={firstTime} /> : null}

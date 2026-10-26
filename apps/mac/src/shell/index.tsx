@@ -45,7 +45,6 @@ function MainShell() {
   const [section, setSection] = useState<Section>("overview");
   const { status, latency, history, refresh, loaded } = useLiveStatus();
   const metrics = useRelayEvent("relay:metrics");
-  const audioStats = useRelayEvent("relay:audio-stats");
   const [transfers, setTransfers] = useState<TransferProgress[]>([]);
   const { act, toast } = useActions();
 
@@ -138,7 +137,7 @@ function MainShell() {
             {section === "shortcuts" ? <SettingsPane views={["keyboard", "hotkeys"]} /> : null}
             {section === "audio" ? (
               <>
-                <LiveAudio act={act} online={online} audio={status.audio} stats={audioStats} refresh={refresh} />
+                <LiveAudio act={act} online={online} audio={status.audio} refresh={refresh} />
                 <SettingsPane views={["audio"]} />
               </>
             ) : null}

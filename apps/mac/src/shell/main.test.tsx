@@ -33,12 +33,12 @@ vi.mock("../editor", () => ({ Editor: () => <p>editor de telas</p> }));
 
 const CONFIG = {
   schema_version: 1,
-  network: { ports: { control: 1, input: 2, audio_pc_to_mac: 3, audio_mac_to_pc: 4, transfer: 5 }, manual_address: null },
+  network: { ports: { control: 1, input: 2, audio_mac_to_pc: 4, transfer: 5 }, manual_address: null },
   transition: { dwell_ms: 150, edge_resistance_pt: 8, require_modifier: null, corner_dead_zone_mm: 5 },
   keymap: { cmd_tap_timeout_ms: 300, rules: [], app_exceptions: [], reverse_modifiers: { ctrl_cmd: false } },
   hotkeys: [],
   clipboard: { enabled: true, mode: "on_switch", max_bytes: 10 * 1024 * 1024, formats: ["Text"] },
-  audio: { pc_mode: "system", process_names: [], virtual_output_name: null, jitter_target_ms: 40, mac_output_id: null, mac_input_id: null, stream_volume: 1 },
+  audio: { jitter_target_ms: 40, mac_input_id: null },
   layout: {},
   general: { launch_at_login: false },
 } as unknown as Config;
@@ -51,7 +51,7 @@ beforeEach(() => {
   bridge.invoke.mockReset();
   bridge.invoke.mockImplementation(async (name: string) => {
     if (name === "get_status")
-      return { status: "Connected", peer_name: bridge.peer, focus: "Mac", locked: false, paused: false, secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false }, peer_version: null, version_sync: "InSync" };
+      return { status: "Connected", peer_name: bridge.peer, focus: "Mac", locked: false, paused: false, secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false }, peer_version: null, version_sync: "InSync" };
     if (name === "get_displays") return { mac: [], windows: [] };
     if (name === "get_config") return structuredClone(CONFIG);
     if (name === "list_discovered") return [PC];
@@ -160,6 +160,6 @@ test("depois de revogar, o app volta à tela de primeiro uso", async () => {
   render(<Main />);
   await screen.findByRole("heading", { name: "Visão geral" });
   bridge.peer = null;
-  await act(async () => bridge.listeners.get("relay:status")?.({ status: "Disconnected", peer_name: null, focus: "Mac", audio: { pc_to_mac: false, mac_to_pc: false } }));
+  await act(async () => bridge.listeners.get("relay:status")?.({ status: "Disconnected", peer_name: null, focus: "Mac", audio: { mac_to_pc: false } }));
   expect(await screen.findByRole("heading", { name: "Conecte seu PC" })).toBeTruthy();
 });

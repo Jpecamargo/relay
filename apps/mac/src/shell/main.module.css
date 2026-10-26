@@ -36,8 +36,6 @@
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err { color: var(--relay-danger); font-size: var(--relay-text-sm); }
 .empty { margin: 0 var(--relay-space-1); font: var(--relay-text-sm) var(--relay-font); color: var(--relay-text-3); }
-.infoRow { display: flex; justify-content: space-between; font: var(--relay-text-md) var(--relay-font); color: var(--relay-text-2); }
-.infoRow b { font-weight: 500; color: var(--relay-text); font-variant-numeric: tabular-nums; }
 .toolRow { display: flex; align-items: center; justify-content: space-between; gap: var(--relay-space-2); }
 .toolRow > :first-child { flex: 1; }
 .input {

@@ -289,7 +289,6 @@ async fn run_session(
     *shared.audio_link.lock().unwrap_or_else(|e| e.into_inner()) =
         remote_ip.map(|remote_ip| super::AudioLink {
             remote_ip,
-            pc_to_mac: noise.udp_keys(UdpChannel::AudioPcToMac),
             mac_to_pc: noise.udp_keys(UdpChannel::AudioMacToPc),
         });
     *shared

@@ -21,7 +21,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use relay_core::platform::{AudioCapture, AudioPlayback, ClipboardBackend};
+use relay_core::platform::{AudioCapture, ClipboardBackend};
 use relay_core::types::{AudioDevices, Config, FileEntry, Message};
 use tokio::runtime::Handle;
 
@@ -38,7 +38,6 @@ const CAPTURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Tudo o que a mídia pede ao sistema.
 pub trait MediaPlatform: Send + Sync + 'static {
-    fn playback(&self) -> Box<dyn AudioPlayback>;
     fn capture(&self) -> Box<dyn AudioCapture>;
     fn clipboard(&self) -> Box<dyn ClipboardBackend>;
     fn audio_devices(&self) -> AudioDevices;
@@ -64,8 +63,8 @@ pub(crate) struct Sh {
 pub(crate) struct St {
     pub cfg: Config,
     pub session: Option<Arc<SessionCtx>>,
-    /// Streams pedidos pelo usuário (PC→Mac, Mac→PC); valem de sessão em sessão.
-    pub want: (bool, bool),
+    /// Microfone pedido pelo usuário; vale de sessão em sessão.
+    pub want: bool,
     pub audio: AudioRun,
     /// Próximo `seq` do áudio Mac→PC. Vale pela sessão (mesma chave): religar o stream continua
     /// de onde parou, senão o nonce do AEAD se repetiria.
@@ -135,11 +134,6 @@ impl RealMedia {
         self.sh.files.addr()
     }
 
-    /// Endereço UDP em que o áudio PC→Mac está escutando.
-    pub fn audio_rx_addr(&self) -> Option<SocketAddr> {
-        self.sh.st().audio.rx_addr()
-    }
-
     /// Há arquivos do PC esperando para serem baixados.
     pub fn has_pending_files(&self) -> bool {
         self.sh.st().pending.is_some()
@@ -168,8 +162,8 @@ impl MediaHooks for RealMedia {
         transfer::receive_files(&self.sh);
     }
 
-    fn set_audio_streams(&self, pc_to_mac: bool, mac_to_pc: bool) {
-        audio::set_streams(&self.sh, pc_to_mac, mac_to_pc);
+    fn set_audio_streams(&self, mac_to_pc: bool) {
+        audio::set_streams(&self.sh, mac_to_pc);
     }
 
     fn on_message(&self, msg: &Message) {
@@ -178,10 +172,7 @@ impl MediaHooks for RealMedia {
             | Message::ClipboardChunk { .. }
             | Message::ClipboardSkipped { .. } => self.clip(ClipCmd::Msg(msg.clone())),
             // Estado real do áudio no PC: o que ele recusou não liga aqui também.
-            Message::AudioControl {
-                pc_to_mac,
-                mac_to_pc,
-            } => audio::pc_state(&self.sh, *pc_to_mac, *mac_to_pc),
+            Message::AudioControl { mac_to_pc, .. } => audio::pc_state(&self.sh, *mac_to_pc),
             Message::CommandResult { id: 0, result } => {
                 tracing::warn!("áudio no PC: {:?}", result.error);
             }

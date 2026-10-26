@@ -3,9 +3,9 @@
 
 use std::path::PathBuf;
 
-use relay_core::platform::{AudioCapture, AudioPlayback, ClipboardBackend};
+use relay_core::platform::{AudioCapture, ClipboardBackend};
 use relay_core::types::AudioDevices;
-use relay_platform_macos::audio::{self, MacAudioCapture, MacAudioPlayback};
+use relay_platform_macos::audio::{self, MacAudioCapture};
 use relay_platform_macos::clipboard::MacClipboard;
 use relay_platform_macos::files;
 
@@ -17,10 +17,6 @@ const FINDER: &str = "com.apple.finder";
 pub struct MacMedia;
 
 impl MediaPlatform for MacMedia {
-    fn playback(&self) -> Box<dyn AudioPlayback> {
-        Box::new(MacAudioPlayback::default())
-    }
-
     fn capture(&self) -> Box<dyn AudioCapture> {
         Box::new(MacAudioCapture::default())
     }

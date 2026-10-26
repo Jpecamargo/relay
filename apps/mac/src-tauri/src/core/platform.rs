@@ -13,9 +13,9 @@ use relay_core::platform::{
     KeyRepeat, KeyStore, LoopWaker, PlatformError,
 };
 use relay_core::types::{
-    AudioDevices, AudioStats, CapturedEvent, CommandResult, Config, DiscoveredPeer,
-    DisplaysPayload, DockInfo, HotCorners, InputEvent, LatencyStats, Message, PairedPeer,
-    PairingEvent, PermissionKind, PermissionsStatus, Ports, StatusSnapshot, TransferProgress,
+    AudioDevices, CapturedEvent, CommandResult, Config, DiscoveredPeer, DisplaysPayload, DockInfo,
+    HotCorners, InputEvent, LatencyStats, Message, PairedPeer, PairingEvent, PermissionKind,
+    PermissionsStatus, Ports, StatusSnapshot, TransferProgress,
 };
 use std::net::IpAddr;
 use tokio::sync::mpsc::UnboundedSender;
@@ -73,16 +73,13 @@ pub trait CoreEvents: Send + Sync + 'static {
     fn secure_input(&self, active: bool);
     fn pairing(&self, event: &PairingEvent);
     fn command_result(&self, result: &CommandResult);
-    /// `relay:audio-stats` (≤ 1 Hz, só com o stream PC→Mac ligado).
-    fn audio_stats(&self, _stats: &AudioStats) {}
     /// `relay:transfer-progress` (≤ 10 Hz).
     fn transfer_progress(&self, _progress: &TransferProgress) {}
 }
 
-/// Chaves UDP dos dois canais de áudio da sessão atual (derivadas do handshake Noise).
+/// Chaves UDP do microfone na sessão atual (derivadas do handshake Noise).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioKeys {
-    pub pc_to_mac: UdpKeys,
     pub mac_to_pc: UdpKeys,
 }
 
@@ -95,7 +92,7 @@ pub struct SessionCtx {
     pub peer_ip: IpAddr,
     /// Portas do PC (`audio_mac_to_pc`, `transfer`).
     pub remote_ports: Ports,
-    /// Portas do Mac (`audio_pc_to_mac`, `transfer`).
+    /// Portas do Mac (`transfer`).
     pub local_ports: Ports,
     pub bind_ip: IpAddr,
     pub identity: StaticKeypair,
@@ -110,7 +107,7 @@ pub trait MediaHooks: Send + Sync + 'static {
     /// Atalho `ClipboardSendNow` ou botão do painel.
     fn clipboard_send_now(&self) {}
     fn receive_remote_files(&self) {}
-    fn set_audio_streams(&self, _pc_to_mac: bool, _mac_to_pc: bool) {}
+    fn set_audio_streams(&self, _mac_to_pc: bool) {}
     /// Mensagem do PC que o AppCore não trata (Clipboard*, File*, DropFiles, Audio*, Metrics).
     fn on_message(&self, _msg: &Message) {}
     /// Sessão estabelecida (`true`) ou perdida (`false`).

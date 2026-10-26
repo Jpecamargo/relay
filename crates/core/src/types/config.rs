@@ -78,7 +78,6 @@ pub fn default_hotkeys() -> Vec<HotkeyBinding> {
 pub struct Ports {
     pub control: u16,
     pub input: u16,
-    pub audio_pc_to_mac: u16,
     pub audio_mac_to_pc: u16,
     pub transfer: u16,
 }
@@ -88,7 +87,6 @@ impl Default for Ports {
         Self {
             control: PORT_CONTROL,
             input: PORT_INPUT,
-            audio_pc_to_mac: PORT_AUDIO_PC_TO_MAC,
             audio_mac_to_pc: PORT_AUDIO_MAC_TO_PC,
             transfer: PORT_TRANSFER,
         }
@@ -227,41 +225,19 @@ impl Default for ClipboardConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, rename_all = "snake_case")]
-pub enum PcAudioMode {
-    /// Loopback por processo (D14).
-    Process,
-    /// Padrão. Com saída virtual configurada, troca a saída padrão para ela; sem, captura a saída
-    /// padrão sem trocá-la.
-    System,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
 pub struct AudioConfig {
-    pub pc_mode: PcAudioMode,
-    pub process_names: Vec<String>,
-    pub virtual_output_name: Option<String>,
     pub jitter_target_ms: u32,
-    pub mac_output_id: Option<String>,
     pub mac_input_id: Option<String>,
-    /// Volume do stream do PC no Mac, 0.0..=1.0.
-    pub stream_volume: f32,
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            pc_mode: PcAudioMode::System,
-            process_names: vec!["Discord.exe".to_string()],
-            virtual_output_name: None,
             jitter_target_ms: 20,
-            mac_output_id: None,
             mac_input_id: None,
-            stream_volume: 1.0,
         }
     }
 }

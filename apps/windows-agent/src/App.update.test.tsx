@@ -41,7 +41,7 @@ beforeEach(() => {
       case "agent_get_service_status":
         return { installed: true, running: true, helper_active: true, vbcable_detected: false };
       case "agent_get_config":
-        return { audio: { pc_mode: "process", virtual_output_name: null }, clipboard: { enabled: true }, general: { launch_at_login: false } };
+        return { audio: { jitter_target_ms: 20, mac_input_id: null }, clipboard: { enabled: true }, general: { launch_at_login: false } };
       case "agent_new_pairing_code":
         return { code: "123456", expires_at: Date.now() + 120_000 };
       default:

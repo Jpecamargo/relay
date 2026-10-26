@@ -91,6 +91,8 @@ pub enum Message {
         point_px: (i32, i32),
     },
     AudioControl {
+        /// O som do PC no Mac saiu na 0.2.0: sempre `false`, mantido para o formato bincode
+        /// continuar igual ao das 0.1.x (Mac e PC em versões diferentes até o PC se atualizar).
         pc_to_mac: bool,
         mac_to_pc: bool,
     },

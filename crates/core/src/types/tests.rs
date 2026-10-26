@@ -156,8 +156,8 @@ fn all_messages() -> Vec<Message> {
             point_px: (100, 200),
         },
         Message::AudioControl {
-            pc_to_mac: true,
-            mac_to_pc: false,
+            pc_to_mac: false,
+            mac_to_pc: true,
         },
         Message::Metrics(SystemMetrics {
             cpu_pct: 12.5,
@@ -313,11 +313,10 @@ fn consts_match_the_glossary() {
         [
             PORT_CONTROL,
             PORT_INPUT,
-            PORT_AUDIO_PC_TO_MAC,
             PORT_AUDIO_MAC_TO_PC,
             PORT_TRANSFER
         ],
-        [47800, 47801, 47802, 47803, 47804]
+        [47800, 47801, 47803, 47804]
     );
     assert_eq!(MDNS_SERVICE_TYPE, "_relay._tcp.local.");
     assert_eq!(KEYCHAIN_SERVICE, "com.joaocamargo.relay");

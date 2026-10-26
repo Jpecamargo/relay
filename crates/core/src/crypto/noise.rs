@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(p.len(), 65000);
         c[0] ^= 1;
         assert!(matches!(d.decrypt(&c, &mut p), Err(CryptoError::Auth)));
-        for ch in [UdpChannel::Input, UdpChannel::AudioPcToMac] {
+        for ch in [UdpChannel::Input, UdpChannel::AudioMacToPc] {
             let (ku, kl) = (d.udp_keys(ch), l.udp_keys(ch));
             assert_eq!(ku.send, kl.recv);
             assert_eq!(ku.recv, kl.send);

@@ -2,11 +2,10 @@ import {
   invokeCommand,
   type Config,
   type ConnectionStatus,
-  type PcAudioMode,
   type ServiceStatus,
   type StatusSnapshot,
 } from "@relay/protocol-types";
-import { Banner, Section, Select, StatusDot, Toggle, UpdateAbout, updateOf, useRelayEvent, useUpdate, type StatusTone } from "@relay/ui";
+import { Banner, Section, StatusDot, Toggle, UpdateAbout, updateOf, useRelayEvent, useUpdate, type StatusTone } from "@relay/ui";
 import { useEffect, useState } from "react";
 import "./app.css";
 import { Pairing } from "./Pairing";
@@ -26,11 +25,6 @@ function statusInfo(s: ConnectionStatus | undefined): { tone: StatusTone; label:
   const tone: StatusTone = s === "Connected" ? "ok" : s === "Disconnected" ? "idle" : "warn";
   return { tone, label: STATUS_LABEL[s] ?? s };
 }
-
-const PC_MODES = [
-  { value: "system", label: "Todo o sistema" },
-  { value: "process", label: "Só o Discord" },
-] as const;
 
 export function App() {
   const [snapshot, setSnapshot] = useState<StatusSnapshot>();
@@ -131,12 +125,6 @@ export function App() {
           <p className="muted">Carregando…</p>
         ) : (
           <>
-            <Select<PcAudioMode>
-              label="Áudio do PC"
-              value={config.audio.pc_mode}
-              options={PC_MODES}
-              onChange={(pc_mode) => void save({ ...config, audio: { ...config.audio, pc_mode } })}
-            />
             <div className="row">
               <StatusDot tone={vbcable ? "ok" : "warn"} label={vbcable ? "Detectado" : "Não detectado"} />
               <span>{vbcable ? "VB-CABLE detectado" : "VB-CABLE não detectado"}</span>

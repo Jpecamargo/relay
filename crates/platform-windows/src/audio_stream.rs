@@ -1,226 +1,19 @@
 //! dono: W4b
-//! Streams de áudio: loopback WASAPI de endpoint, loopback por processo e reprodução.
+//! Reprodução de áudio num endpoint WASAPI (o microfone do Mac no "CABLE Input").
 //!
-//! Tudo em modo compartilhado orientado a evento, 48 kHz estéreo (a conversão de taxa fica com
-//! o `autoconvert` do WASAPI; downmix e i16 em `audio_convert`). Cada stream roda numa thread
-//! própria no MMCSS "Pro Audio". Só a parte Win32 fica sob `cfg(windows)`.
+//! Modo compartilhado orientado a evento, 48 kHz estéreo (a conversão de taxa fica com o
+//! `autoconvert` do WASAPI). O stream roda numa thread própria no MMCSS "Pro Audio". Só a parte
+//! Win32 fica sob `cfg(windows)`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::JoinHandle;
 
-use relay_core::platform::{AudioCapture, AudioFrame, AudioPlayback, PlatformError};
+use relay_core::platform::{AudioPlayback, PlatformError};
 use relay_core::types::AudioDevice;
 
-/// Primeiro build do Windows 10 2004, onde surgiu o loopback por processo.
-const MIN_PROCESS_LOOPBACK_BUILD: u32 = 19041;
-
-/// Loopback por processo exige Windows 10 2004 (build 19041) ou mais novo.
-pub fn process_loopback_supported(build: u32) -> bool {
-    build >= MIN_PROCESS_LOOPBACK_BUILD
-}
-
-/// `path` (caminho completo de imagem de um processo) termina no executável `exe_name`,
-/// sem diferenciar maiúsculas; aceita `chrome` e `chrome.exe`.
-pub fn exe_matches(path: &str, exe_name: &str) -> bool {
-    let file = path.rsplit(['\\', '/']).next().unwrap_or(path);
-    let want = exe_name.trim();
-    if want.is_empty() {
-        return false;
-    }
-    file.eq_ignore_ascii_case(want)
-        || (!want.to_ascii_lowercase().ends_with(".exe")
-            && file.eq_ignore_ascii_case(&format!("{want}.exe")))
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(not(windows), allow(dead_code))]
-enum Target {
-    /// Loopback de um endpoint de render (`None` = padrão).
-    Endpoint(Option<String>),
-    Process(String),
-}
-
-type CaptureJoin = JoinHandle<rtrb::Producer<AudioFrame>>;
 type RenderJoin = JoinHandle<rtrb::Consumer<f32>>;
 type RenderSpawn = Result<RenderJoin, (PlatformError, Option<rtrb::Consumer<f32>>)>;
-type CaptureSpawn = Result<CaptureJoin, (PlatformError, Option<rtrb::Producer<AudioFrame>>)>;
-
-/// Estado comum das capturas: a thread devolve o `Producer` ao terminar, para `set_device`
-/// poder reiniciar sem o chamador reenviar o ring.
-#[derive(Debug)]
-struct CaptureRunner {
-    stop: Arc<AtomicBool>,
-    thread: Option<CaptureJoin>,
-    sink: Option<rtrb::Producer<AudioFrame>>,
-}
-
-impl Default for CaptureRunner {
-    fn default() -> Self {
-        Self {
-            stop: Arc::new(AtomicBool::new(false)),
-            thread: None,
-            sink: None,
-        }
-    }
-}
-
-impl CaptureRunner {
-    fn start(
-        &mut self,
-        target: Target,
-        sink: rtrb::Producer<AudioFrame>,
-    ) -> Result<(), PlatformError> {
-        self.stop();
-        self.stop = Arc::new(AtomicBool::new(false));
-        match imp::spawn_capture(target, sink, self.stop.clone()) {
-            Ok(handle) => {
-                self.thread = Some(handle);
-                Ok(())
-            }
-            Err((e, sink)) => {
-                self.sink = sink;
-                Err(e)
-            }
-        }
-    }
-
-    fn stop(&mut self) {
-        self.stop.store(true, Ordering::Release);
-        if let Some(h) = self.thread.take() {
-            if let Ok(sink) = h.join() {
-                self.sink = Some(sink);
-            }
-        }
-    }
-
-    fn running(&self) -> bool {
-        self.thread.is_some()
-    }
-
-    /// Reinicia com outro alvo reaproveitando o ring; sem stream em execução só guarda o alvo.
-    fn restart(&mut self, target: Target) -> Result<(), PlatformError> {
-        if !self.running() {
-            return Ok(());
-        }
-        self.stop();
-        match self.sink.take() {
-            Some(sink) => self.start(target, sink),
-            None => Err(PlatformError::Platform("ring de captura perdido".into())),
-        }
-    }
-}
-
-/// Loopback WASAPI de um endpoint de render (o que o PC está tocando), em quadros i16 48 kHz
-/// estéreo de 240 amostras.
-///
-/// O loopback não entrega nada enquanto nenhum app toca no endpoint: o Mac esvaziava o buffer,
-/// subia o atraso e picotava a cada volta do som. Um stream de silêncio no mesmo endpoint mantém
-/// o relógio do loopback andando (contorno documentado pela Microsoft em "Loopback Recording").
-#[derive(Debug, Default)]
-pub struct LoopbackCapture {
-    endpoint_id: Option<String>,
-    runner: CaptureRunner,
-    silence: Option<EndpointRender>,
-}
-
-impl LoopbackCapture {
-    /// `None` = endpoint de render padrão.
-    pub fn new(endpoint_id: Option<String>) -> Self {
-        Self {
-            endpoint_id,
-            runner: CaptureRunner::default(),
-            silence: None,
-        }
-    }
-
-    fn start_silence(&mut self) {
-        let mut render = EndpointRender::new(self.endpoint_id.clone());
-        // Ring que nunca recebe nada: o render completa tudo com silêncio.
-        let (_, empty) = rtrb::RingBuffer::<f32>::new(1);
-        match render.start(empty) {
-            Ok(()) => self.silence = Some(render),
-            Err(e) => tracing::warn!(error = %e, "silêncio de manutenção do loopback falhou"),
-        }
-    }
-
-    fn stop_silence(&mut self) {
-        if let Some(mut r) = self.silence.take() {
-            r.stop();
-        }
-    }
-}
-
-impl AudioCapture for LoopbackCapture {
-    fn start(&mut self, sink: rtrb::Producer<AudioFrame>) -> Result<(), PlatformError> {
-        self.runner
-            .start(Target::Endpoint(self.endpoint_id.clone()), sink)?;
-        self.start_silence();
-        Ok(())
-    }
-
-    fn stop(&mut self) {
-        self.runner.stop();
-        self.stop_silence();
-    }
-
-    fn set_device(&mut self, device_id: Option<&str>) -> Result<(), PlatformError> {
-        self.endpoint_id = device_id.map(str::to_owned);
-        let running = self.runner.running();
-        self.stop_silence();
-        self.runner
-            .restart(Target::Endpoint(self.endpoint_id.clone()))?;
-        if running {
-            self.start_silence();
-        }
-        Ok(())
-    }
-}
-
-impl Drop for LoopbackCapture {
-    fn drop(&mut self) {
-        self.runner.stop();
-        self.stop_silence();
-    }
-}
-
-/// Loopback por processo (Windows 10 2004+); em build anterior devolve `Unsupported`.
-/// Captura o processo `exe_name` e seus filhos (include tree).
-#[derive(Debug, Default)]
-pub struct ProcessLoopbackCapture {
-    exe_name: String,
-    runner: CaptureRunner,
-}
-
-impl ProcessLoopbackCapture {
-    pub fn new(exe_name: impl Into<String>) -> Self {
-        Self {
-            exe_name: exe_name.into(),
-            runner: CaptureRunner::default(),
-        }
-    }
-}
-
-impl AudioCapture for ProcessLoopbackCapture {
-    fn start(&mut self, sink: rtrb::Producer<AudioFrame>) -> Result<(), PlatformError> {
-        self.runner
-            .start(Target::Process(self.exe_name.clone()), sink)
-    }
-
-    fn stop(&mut self) {
-        self.runner.stop();
-    }
-
-    fn set_device(&mut self, _device_id: Option<&str>) -> Result<(), PlatformError> {
-        Err(PlatformError::Unsupported)
-    }
-}
-
-impl Drop for ProcessLoopbackCapture {
-    fn drop(&mut self) {
-        self.runner.stop();
-    }
-}
 
 /// Reprodução num endpoint (CABLE Input) a partir de um ring de f32 intercalado 48 kHz estéreo.
 #[derive(Debug)]
@@ -321,14 +114,6 @@ impl Drop for EndpointRender {
 mod imp {
     use super::*;
 
-    pub fn spawn_capture(
-        _target: Target,
-        sink: rtrb::Producer<AudioFrame>,
-        _stop: Arc<AtomicBool>,
-    ) -> CaptureSpawn {
-        Err((PlatformError::Unsupported, Some(sink)))
-    }
-
     pub fn spawn_render(
         _id: Option<String>,
         source: rtrb::Consumer<f32>,
@@ -346,27 +131,21 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use crate::audio_convert::{f32_from_le, fill_f32_le, push_f32_interleaved};
-    use relay_core::audio::FrameSplitter;
+    use crate::audio_convert::fill_f32_le;
     use std::sync::mpsc;
     use wasapi::{
         AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat,
         calculate_period_100ns, initialize_mta,
     };
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows::Win32::System::ProcessStatus::EnumProcesses;
-    use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::Threading::{
-        AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, OpenProcess,
-        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+        AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
     };
-    use windows::core::{PWSTR, w};
+    use windows::core::w;
 
     const RATE: usize = 48_000;
     /// Espera máxima por evento antes de reavaliar o `stop`.
     const WAIT_MS: u32 = 100;
-    /// 1 s de áudio por leitura: folga de sobra para qualquer pacote do WASAPI.
-    const MAX_BYTES_PER_CHANNEL: usize = RATE * 4;
 
     fn err(ctx: &str, e: impl std::fmt::Display) -> PlatformError {
         PlatformError::Platform(format!("{ctx}: {e}"))
@@ -391,62 +170,6 @@ mod imp {
         }
     }
 
-    fn current_build() -> Option<u32> {
-        let mut buf = [0u16; 16];
-        let mut size = std::mem::size_of_val(&buf) as u32;
-        unsafe {
-            RegGetValueW(
-                HKEY_LOCAL_MACHINE,
-                w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"),
-                w!("CurrentBuildNumber"),
-                RRF_RT_REG_SZ,
-                None,
-                Some(buf.as_mut_ptr().cast()),
-                Some(&mut size),
-            )
-            .ok()
-            .ok()?;
-        }
-        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-        String::from_utf16_lossy(&buf[..len]).trim().parse().ok()
-    }
-
-    /// Menor PID cujo executável é `exe_name`.
-    fn find_pid(exe_name: &str) -> Result<u32, PlatformError> {
-        let mut pids = vec![0u32; 4096];
-        let mut needed = 0u32;
-        unsafe {
-            EnumProcesses(pids.as_mut_ptr(), (pids.len() * 4) as u32, &mut needed)
-                .map_err(|e| err("EnumProcesses", e))?;
-        }
-        pids.truncate(needed as usize / 4);
-        pids.sort_unstable();
-        for pid in pids.into_iter().filter(|&p| p != 0) {
-            let Ok(h) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) })
-            else {
-                continue;
-            };
-            let mut path = [0u16; 1024];
-            let mut len = path.len() as u32;
-            let ok = unsafe {
-                QueryFullProcessImageNameW(
-                    h,
-                    PROCESS_NAME_WIN32,
-                    PWSTR(path.as_mut_ptr()),
-                    &mut len,
-                )
-            }
-            .is_ok();
-            let _ = unsafe { CloseHandle(h) };
-            if ok && exe_matches(&String::from_utf16_lossy(&path[..len as usize]), exe_name) {
-                return Ok(pid);
-            }
-        }
-        Err(PlatformError::Platform(format!(
-            "processo '{exe_name}' não encontrado"
-        )))
-    }
-
     fn render_device(id: Option<&str>) -> Result<wasapi::Device, PlatformError> {
         let en = DeviceEnumerator::new().map_err(|e| err("DeviceEnumerator", e))?;
         match id {
@@ -463,146 +186,7 @@ mod imp {
         }
     }
 
-    struct CaptureSetup {
-        client: AudioClient,
-        channels: usize,
-    }
-
-    fn setup_capture(target: &Target) -> Result<CaptureSetup, PlatformError> {
-        let (mut client, fmt) = match target {
-            Target::Endpoint(id) => {
-                let client = render_device(id.as_deref())?
-                    .get_iaudioclient()
-                    .map_err(|e| err("IAudioClient", e))?;
-                let mix = client.get_mixformat().map_err(|e| err("mix format", e))?;
-                let ch = mix.get_nchannels() as usize;
-                let fmt = WaveFormat::new(
-                    32,
-                    32,
-                    &SampleType::Float,
-                    RATE,
-                    ch,
-                    Some(mix.get_dwchannelmask()),
-                );
-                (client, fmt)
-            }
-            Target::Process(exe) => {
-                if !current_build().is_some_and(process_loopback_supported) {
-                    return Err(PlatformError::Unsupported);
-                }
-                let pid = find_pid(exe)?;
-                let client = AudioClient::new_application_loopback_client(pid, true)
-                    .map_err(|e| err("loopback por processo", e))?;
-                (
-                    client,
-                    WaveFormat::new(32, 32, &SampleType::Float, RATE, 2, Some(0b11)),
-                )
-            }
-        };
-        let channels = fmt.get_nchannels() as usize;
-        client
-            .initialize_client(&fmt, &Direction::Capture, &shared_events())
-            .map_err(|e| err("initialize_client", e))?;
-        Ok(CaptureSetup { client, channels })
-    }
-
     type Ready = mpsc::Sender<Result<(), PlatformError>>;
-
-    fn capture_loop(
-        s: CaptureSetup,
-        sink: &mut rtrb::Producer<AudioFrame>,
-        stop: &AtomicBool,
-        ready: Ready,
-    ) {
-        let started = (|| {
-            let ev = s
-                .client
-                .set_get_eventhandle()
-                .map_err(|e| err("evento", e))?;
-            let cap = s
-                .client
-                .get_audiocaptureclient()
-                .map_err(|e| err("capture client", e))?;
-            s.client.start_stream().map_err(|e| err("start", e))?;
-            Ok::<_, PlatformError>((ev, cap))
-        })();
-        let (ev, cap) = match started {
-            Ok(v) => {
-                let _ = ready.send(Ok(()));
-                v
-            }
-            Err(e) => {
-                let _ = ready.send(Err(e));
-                return;
-            }
-        };
-        let mut bytes = vec![0u8; MAX_BYTES_PER_CHANNEL * s.channels.max(1)];
-        let mut samples: Vec<f32> = Vec::with_capacity(bytes.len() / 4);
-        let mut splitter = FrameSplitter::new();
-        'outer: while !stop.load(Ordering::Acquire) {
-            if ev.wait_for_event(WAIT_MS).is_err() {
-                continue;
-            }
-            loop {
-                match cap.get_next_packet_size() {
-                    Ok(Some(n)) if n > 0 => {}
-                    Ok(_) => break,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "captura de áudio parou (pacote)");
-                        break 'outer;
-                    }
-                }
-                let (frames, info) = match cap.read_from_device(&mut bytes) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "captura de áudio parou (leitura)");
-                        break 'outer;
-                    }
-                };
-                let len = frames as usize * s.channels * 4;
-                if info.flags.silent {
-                    bytes[..len].fill(0);
-                }
-                f32_from_le(&bytes[..len], &mut samples);
-                // Ring cheio: descarta o quadro (consumidor atrasado), nunca bloqueia.
-                push_f32_interleaved(&mut splitter, &samples, s.channels, |f| {
-                    let _ = sink.push(*f);
-                });
-            }
-        }
-        let _ = s.client.stop_stream();
-    }
-
-    pub fn spawn_capture(
-        target: Target,
-        sink: rtrb::Producer<AudioFrame>,
-        stop: Arc<AtomicBool>,
-    ) -> CaptureSpawn {
-        let (tx, rx) = mpsc::channel();
-        let handle = std::thread::Builder::new()
-            .name("relay-audio-capture".into())
-            .spawn(move || {
-                let mut sink = sink;
-                let _ = initialize_mta().ok();
-                let _mmcss = Mmcss::pro_audio();
-                match setup_capture(&target) {
-                    Ok(s) => capture_loop(s, &mut sink, &stop, tx),
-                    Err(e) => {
-                        let _ = tx.send(Err(e));
-                    }
-                }
-                sink
-            })
-            .map_err(|e| (err("thread de captura", e), None))?;
-        match rx.recv() {
-            Ok(Ok(())) => Ok(handle),
-            Ok(Err(e)) => Err((e, handle.join().ok())),
-            Err(_) => Err((
-                PlatformError::Platform("thread de captura terminou antes de iniciar".into()),
-                handle.join().ok(),
-            )),
-        }
-    }
 
     fn render_loop(
         mut client: AudioClient,
@@ -723,37 +307,12 @@ mod imp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 
     #[test]
-    fn process_loopback_build_gate() {
-        assert!(!process_loopback_supported(18363));
-        assert!(!process_loopback_supported(19040));
-        assert!(process_loopback_supported(19041));
-        assert!(process_loopback_supported(26100));
-    }
-
-    #[test]
-    fn exe_name_matching() {
-        assert!(exe_matches(
-            r"C:\Program Files\Google\Chrome\chrome.exe",
-            "chrome.exe"
-        ));
-        assert!(exe_matches(r"C:\x\Chrome.EXE", "chrome"));
-        assert!(exe_matches("spotify.exe", "Spotify.exe"));
-        assert!(!exe_matches(r"C:\x\notchrome.exe", "chrome.exe"));
-        assert!(!exe_matches(r"C:\x\chrome.exe", ""));
-        assert!(!exe_matches(r"C:\chrome.exe\other.exe", "chrome.exe"));
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn non_windows_streams_are_unsupported() {
-        let (p, _c) = rtrb::RingBuffer::<AudioFrame>::new(4);
-        let mut cap = LoopbackCapture::new(None);
-        assert!(matches!(cap.start(p), Err(PlatformError::Unsupported)));
+    fn non_windows_render_is_unsupported() {
         let (_p, c) = rtrb::RingBuffer::<f32>::new(4);
         let mut r = EndpointRender::new(None);
         assert!(matches!(r.start(c), Err(PlatformError::Unsupported)));

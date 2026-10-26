@@ -9,7 +9,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AudioDevices,
-  AudioStats,
   CommandResult,
   Config,
   DiscoveredPeer,
@@ -59,9 +58,8 @@ export interface MacCommandMap {
   /** Derruba e refaz a sessão com o PC (também sai de versão incompatível). */
   reconnect: { args: void; result: void };
   list_audio_devices: { args: void; result: AudioDevices };
-  set_audio_streams: { args: { pc_to_mac: boolean; mac_to_pc: boolean }; result: void };
-  set_audio_devices: { args: { output_id?: string; input_id?: string }; result: void };
-  set_stream_volume: { args: { volume: number }; result: void };
+  set_audio_streams: { args: { mac_to_pc: boolean }; result: void };
+  set_audio_devices: { args: { input_id?: string }; result: void };
   check_permissions: { args: void; result: PermissionsStatus };
   open_permission_settings: { args: { kind: PermissionKind }; result: void };
   set_launch_at_login: { args: { enabled: boolean }; result: void };
@@ -113,7 +111,6 @@ export const COMMANDS = {
   list_audio_devices: "list_audio_devices",
   set_audio_streams: "set_audio_streams",
   set_audio_devices: "set_audio_devices",
-  set_stream_volume: "set_stream_volume",
   check_permissions: "check_permissions",
   open_permission_settings: "open_permission_settings",
   set_launch_at_login: "set_launch_at_login",
@@ -141,7 +138,6 @@ export interface EventMap {
   "relay:secure-input": SecureInputPayload;
   "relay:permissions": PermissionsStatus;
   "relay:metrics": SystemMetrics;
-  "relay:audio-stats": AudioStats;
   "relay:pairing": PairingEvent;
   "relay:update-available": UpdateAvailable;
 }

@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use relay_core::audio::{AudioHeader, FRAMES_PER_PACKET, HEADER_LEN, pcm_bytes_to_i16};
+use relay_core::audio::{AudioHeader, FRAMES_PER_PACKET, HEADER_LEN};
 use relay_core::clipboard::ClipboardSync;
 use relay_core::crypto::{
     MemoryKeyStore, ReplayMode, StaticKeypair, UdpAead, UdpChannel, derive_udp_keys, device_id_of,
@@ -17,17 +17,16 @@ use relay_core::crypto::{
 use relay_core::engine::testutil::MockClip;
 use relay_core::net::AudioLink;
 use relay_core::platform::{
-    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, KeyStore, PlatformError,
+    AUDIO_FRAME_SAMPLES, AudioFrame, AudioPlayback, KeyStore, PlatformError,
 };
 use relay_core::transfer::{TransferClient, TransferServer};
 use relay_core::types::{
     AudioDevice, AudioDevices, ClipboardContent, ClipboardMode, CommandResult, Config, FileEntry,
-    Message, PairedPeer, PcAudioMode,
+    Message, PairedPeer,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::audio::DATAGRAM_LEN;
-use super::platform::{AudioHost, LocalMute, OutputGuard};
+use super::platform::AudioHost;
 use super::{ACTIVE_PEER_ACCOUNT, Media, MediaDeps, MediaOut, MediaPort};
 use relay_core::audio::{STREAM_MIC, seal_datagram};
 
@@ -52,85 +51,6 @@ fn wait<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
 // ---- mocks ----
 
 type Log = Arc<Mutex<Vec<String>>>;
-
-struct MockGuard(Log, bool);
-impl OutputGuard for MockGuard {
-    fn switch_to(&mut self, id: &str) -> Result<(), PlatformError> {
-        self.0.lock().unwrap().push(format!("switch:{id}"));
-        self.1 = true;
-        Ok(())
-    }
-    fn restore(&mut self) -> Result<(), PlatformError> {
-        if self.1 {
-            self.1 = false;
-            self.0.lock().unwrap().push("restore".into());
-        }
-        Ok(())
-    }
-}
-impl Drop for MockGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-struct MockMute(Log, Option<String>);
-impl LocalMute for MockMute {
-    fn restore(&mut self) -> Result<(), PlatformError> {
-        if let Some(id) = self.1.take() {
-            self.0.lock().unwrap().push(format!("unmute:{id}"));
-        }
-        Ok(())
-    }
-}
-impl Drop for MockMute {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-/// Captura sintética: senoide de 1 kHz em quadros de 5 ms.
-struct MockCapture {
-    log: Log,
-    name: String,
-    stop: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-impl AudioCapture for MockCapture {
-    fn start(&mut self, mut sink: rtrb::Producer<AudioFrame>) -> Result<(), PlatformError> {
-        self.log
-            .lock()
-            .unwrap()
-            .push(format!("capture:{}", self.name));
-        self.stop = Arc::new(AtomicBool::new(false));
-        let stop = self.stop.clone();
-        self.thread = Some(std::thread::spawn(move || {
-            let mut n = 0u64;
-            while !stop.load(Ordering::Acquire) {
-                let mut f = [0i16; AUDIO_FRAME_SAMPLES * 2];
-                for i in 0..AUDIO_FRAME_SAMPLES {
-                    let t = (n * AUDIO_FRAME_SAMPLES as u64 + i as u64) as f64 / 48_000.0;
-                    let s = ((t * 1000.0 * std::f64::consts::TAU).sin() * 8000.0) as i16;
-                    f[2 * i] = s;
-                    f[2 * i + 1] = s;
-                }
-                let _ = sink.push(f);
-                n += 1;
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        }));
-        Ok(())
-    }
-    fn stop(&mut self) {
-        self.stop.store(true, Ordering::Release);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-    fn set_device(&mut self, _: Option<&str>) -> Result<(), PlatformError> {
-        Ok(())
-    }
-}
 
 struct MockRender {
     log: Log,
@@ -193,14 +113,6 @@ impl MockHost {
             rendered: Arc::default(),
         })
     }
-    fn capture(&self, name: &str) -> Box<dyn AudioCapture> {
-        Box::new(MockCapture {
-            log: self.log.clone(),
-            name: name.into(),
-            stop: Arc::default(),
-            thread: None,
-        })
-    }
     fn events(&self) -> Vec<String> {
         self.log.lock().unwrap().clone()
     }
@@ -210,15 +122,6 @@ impl AudioHost for MockHost {
     fn devices(&self) -> Result<AudioDevices, PlatformError> {
         Ok(self.devices.clone())
     }
-    fn guard(&self) -> Result<Box<dyn OutputGuard>, PlatformError> {
-        Ok(Box::new(MockGuard(self.log.clone(), false)))
-    }
-    fn loopback(&self, endpoint: Option<String>) -> Box<dyn AudioCapture> {
-        self.capture(&format!("endpoint:{}", endpoint.unwrap_or_default()))
-    }
-    fn process_loopback(&self, exe: &str) -> Box<dyn AudioCapture> {
-        self.capture(&format!("process:{exe}"))
-    }
     fn render(&self, endpoint: Option<String>) -> Box<dyn AudioPlayback> {
         Box::new(MockRender {
             log: self.log.clone(),
@@ -227,11 +130,6 @@ impl AudioHost for MockHost {
             stop: Arc::default(),
             thread: None,
         })
-    }
-    fn mute(&self, endpoint: Option<String>) -> Result<Option<Box<dyn LocalMute>>, PlatformError> {
-        let id = endpoint.unwrap_or_default();
-        self.log.lock().unwrap().push(format!("mute:{id}"));
-        Ok(Some(Box::new(MockMute(self.log.clone(), Some(id)))))
     }
 }
 
@@ -253,7 +151,6 @@ fn speakers_and_cables() -> (Vec<AudioDevice>, Vec<AudioDevice>) {
 fn agent_link() -> AudioLink {
     AudioLink {
         remote_ip: LO,
-        pc_to_mac: derive_udp_keys(&HH, UdpChannel::AudioPcToMac, false),
         mac_to_pc: derive_udp_keys(&HH, UdpChannel::AudioMacToPc, false),
     }
 }
@@ -316,13 +213,6 @@ fn no_captures() -> super::CaptureSource {
     Box::new(Vec::new)
 }
 
-fn audio_cfg(mode: PcAudioMode, virt: Option<&str>) -> Config {
-    let mut c = Config::default();
-    c.audio.pc_mode = mode;
-    c.audio.virtual_output_name = virt.map(Into::into);
-    c
-}
-
 fn expect_audio_error(r: &mut Rig, code: &str) {
     assert_eq!(
         r.next_msg("AudioControl"),
@@ -341,159 +231,6 @@ fn expect_audio_error(r: &mut Rig, code: &str) {
 }
 
 // ---- áudio ----
-
-#[test]
-fn system_mode_without_virtual_output_captures_the_default_output_muted_and_unmutes_on_stop() {
-    let (o, i) = speakers_and_cables();
-    let host = MockHost::new(o, i);
-    let mut r = rig(
-        host.clone(),
-        audio_cfg(PcAudioMode::System, None),
-        no_captures(),
-    );
-    r.media.link_changed(Some(agent_link()));
-    r.feed(Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false,
-    });
-    wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
-    assert_eq!(host.events(), ["capture:endpoint:", "mute:"]);
-    r.feed(Message::AudioControl {
-        pc_to_mac: false,
-        mac_to_pc: false,
-    });
-    wait("desmutado", || {
-        host.events().contains(&"unmute:".to_string()).then_some(())
-    });
-}
-
-#[test]
-fn system_mode_leaves_cable_input_as_default_before_capturing_and_restores() {
-    // O instalador do VB-CABLE deixa o "CABLE Input" como padrão: o loopback dele traria o mic do Mac.
-    let (mut o, i) = speakers_and_cables();
-    o[0].is_default = false;
-    o[1].is_default = true;
-    let host = MockHost::new(o, i);
-    let mut r = rig(
-        host.clone(),
-        audio_cfg(PcAudioMode::System, None),
-        no_captures(),
-    );
-    r.media.link_changed(Some(agent_link()));
-    r.feed(Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false,
-    });
-    wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
-    assert_eq!(
-        host.events(),
-        ["switch:spk", "capture:endpoint:spk", "mute:spk"]
-    );
-    r.media.link_changed(None);
-    wait("restaurado", || {
-        (host.events().last().unwrap() == "restore").then_some(())
-    });
-}
-
-#[test]
-fn system_mode_with_a_missing_virtual_output_is_virtual_output_missing() {
-    let (o, i) = speakers_and_cables();
-    let host = MockHost::new(o, i);
-    let mut r = rig(
-        host.clone(),
-        audio_cfg(PcAudioMode::System, Some("Saída que não existe")),
-        no_captures(),
-    );
-    r.media.link_changed(Some(agent_link()));
-    r.feed(Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false,
-    });
-    expect_audio_error(&mut r, "virtual_output_missing");
-    assert!(!r.media.audio_state().pc_to_mac);
-    assert!(host.events().is_empty(), "não pode trocar a saída");
-}
-
-#[test]
-fn system_mode_switches_output_streams_encrypted_and_restores() {
-    let (o, i) = speakers_and_cables();
-    let host = MockHost::new(o, i);
-    let mut cfg = audio_cfg(PcAudioMode::System, Some("CABLE-A Input"));
-    let mac = UdpSocket::bind("127.0.0.1:0").unwrap();
-    mac.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    cfg.network.ports.audio_pc_to_mac = mac.local_addr().unwrap().port();
-    let mut r = rig(host.clone(), cfg, no_captures());
-    r.media.link_changed(Some(agent_link()));
-    r.feed(Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false,
-    });
-    wait("pc_to_mac ligado", || {
-        r.media.audio_state().pc_to_mac.then_some(())
-    });
-    assert_eq!(
-        host.events()[..2],
-        [
-            "switch:cabA".to_string(),
-            "capture:endpoint:cabA".to_string()
-        ]
-    );
-
-    // O Mac decifra com as chaves do lado dialer.
-    let mut aead = UdpAead::new(
-        derive_udp_keys(&HH, UdpChannel::AudioPcToMac, true),
-        ReplayMode::Window64,
-    );
-    let (mut wire, mut plain) = ([0u8; 2048], Vec::new());
-    let mut last = None;
-    for _ in 0..20 {
-        let n = mac.recv(&mut wire).unwrap();
-        assert_eq!(n, DATAGRAM_LEN);
-        let (seq, payload) = relay_core::audio::open_datagram(&mut aead, &wire[..n], 0, &mut plain)
-            .expect("decifra");
-        if let Some(l) = last {
-            assert_eq!(seq, l + 1, "quadros contínuos");
-        }
-        last = Some(seq);
-        let mut pcm = vec![0i16; FRAMES_PER_PACKET * 2];
-        pcm_bytes_to_i16(payload, &mut pcm).unwrap();
-        assert!(pcm.iter().any(|s| s.abs() > 4000), "senoide presente");
-    }
-
-    // Cair a conexão restaura a saída original.
-    r.media.link_changed(None);
-    wait("pc desligado", || {
-        (!r.media.audio_state().pc_to_mac).then_some(())
-    });
-    assert_eq!(host.events().last().unwrap(), "restore");
-
-    // Desligar o agente no meio do streaming também restaura.
-    r.media.link_changed(Some(agent_link()));
-    r.feed(Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false,
-    });
-    wait("religado", || r.media.audio_state().pc_to_mac.then_some(()));
-    drop(r);
-    let ev = host.events();
-    assert_eq!(ev.iter().filter(|e| *e == "restore").count(), 2, "{ev:?}");
-}
-
-#[test]
-fn process_mode_captures_the_configured_process_without_touching_the_default_output() {
-    let (o, i) = speakers_and_cables();
-    let host = MockHost::new(o, i);
-    let mut cfg = audio_cfg(PcAudioMode::Process, None);
-    cfg.audio.process_names = vec!["Discord.exe".into()];
-    let mut r = rig(host.clone(), cfg, no_captures());
-    r.media.link_changed(Some(agent_link()));
-    r.feed(Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false,
-    });
-    wait("ligado", || r.media.audio_state().pc_to_mac.then_some(()));
-    assert_eq!(host.events(), ["capture:process:Discord.exe"]);
-}
 
 #[test]
 fn mic_without_vbcable_is_vbcable_missing() {
@@ -867,46 +604,4 @@ fn screen_capture_is_offered_even_with_clipboard_sync_off() {
         r.next_msg("oferta Png"),
         Message::ClipboardOffer { .. }
     ));
-}
-
-#[test]
-fn pc_audio_seq_never_restarts_within_a_session() {
-    let (o, i) = speakers_and_cables();
-    let host = MockHost::new(o, i);
-    let mut cfg = audio_cfg(PcAudioMode::Process, None);
-    let mac = UdpSocket::bind("127.0.0.1:0").unwrap();
-    mac.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    cfg.network.ports.audio_pc_to_mac = mac.local_addr().unwrap().port();
-    let mut r = rig(host, cfg, no_captures());
-    r.media.link_changed(Some(agent_link()));
-    let on = |r: &mut Rig, v: bool| {
-        r.feed(Message::AudioControl {
-            pc_to_mac: v,
-            mac_to_pc: false,
-        });
-        wait("estado", || {
-            (r.media.audio_state().pc_to_mac == v).then_some(())
-        });
-    };
-    let mut wire = [0u8; 2048];
-    let mut max_seq = |mac: &UdpSocket| {
-        let mut hi = 0;
-        for _ in 0..10 {
-            let n = mac.recv(&mut wire).unwrap();
-            hi = hi.max(u64::from_le_bytes(wire[1..9].try_into().unwrap()));
-            assert_eq!(n, DATAGRAM_LEN);
-        }
-        hi
-    };
-    on(&mut r, true);
-    let first = max_seq(&mac);
-    on(&mut r, false);
-    std::thread::sleep(Duration::from_millis(50));
-    while mac.set_nonblocking(true).is_ok() && mac.recv(&mut wire).is_ok() {}
-    mac.set_nonblocking(false).unwrap();
-    on(&mut r, true);
-    let n = mac.recv(&mut wire).unwrap();
-    assert_eq!(n, DATAGRAM_LEN);
-    let again = u64::from_le_bytes(wire[1..9].try_into().unwrap());
-    assert!(again > first, "seq recomeçou: {again} <= {first}");
 }

@@ -36,8 +36,8 @@ cada tela continua mostrando o próprio computador, e o Relay só move o seu inp
   ligar o PC (Wake-on-LAN), sem tirar a mão do Mac. CPU, RAM, GPU e temperatura do PC à vista.
 - **Clipboard e arquivos sem fronteira.** Copie no Mac e cole no Windows — texto, rich text, imagens.
   Copie arquivos no Finder e cole no Explorer, ou arraste um arquivo da janela do Mac até o monitor do PC.
-- **Som do PC no seu fone.** O áudio do Windows toca no Mac e o microfone do Mac vira o microfone do PC:
-  Discord no PC, fone conectado no Mac.
+- **O microfone do Mac no PC.** O microfone do Mac vira o microfone do PC: Discord no PC, fone
+  conectado no Mac.
 - **Funciona onde outros param.** Um serviço do Windows leva o seu input até o prompt do UAC e a tela de
   bloqueio. E o caminho inverso também existe: o teclado e o mouse do PC podem controlar o Mac.
 - **Privado por padrão.** Pareamento por código de 6 dígitos, todo o tráfego cifrado (Noise + ChaCha20-
@@ -72,7 +72,7 @@ que mudou e só instala quando você clica em **Atualizar e reiniciar**.
 
 Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência). O microfone do Mac no PC usa o
 [VB-CABLE](https://vb-audio.com/Cable/), driver da VB-Audio distribuído como donationware: o instalador do
-Relay Agent oferece instalá-lo (o som do PC no Mac não precisa de nada).
+Relay Agent oferece instalá-lo.
 
 <details>
 <summary><strong>Atalhos do Mac no Windows</strong></summary>

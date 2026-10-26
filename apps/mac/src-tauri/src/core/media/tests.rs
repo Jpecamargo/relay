@@ -5,7 +5,7 @@
 use std::f32::consts::TAU;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,13 +18,13 @@ use relay_core::crypto::{
 };
 use relay_core::engine::testutil::MockClip;
 use relay_core::platform::{
-    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback, ClipboardBackend, PlatformError,
+    AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, ClipboardBackend, PlatformError,
 };
 use relay_core::transfer::{TransferClient, TransferServer};
 use relay_core::types::{
-    AudioDevice, AudioDevices, AudioStats, ClipboardConfig, ClipboardContent, ClipboardMode,
-    CommandResult, Config, DisplaysPayload, FileEntry, LatencyStats, Message, PairedPeer,
-    PairingEvent, PermissionsStatus, Ports, StatusSnapshot, TransferProgress,
+    AudioDevices, ClipboardConfig, ClipboardContent, ClipboardMode, CommandResult, Config,
+    DisplaysPayload, FileEntry, LatencyStats, Message, PairedPeer, PairingEvent, PermissionsStatus,
+    Ports, StatusSnapshot, TransferProgress,
 };
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -39,7 +39,6 @@ const HH: [u8; 32] = [9; 32];
 
 #[derive(Default)]
 struct Rec {
-    audio: Mutex<Vec<AudioStats>>,
     progress: Mutex<Vec<TransferProgress>>,
 }
 
@@ -51,56 +50,8 @@ impl CoreEvents for Rec {
     fn secure_input(&self, _: bool) {}
     fn pairing(&self, _: &PairingEvent) {}
     fn command_result(&self, _: &CommandResult) {}
-    fn audio_stats(&self, s: &AudioStats) {
-        self.audio.lock().unwrap().push(*s);
-    }
     fn transfer_progress(&self, p: &TransferProgress) {
         self.progress.lock().unwrap().push(p.clone());
-    }
-}
-
-struct MockPlayback {
-    out: Arc<Mutex<Vec<f32>>>,
-    stop: Arc<AtomicBool>,
-    thread: Option<thread::JoinHandle<()>>,
-}
-
-impl AudioPlayback for MockPlayback {
-    fn start(&mut self, mut source: rtrb::Consumer<f32>) -> Result<(), PlatformError> {
-        let (out, stop) = (self.out.clone(), self.stop.clone());
-        stop.store(false, Ordering::Relaxed);
-        self.thread = Some(thread::spawn(move || {
-            // Relógio do "dispositivo": 48 frames por milissegundo, silêncio se faltar.
-            let t0 = Instant::now();
-            let mut played = 0usize;
-            while !stop.load(Ordering::Relaxed) {
-                let due = t0.elapsed().as_micros() as usize * 48 / 1000;
-                let mut buf = out.lock().unwrap();
-                while played < due {
-                    let l = source.pop().unwrap_or(0.0);
-                    let r = source.pop().unwrap_or(0.0);
-                    buf.push(l);
-                    buf.push(r);
-                    played += 1;
-                }
-                drop(buf);
-                thread::sleep(Duration::from_millis(1));
-            }
-        }));
-        Ok(())
-    }
-    fn stop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-    fn set_volume(&mut self, _: f32) {}
-    fn set_device(&mut self, _: Option<&str>) -> Result<(), PlatformError> {
-        Ok(())
-    }
-    fn list_devices(&self) -> Result<Vec<AudioDevice>, PlatformError> {
-        Ok(Vec::new())
     }
 }
 
@@ -150,23 +101,13 @@ fn sine(n: usize) -> i16 {
 
 struct MockPlatform {
     clip: MockClip,
-    playback_out: Arc<Mutex<Vec<f32>>>,
     drag: Mutex<Vec<PathBuf>>,
     finder: AtomicBool,
     revealed: Mutex<Vec<PathBuf>>,
     downloads: PathBuf,
-    playbacks: AtomicUsize,
 }
 
 impl MediaPlatform for MockPlatform {
-    fn playback(&self) -> Box<dyn AudioPlayback> {
-        self.playbacks.fetch_add(1, Ordering::Relaxed);
-        Box::new(MockPlayback {
-            out: self.playback_out.clone(),
-            stop: Arc::new(AtomicBool::new(false)),
-            thread: None,
-        })
-    }
     fn capture(&self) -> Box<dyn AudioCapture> {
         Box::new(MockCapture {
             stop: Arc::new(AtomicBool::new(false)),
@@ -211,12 +152,10 @@ fn peer_of(k: &StaticKeypair, name: &str) -> PairedPeer {
 fn mock_platform(dir: &Path) -> Arc<MockPlatform> {
     Arc::new(MockPlatform {
         clip: MockClip::default(),
-        playback_out: Arc::default(),
         drag: Mutex::default(),
         finder: AtomicBool::new(false),
         revealed: Mutex::default(),
         downloads: dir.join("Downloads/Relay"),
-        playbacks: AtomicUsize::new(0),
     })
 }
 
@@ -251,7 +190,6 @@ impl World {
             .unwrap();
         let (tx, wire) = unbounded_channel();
         let keys = AudioKeys {
-            pc_to_mac: derive_udp_keys(&HH, UdpChannel::AudioPcToMac, true),
             mac_to_pc: derive_udp_keys(&HH, UdpChannel::AudioMacToPc, true),
         };
         let ctx = SessionCtx {
@@ -263,7 +201,6 @@ impl World {
                 ..Ports::default()
             },
             local_ports: Ports {
-                audio_pc_to_mac: 0,
                 transfer: 0,
                 ..Ports::default()
             },
@@ -339,114 +276,9 @@ fn write_file(path: &Path, len: usize, seed: u8) {
 // ---- áudio ----
 
 #[test]
-fn pc_audio_sine_reaches_playback_in_continuous_frames() {
-    let mut w = World::new(0);
-    w.media.set_audio_streams(true, false);
-    let msgs = w.wait_msgs(|m| m.iter().any(|x| matches!(x, Message::AudioControl { .. })));
-    assert!(msgs.contains(&Message::AudioControl {
-        pc_to_mac: true,
-        mac_to_pc: false
-    }));
-    let dest = w.media.audio_rx_addr().expect("escutando");
-
-    // O agente: pacotes de 5 ms em tempo real, cifrados com as chaves do outro lado.
-    let agent = UdpAead::new(
-        derive_udp_keys(&HH, UdpChannel::AudioPcToMac, false),
-        ReplayMode::Window64,
-    );
-    let sock = UdpSocket::bind((LO, 0)).unwrap();
-    let stop = Arc::new(AtomicBool::new(false));
-    let s2 = stop.clone();
-    let sender = thread::spawn(move || {
-        let t0 = Instant::now();
-        let mut out = Vec::new();
-        // Maior atraso do envio em relação ao relógio de 5 ms: mede a carga do runner.
-        let mut late = Duration::ZERO;
-        for seq in 0u64..500 {
-            while t0.elapsed() < Duration::from_millis(5 * seq) {
-                thread::sleep(Duration::from_micros(300));
-            }
-            late = late.max(t0.elapsed() - Duration::from_millis(5 * seq));
-            if s2.load(Ordering::Relaxed) {
-                break;
-            }
-            let mut hdr = vec![0u8]; // stream 0
-            hdr.extend_from_slice(&seq.to_le_bytes());
-            hdr.extend_from_slice(&(seq * FRAMES_PER_PACKET as u64).to_le_bytes());
-            let mut plain = vec![0u8, 2];
-            plain.extend_from_slice(&(FRAMES_PER_PACKET as u16).to_le_bytes());
-            for i in 0..FRAMES_PER_PACKET {
-                let s = sine(seq as usize * FRAMES_PER_PACKET + i).to_le_bytes();
-                plain.extend_from_slice(&s);
-                plain.extend_from_slice(&s);
-            }
-            agent.seal(seq, &hdr, &plain, &mut out).unwrap();
-            let mut dg = hdr.clone();
-            dg.extend_from_slice(&out);
-            sock.send_to(&dg, dest).unwrap();
-        }
-        late
-    });
-    let late = sender.join().unwrap();
-    stop.store(true, Ordering::Relaxed);
-
-    // Runner lento: espera (com prazo generoso) por pelo menos duas leituras de estatística.
-    wait_until("relay:audio-stats", || {
-        w.rec.audio.lock().unwrap().len() >= 2
-    });
-
-    // Trecho com áudio: do primeiro ao último quadro de 5 ms audível. O início (aquecimento do
-    // buffer) fica de fora; os critérios são proporções, não janelas de tempo fixas.
-    let out = w.plat.playback_out.lock().unwrap().clone();
-    let left: Vec<f32> = out.chunks_exact(2).map(|f| f[0]).collect();
-    let wins: Vec<&[f32]> = left.chunks_exact(240).collect();
-    let peaks: Vec<f32> = wins
-        .iter()
-        .map(|w| w.iter().fold(0.0f32, |m, v| m.max(v.abs())))
-        .collect();
-    let strong = |p: &f32| *p > AMP * 0.8;
-    let first = peaks.iter().position(strong).expect("nada tocou");
-    let last = peaks.iter().rposition(strong).unwrap();
-    // Descarta o primeiro quarto do trecho (aquecimento e eventual primeiro rebuffer).
-    let from = first + (last - first) / 4;
-    let steady = &peaks[from..=last];
-    assert!(steady.len() > 60, "tocou pouco: {} janelas", steady.len());
-    let weak = steady.iter().filter(|p| !strong(p)).count();
-    // A qualidade do áudio em tempo real só é verificável numa máquina dedicada: o runner
-    // compartilhado do CI dá rebuffers aleatórios. Lá o teste prova só que o seno chega e toca.
-    let ci = std::env::var_os("CI").is_some();
-    assert!(
-        ci || weak * 20 <= steady.len(),
-        "{weak} de {} quadros mudos ou fracos",
-        steady.len()
-    );
-    // Saltos na onda: quase nenhum (um rebuffer sob carga pode deixar um ou dois).
-    let seg = &left[from * 240..(last + 1) * 240];
-    let jumps = seg
-        .windows(2)
-        .filter(|p| (p[1] - p[0]).abs() >= AMP * 0.3)
-        .count();
-    assert!(ci || jumps <= 4, "{jumps} saltos na onda");
-
-    // Buffer em 20±10 ms com o runner em dia. O buffer é adaptativo: se o envio atrasou
-    // (runner lento), ele cresce de propósito e só se exige que continue limitado.
-    let stats = w.rec.audio.lock().unwrap().clone();
-    let band = if late < Duration::from_millis(5) {
-        10.0..=30.0
-    } else {
-        5.0..=50.0
-    };
-    assert!(
-        stats.iter().any(|s| band.contains(&s.buffer_ms)),
-        "buffer fora de {band:?} (envio atrasou até {late:?}): {stats:?}"
-    );
-    assert!(stats.last().unwrap().loss_pct < 5.0, "{stats:?}");
-}
-
-#[test]
 fn mic_frames_are_sent_sealed_to_the_agent() {
     let mut w = World::new(0);
-    w.media.set_audio_streams(false, true);
+    w.media.set_audio_streams(true);
     w.wait_msgs(|m| m.iter().any(|x| matches!(x, Message::AudioControl { .. })));
     let mut agent = UdpAead::new(
         derive_udp_keys(&HH, UdpChannel::AudioMacToPc, false),
@@ -477,7 +309,7 @@ fn mic_frames_are_sent_sealed_to_the_agent() {
         first_samples.iter().all(|&s| s.abs() < 700),
         "{first_samples:?}"
     );
-    w.media.set_audio_streams(false, false);
+    w.media.set_audio_streams(false);
     assert!(!w.media.sh.st().audio.tx_running());
 }
 
@@ -487,9 +319,8 @@ fn audio_without_keys_stays_off() {
     let mut ctx = (*w.media.sh.session().unwrap()).clone();
     ctx.audio_keys = None;
     w.media.session_up(ctx);
-    w.media.set_audio_streams(true, true);
-    assert!(w.media.audio_rx_addr().is_none());
-    assert_eq!(w.plat.playbacks.load(Ordering::Relaxed), 0);
+    w.media.set_audio_streams(true);
+    assert!(!w.media.sh.st().audio.tx_running());
 }
 
 // ---- clipboard ----
@@ -891,7 +722,7 @@ mod appcore {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn clipboard_and_pc_audio_over_a_real_session() {
+    async fn clipboard_and_mic_control_over_a_real_session() {
         let agent = MiniAgent::start("123456");
         let mut cfg = Config::default();
         cfg.network.ports = Ports {
@@ -912,7 +743,6 @@ mod appcore {
                 bind_ip: LO,
                 local_ports: Some(Ports {
                     input: 0,
-                    audio_pc_to_mac: 0,
                     transfer: 0,
                     ..Ports::default()
                 }),
@@ -952,54 +782,21 @@ mod appcore {
         })
         .await;
 
-        // Áudio: o pedido vira AudioControl; o agente manda senoide cifrada com as chaves do
-        // handshake e ela toca no dispositivo mock.
-        core.set_audio_streams(true, false).unwrap();
-        assert!(core.status().audio.pc_to_mac);
+        // Microfone: o pedido vira AudioControl no agente.
+        core.set_audio_streams(true).unwrap();
+        assert!(core.status().audio.mac_to_pc);
         until("AudioControl no agente", || {
             agent.saw(|m| {
                 matches!(
                     m,
                     Message::AudioControl {
-                        pc_to_mac: true,
-                        mac_to_pc: false
+                        pc_to_mac: false,
+                        mac_to_pc: true
                     }
                 )
             })
         })
         .await;
-        until("áudio escutando", || media.audio_rx_addr().is_some()).await;
-        let dest = media.audio_rx_addr().unwrap();
-        let link = agent.link.lock().unwrap().clone().unwrap();
-        let aead = UdpAead::new(link.pc_to_mac, ReplayMode::Window64);
-        let sender = thread::spawn(move || {
-            let sock = UdpSocket::bind((LO, 0)).unwrap();
-            let t0 = Instant::now();
-            let mut out = Vec::new();
-            for seq in 0u64..200 {
-                while t0.elapsed() < Duration::from_millis(5 * seq) {
-                    thread::sleep(Duration::from_micros(300));
-                }
-                let mut hdr = vec![0u8];
-                hdr.extend_from_slice(&seq.to_le_bytes());
-                hdr.extend_from_slice(&(seq * 240).to_le_bytes());
-                let mut plain = vec![0u8, 2, 240, 0];
-                for i in 0..240 {
-                    let s = sine(seq as usize * 240 + i).to_le_bytes();
-                    plain.extend_from_slice(&s);
-                    plain.extend_from_slice(&s);
-                }
-                aead.seal(seq, &hdr, &plain, &mut out).unwrap();
-                hdr.extend_from_slice(&out);
-                sock.send_to(&hdr, dest).unwrap();
-            }
-        });
-        sender.join().unwrap();
-        let out = plat.playback_out.lock().unwrap().clone();
-        let left: Vec<f32> = out.chunks_exact(2).map(|f| f[0]).collect();
-        let tail = &left[left.len().saturating_sub(48 * 500)..left.len().saturating_sub(48 * 100)];
-        let peak = tail.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-        assert!(peak > AMP * 0.8, "sem senoide no playback: {peak}");
         core.shutdown();
     }
 }
@@ -1027,9 +824,9 @@ fn mic_seqs(w: &World, n: usize) -> Vec<u64> {
 #[test]
 fn mic_seq_keeps_counting_when_the_stream_is_toggled() {
     let w = World::new(0);
-    w.media.set_audio_streams(false, true);
+    w.media.set_audio_streams(true);
     let first = mic_seqs(&w, 3);
-    w.media.set_audio_streams(false, false);
+    w.media.set_audio_streams(false);
     // Pacotes que ficaram na fila do socket antes de parar.
     w.agent_udp.set_nonblocking(true).unwrap();
     let mut buf = [0u8; 2048];
@@ -1038,7 +835,7 @@ fn mic_seq_keeps_counting_when_the_stream_is_toggled() {
         last = last.max(u64::from_le_bytes(buf[1..9].try_into().unwrap()));
     }
     w.agent_udp.set_nonblocking(false).unwrap();
-    w.media.set_audio_streams(false, true);
+    w.media.set_audio_streams(true);
     let second = mic_seqs(&w, 3);
     assert!(second[0] > last, "seq voltou: {last} -> {second:?}");
 

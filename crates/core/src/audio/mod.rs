@@ -1,13 +1,12 @@
 //! dono: C12
-//! Pipeline de áudio do core: pacote PCM, buffer de jitter, compensação de deriva e conversões.
+//! Pipeline de áudio do core: pacote PCM, buffer de jitter e conversões.
 //!
 //! Formato fixo (D13): PCM s16le, 48 kHz, estéreo, quadros de 5 ms (240 frames, 960 bytes).
 //! Nada aqui aloca depois da construção: o caminho quente (`JitterBuffer::push_payload`/`read`,
-//! `DriftCompensator::process`, conversões) trabalha só sobre buffers do chamador.
+//! conversões) trabalha só sobre buffers do chamador.
 
 mod convert;
 mod datagram;
-mod drift;
 mod jitter;
 mod packet;
 
@@ -15,8 +14,7 @@ pub use convert::{
     FrameSplitter, f32_sample_to_i16, f32_to_i16, i16_to_f32, i16_to_pcm_bytes, mono_to_stereo,
     pcm_bytes_to_i16, stereo_to_mono_f32, stereo_to_mono_i16,
 };
-pub use datagram::{DATAGRAM_LEN, PLAIN_LEN, STREAM_MIC, STREAM_PC, open_datagram, seal_datagram};
-pub use drift::DriftCompensator;
+pub use datagram::{DATAGRAM_LEN, PLAIN_LEN, STREAM_MIC, open_datagram, seal_datagram};
 pub use jitter::{JitterBuffer, JitterStats, ReadStatus};
 pub use packet::{AudioHeader, AudioPacket, HEADER_LEN};
 

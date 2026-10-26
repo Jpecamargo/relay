@@ -1,6 +1,6 @@
 //! dono: W4a
 //! Endpoints de áudio (enumeração, volume, mudo, troca de saída padrão) via Core Audio.
-//! A lógica pura (`find_vbcable`, `find_virtual_output`, `clamp_scalar`) não tem cfg e é testada
+//! A lógica pura (`find_vbcable`, `clamp_scalar`) não tem cfg e é testada
 //! no Mac; as chamadas COM ficam em `win`, só no target Windows.
 
 use relay_core::platform::PlatformError;
@@ -32,24 +32,6 @@ pub fn find_vbcable(endpoints: &AudioDevices) -> VbCable {
         input: by_prefix(&endpoints.outputs, "cable input"),
         output: by_prefix(&endpoints.inputs, "cable output"),
     }
-}
-
-/// Acha a saída virtual configurada pelo usuário (D14, modo `system`): nome exato sem diferenciar
-/// caixa; senão, o primeiro que contém o texto. Nome vazio não casa com nada.
-pub fn find_virtual_output(devices: &[AudioDevice], name: &str) -> Option<AudioDevice> {
-    let want = name.trim().to_lowercase();
-    if want.is_empty() {
-        return None;
-    }
-    devices
-        .iter()
-        .find(|d| d.name.trim().to_lowercase() == want)
-        .or_else(|| {
-            devices
-                .iter()
-                .find(|d| d.name.to_lowercase().contains(&want))
-        })
-        .cloned()
 }
 
 /// Limita o volume a 0..=1 (NaN vira 0).
@@ -133,19 +115,6 @@ pub fn set_mute(kind: EndpointKind, muted: bool) -> Result<(), PlatformError> {
     }
 }
 
-/// Mudo de um endpoint pelo id.
-pub fn get_mute_of(id: &str) -> Result<bool, PlatformError> {
-    #[cfg(windows)]
-    {
-        win::get_mute_of(id)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = id;
-        Err(PlatformError::Unsupported)
-    }
-}
-
 pub fn set_mute_of(id: &str, muted: bool) -> Result<(), PlatformError> {
     #[cfg(windows)]
     {
@@ -154,19 +123,6 @@ pub fn set_mute_of(id: &str, muted: bool) -> Result<(), PlatformError> {
     #[cfg(not(windows))]
     {
         let _ = (id, muted);
-        Err(PlatformError::Unsupported)
-    }
-}
-
-/// Id do endpoint padrão de console do tipo.
-pub fn default_endpoint_id(kind: EndpointKind) -> Result<String, PlatformError> {
-    #[cfg(windows)]
-    {
-        win::default_endpoint_id(kind)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = kind;
         Err(PlatformError::Unsupported)
     }
 }
@@ -181,44 +137,6 @@ pub fn set_default_endpoint(id: &str) -> Result<(), PlatformError> {
     {
         let _ = id;
         Err(PlatformError::Unsupported)
-    }
-}
-
-/// Guarda a saída padrão original e a restaura em `restore()` e no `Drop`.
-#[derive(Debug, Default)]
-pub struct DefaultOutputGuard {
-    original: Option<String>,
-}
-
-impl DefaultOutputGuard {
-    /// Registra a saída padrão atual como a original.
-    pub fn new() -> Result<Self, PlatformError> {
-        Ok(Self {
-            original: Some(default_endpoint_id(EndpointKind::Render)?),
-        })
-    }
-
-    /// Troca a saída padrão para `id`; a original é guardada na primeira troca.
-    pub fn switch_to(&mut self, id: &str) -> Result<(), PlatformError> {
-        if self.original.is_none() {
-            self.original = Some(default_endpoint_id(EndpointKind::Render)?);
-        }
-        set_default_endpoint(id)
-    }
-
-    /// Volta à saída original. Idempotente: só limpa o estado se a restauração der certo.
-    pub fn restore(&mut self) -> Result<(), PlatformError> {
-        if let Some(id) = self.original.clone() {
-            set_default_endpoint(&id)?;
-            self.original = None;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for DefaultOutputGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
     }
 }
 
@@ -353,7 +271,7 @@ mod win {
             .map_err(|e| err("GetDefaultAudioEndpoint", e))
     }
 
-    pub fn default_endpoint_id(kind: EndpointKind) -> Result<String, PlatformError> {
+    fn default_endpoint_id(kind: EndpointKind) -> Result<String, PlatformError> {
         device_id(&default_device(kind)?)
     }
 
@@ -409,12 +327,6 @@ mod win {
             .map_err(|e| err("GetDevice", e))?;
         unsafe { dev.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) }
             .map_err(|e| err("Activate(IAudioEndpointVolume)", e))
-    }
-
-    pub fn get_mute_of(id: &str) -> Result<bool, PlatformError> {
-        unsafe { volume_of(id)?.GetMute() }
-            .map(|b| b.as_bool())
-            .map_err(|e| err("GetMute", e))
     }
 
     pub fn set_mute_of(id: &str, muted: bool) -> Result<(), PlatformError> {
@@ -482,30 +394,10 @@ mod tests {
     }
 
     #[test]
-    fn virtual_output_exact_then_contains() {
-        let list = vec![
-            dev("CABLE-A Input (VB-Audio Cable A)"),
-            dev("CABLE Input (VB-Audio Virtual Cable)"),
-        ];
-        let exact = find_virtual_output(&list, "cable input (vb-audio virtual cable)").unwrap();
-        assert_eq!(exact.id, "id-CABLE Input (VB-Audio Virtual Cable)");
-        let part = find_virtual_output(&list, "Cable A").unwrap();
-        assert_eq!(part.id, "id-CABLE-A Input (VB-Audio Cable A)");
-        assert!(find_virtual_output(&list, "").is_none());
-        assert!(find_virtual_output(&list, "inexistente").is_none());
-    }
-
-    #[test]
     fn clamp_limits_range() {
         assert_eq!(clamp_scalar(-1.0), 0.0);
         assert_eq!(clamp_scalar(2.0), 1.0);
         assert_eq!(clamp_scalar(f32::NAN), 0.0);
         assert_eq!(clamp_scalar(0.4), 0.4);
-    }
-
-    #[test]
-    fn guard_default_restore_is_noop() {
-        let mut g = DefaultOutputGuard::default();
-        assert!(g.restore().is_ok());
     }
 }

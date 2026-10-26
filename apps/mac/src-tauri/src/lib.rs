@@ -56,7 +56,6 @@ pub fn run() {
             audio::list_audio_devices,
             audio::set_audio_streams,
             audio::set_audio_devices,
-            audio::set_stream_volume,
             system::check_permissions,
             system::open_permission_settings,
             system::set_launch_at_login,

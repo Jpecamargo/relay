@@ -21,7 +21,7 @@ vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.2.0" }));
 
 const STATUS: StatusSnapshot = {
   status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false,
-  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
+  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false },
   peer_version: null, version_sync: "InSync",
 };
 
@@ -31,10 +31,6 @@ const DEVICES = [
   { id: "spk", name: "Alto-falantes", is_default: true },
   { id: "hp", name: "Fone USB", is_default: false },
 ];
-const MAC_DEVICES = {
-  outputs: [{ id: "m1", name: "MacBook Speakers", is_default: true }, { id: "m2", name: "AirPods", is_default: false }],
-  inputs: [],
-};
 const PROFILES = [{ name: "Casa", key: "k", displays: [], windows_detached: false }, { name: "Jogo", key: "k", displays: [], windows_detached: false }];
 const info = (id: string, name: string, machine: string) => ({ id, name, machine, origin_px: [0, 0], size_px: [1, 1], scale: 1, size_mm: null, is_primary: false, is_builtin: false });
 const placed = (id: string, machine: string, x: number) => ({ display_id: id, machine, rect_mm: { x, y: 0, w: 100, h: 100 }, sensitivity: 1, rotation: null });
@@ -51,8 +47,7 @@ beforeEach(() => {
     switch (name) {
       case "get_status": return STATUS;
       case "check_permissions": return { accessibility: "Granted", input_monitoring: "Granted" };
-      case "list_audio_devices": return MAC_DEVICES;
-      case "get_config": return { audio: { stream_volume: 1, mac_output_id: null }, hotkeys, layout: { profiles: PROFILES, active: "Casa" } };
+      case "get_config": return { audio: { jitter_target_ms: 20, mac_input_id: null }, hotkeys, layout: { profiles: PROFILES, active: "Casa" } };
       case "get_displays": return { mac: [info("mac", "MacBook", "Mac")], windows: [info("d1", "Dell 1", "Windows"), info("d2", "Dell 2", "Windows")] };
       case "get_layout": return { name: "Casa", displays: [placed("mac", "Mac", 0), placed("d1", "Windows", 100), placed("d2", "Windows", 200)] };
       case "send_command":
@@ -204,7 +199,7 @@ test("relay:command-result de áudio mostra toast e desliga o toggle", async () 
   await emit("relay:command-result", { id: 0, ok: false, output: null, error: "vbcable_missing" });
   expect((await screen.findByRole("alert")).textContent).toContain("VB-CABLE");
   await waitFor(() =>
-    expect(bridge.invoke).toHaveBeenCalledWith("set_audio_streams", { pc_to_mac: false, mac_to_pc: false }),
+    expect(bridge.invoke).toHaveBeenCalledWith("set_audio_streams", { mac_to_pc: false }),
   );
 });
 
@@ -234,7 +229,6 @@ test("Saída de som lista as do PC com check na atual e troca na hora", async ()
   const hp = await screen.findByRole("menuitemradio", { name: "Fone USB" });
   expect(screen.getByRole("menuitemradio", { name: "Alto-falantes" }).getAttribute("aria-checked")).toBe("true");
   expect(hp.getAttribute("aria-checked")).toBe("false");
-  expect(screen.queryByText("No Mac")).toBeNull(); // stream desligado: sem grupo do Mac
   fireEvent.click(hp);
   await waitFor(() =>
     expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { SetOutputDevice: { id: "hp" } } }),
@@ -242,23 +236,6 @@ test("Saída de som lista as do PC com check na atual e troca na hora", async ()
   expect(hp.getAttribute("aria-checked")).toBe("true");
   expect(screen.getByRole("menuitemradio", { name: "Alto-falantes" }).getAttribute("aria-checked")).toBe("false");
   expect(screen.queryByRole("button", { name: "Fechar" })).toBeNull(); // sem toast de sucesso
-});
-
-test("com Som do PC no Mac ligado aparece o grupo No Mac e troca a saída do stream", async () => {
-  bridge.invoke.mockImplementation(async (name: string, args?: { command?: unknown }) => {
-    if (name === "get_status") return { ...STATUS, audio: { pc_to_mac: true, mac_to_pc: false } };
-    if (name === "list_audio_devices") return MAC_DEVICES;
-    if (name === "get_config") return { audio: { stream_volume: 1, mac_output_id: "m2" }, hotkeys };
-    if (name === "send_command" && args?.command === "ListOutputDevices") return { id: 5, ok: true, output: { Devices: DEVICES }, error: null };
-    return name === "send_command" ? sendResult : undefined;
-  });
-  render(<Panel />);
-  await waitFor(() => expect(screen.getByRole("button", { name: "Mudo no Windows" }).hasAttribute("disabled")).toBe(false));
-  fireEvent.click(screen.getByRole("button", { name: "Saída de som" }));
-  expect(await screen.findByText("No Mac")).toBeTruthy();
-  expect((await screen.findByRole("menuitemradio", { name: "AirPods" })).getAttribute("aria-checked")).toBe("true");
-  fireEvent.click(screen.getByRole("menuitemradio", { name: "MacBook Speakers" }));
-  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_audio_devices", { output_id: "m1" }));
 });
 
 test("erro ao trocar a saída vira toast de erro", async () => {
