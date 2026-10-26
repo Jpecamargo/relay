@@ -766,3 +766,52 @@ async fn a_node_presenting_as_0_2_9_exchanges_everything_both_ways_without_dropp
     dialer.shutdown().await;
     listener.shutdown().await;
 }
+
+/// Onda 2: nenhuma variante nova chega a um peer 0.2.9, em nenhum dos dois sentidos.
+#[tokio::test]
+async fn no_new_variant_reaches_a_0_2_9_peer_in_either_direction() {
+    let book = crate::types::LayoutBook {
+        revision: 3,
+        host: crate::types::Machine::Mac,
+        profiles: vec![],
+        active: None,
+    };
+    let new_variants = [
+        Message::Caps(crate::types::Caps::baseline(crate::types::Os::Windows)),
+        Message::LayoutBookSync(book.clone()),
+        Message::LayoutBookEdit(book),
+    ];
+    let marker = Message::Displays(vec![sample_display()]);
+
+    // Sentido 1: o 0.3.0 é o listener e o 0.2.9 disca.
+    let rig = Rig::new();
+    let (mut dialer, listener) = pair_with_legacy_dialer(&rig).await;
+    for m in &new_variants {
+        listener.send(m.clone()).await.unwrap();
+    }
+    listener.send(marker.clone()).await.unwrap();
+    assert_eq!(next_message(&mut dialer).await, marker);
+    assert_eq!(dialer.connections(), 1);
+    dialer.shutdown().await;
+    listener.shutdown().await;
+
+    // Sentido 2: o 0.2.9 é o listener e o 0.3.0 disca.
+    let rig = Rig::new();
+    let mut lcfg = rig.listener_cfg(ephemeral());
+    lcfg.app_version = "0.2.9".into();
+    let mut listener = SessionListener::start(lcfg, noop()).await.unwrap();
+    let mut dcfg = rig.dialer_cfg(&listener);
+    dcfg.app_version = "0.3.0".into();
+    let dialer = SessionDialer::start(dcfg, noop()).await.unwrap();
+    wait_connections(&dialer, 1, 3000).await;
+    wait_connections(&listener, 1, 3000).await;
+    wait_status(&mut listener.status(), ConnectionStatus::Connected, 1000).await;
+    for m in &new_variants {
+        dialer.send(m.clone()).await.unwrap();
+    }
+    dialer.send(marker.clone()).await.unwrap();
+    assert_eq!(next_message(&mut listener).await, marker);
+    assert_eq!(listener.connections(), 1);
+    dialer.shutdown().await;
+    listener.shutdown().await;
+}
