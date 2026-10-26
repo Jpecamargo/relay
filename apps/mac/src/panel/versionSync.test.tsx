@@ -61,3 +61,13 @@ test("versões iguais: não procura nem abre nada", async () => {
   expect(m.check).not.toHaveBeenCalled();
   expect(m.emitTo).not.toHaveBeenCalled();
 });
+
+test("com atualização disponível, avisa a bandeja com a versão; sem ela, com null", async () => {
+  render(<Panel />);
+  await waitFor(() => expect(m.invoke).toHaveBeenCalledWith("set_update_available", { version: "0.2.0" }));
+  cleanup();
+  m.invoke.mockClear();
+  m.status = { ...STATUS, version_sync: "InSync" };
+  render(<Panel />);
+  await waitFor(() => expect(m.invoke).toHaveBeenCalledWith("set_update_available", { version: null }));
+});
