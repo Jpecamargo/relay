@@ -108,6 +108,8 @@ enum Cmd {
     Config(Box<Config>),
     Link(bool),
     UserPaused(bool),
+    Locked(bool),
+    JumpTo(u8),
     Shutdown,
 }
 
@@ -202,6 +204,16 @@ impl ReverseHandle {
 
     pub fn set_paused(&self, paused: bool) {
         self.post(Cmd::UserPaused(paused));
+    }
+
+    /// Trava o cursor no lado atual (`set_cursor_lock`).
+    pub fn set_locked(&self, locked: bool) {
+        self.post(Cmd::Locked(locked));
+    }
+
+    /// Pula o cursor para a tela de número `n` (1 = a primeira do layout).
+    pub fn jump_to(&self, n: u8) {
+        self.post(Cmd::JumpTo(n));
     }
 
     /// Para a thread (devolve o foco e solta a captura) e espera.
@@ -344,6 +356,8 @@ fn apply(ctl: &mut Ctl, link: &mut bool, user_paused: &mut bool, cmd: Cmd) {
         Cmd::Config(c) => ctl.apply_config(&c),
         Cmd::Link(up) => *link = up,
         Cmd::UserPaused(p) => *user_paused = p,
+        Cmd::Locked(l) => ctl.set_locked(l),
+        Cmd::JumpTo(n) => ctl.jump_to(n, Instant::now()),
         Cmd::Shutdown => {}
     }
 }

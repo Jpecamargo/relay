@@ -59,6 +59,8 @@ pub(super) struct Pump {
     peer: Option<PairedPeer>,
     foreground: Option<String>,
     paused: bool,
+    /// Cursor travado pela UI (`set_cursor_lock`).
+    locked: bool,
     pairing_until: Option<Instant>,
     last_latency: Option<Instant>,
     /// Sentido inverso (R1): Controller do PC sobre o Mac, em thread própria.
@@ -199,6 +201,7 @@ impl Pump {
             peer: peers.into_iter().next(),
             foreground: None,
             paused: false,
+            locked: false,
             pairing_until: None,
             last_latency: None,
             rev,
@@ -313,7 +316,7 @@ impl Pump {
             } else {
                 Host::Peer
             },
-            locked: false,
+            locked: self.locked,
             paused: self.paused,
             secure_input: false,
             peer_unreachable: false,
@@ -558,6 +561,24 @@ impl Pump {
                 }
                 self.publish();
             }
+            Cmd::SetLocked(locked) => {
+                self.locked = locked;
+                if let Some(rev) = &self.rev {
+                    rev.set_locked(locked);
+                }
+                self.publish();
+            }
+            Cmd::JumpTo(n) => {
+                if let Some(rev) = &self.rev {
+                    rev.jump_to(n);
+                }
+            }
+            Cmd::ClipboardSendNow => {
+                if let Some(m) = self.media.as_mut() {
+                    m.clipboard_send_now();
+                }
+            }
+            Cmd::Reconnect => self.listener.force_reconnect(),
             Cmd::DisplaysChanged => {
                 let local = self.displays.list().unwrap_or_default();
                 self.rx.set_local_displays(local.clone());

@@ -35,14 +35,32 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
-            commands::status::agent_get_status,
-            commands::status::agent_get_service_status,
+            commands::status::get_status,
+            commands::status::get_service_status,
+            commands::status::list_discovered,
+            commands::config::get_config,
+            commands::config::save_config,
+            commands::config::set_clipboard_sync,
+            commands::config::set_manual_address,
+            commands::controls::send_command,
+            commands::controls::set_cursor_lock,
+            commands::controls::set_sharing_paused,
+            commands::controls::jump_to,
+            commands::controls::clipboard_send_now,
+            commands::controls::receive_remote_files,
+            commands::controls::wake_peer,
+            commands::controls::reconnect,
+            commands::audio::list_audio_devices,
+            commands::audio::set_audio_streams,
+            commands::audio::set_audio_devices,
+            commands::system::check_permissions,
+            commands::system::open_permission_settings,
+            commands::system::set_launch_at_login,
+            commands::system::open_window,
+            commands::system::quit_app,
+            commands::system::set_update_available,
             commands::pairing::agent_new_pairing_code,
             commands::pairing::agent_revoke_pair,
-            commands::config::agent_get_config,
-            commands::config::agent_save_config,
-            commands::system::agent_set_autostart,
-            commands::system::agent_set_update_available,
         ])
         .setup(|app| {
             let config = relay_core::config::load_or_default(&relay_core::config::config_path())

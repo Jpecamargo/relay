@@ -51,6 +51,8 @@ pub trait MediaPort: Send {
     fn link_changed(&mut self, link: Option<AudioLink>);
     fn config_changed(&mut self, config: &Config);
     fn audio_state(&self) -> AudioState;
+    /// "Enviar clipboard agora" (mesmo efeito do atalho).
+    fn clipboard_send_now(&mut self);
     /// Fila de saída; devolvida uma única vez.
     fn take_outbox(&mut self) -> Option<UnboundedReceiver<MediaOut>>;
 }
@@ -180,6 +182,10 @@ impl MediaPort for Media {
 
     fn audio_state(&self) -> AudioState {
         *self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn clipboard_send_now(&mut self) {
+        let _ = self.tx.send(Cmd::ClipboardSendNow);
     }
 
     fn take_outbox(&mut self) -> Option<UnboundedReceiver<MediaOut>> {

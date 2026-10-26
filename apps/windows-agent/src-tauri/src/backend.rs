@@ -16,6 +16,13 @@ pub trait AgentBackend: Send + Sync {
     fn status(&self) -> StatusSnapshot;
     /// Pausa ou retoma o compartilhamento (menu da bandeja).
     fn set_paused(&self, paused: bool) -> AgentResult<()>;
+    /// Trava o cursor no lado atual (controller reverso).
+    fn set_locked(&self, locked: bool) -> AgentResult<()>;
+    /// Pula o cursor para a tela de número `n` (controller reverso).
+    fn jump_to(&self, n: u8) -> AgentResult<()>;
+    fn clipboard_send_now(&self) -> AgentResult<()>;
+    /// Derruba e refaz a sessão com o par.
+    fn reconnect(&self) -> AgentResult<()>;
     fn new_pairing_code(&self) -> AgentResult<NewPairingCode>;
     fn revoke_pair(&self) -> AgentResult<()>;
     fn service_status(&self) -> ServiceStatus;
@@ -84,6 +91,11 @@ mod mock {
     }
 
     impl MockBackend {
+        /// Ajusta o snapshot (caps do par, SO) nos testes dos comandos.
+        pub fn edit_status(&self, f: impl FnOnce(&mut StatusSnapshot)) {
+            f(&mut self.lock().status);
+        }
+
         fn lock(&self) -> std::sync::MutexGuard<'_, MockInner> {
             self.inner.lock().unwrap_or_else(|e| e.into_inner())
         }
@@ -96,6 +108,23 @@ mod mock {
 
         fn set_paused(&self, paused: bool) -> AgentResult<()> {
             self.lock().status.paused = paused;
+            Ok(())
+        }
+
+        fn set_locked(&self, locked: bool) -> AgentResult<()> {
+            self.lock().status.locked = locked;
+            Ok(())
+        }
+
+        fn jump_to(&self, _n: u8) -> AgentResult<()> {
+            Ok(())
+        }
+
+        fn clipboard_send_now(&self) -> AgentResult<()> {
+            Ok(())
+        }
+
+        fn reconnect(&self) -> AgentResult<()> {
             Ok(())
         }
 
