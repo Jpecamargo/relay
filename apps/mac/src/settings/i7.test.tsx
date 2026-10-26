@@ -33,6 +33,9 @@ const PEER = { name: "DESKTOP-PC", addrs: ["192.168.0.20"], port: 7000, device_i
 
 let status: StatusSnapshot;
 beforeEach(() => {
+  // Só o Date congela: o relógio real avançando entre o render e a asserção mudava o "2:00" (findBy continua com timers reais).
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(1_700_000_000_000);
   status = STATUS;
   bridge.listeners.clear();
   bridge.invoke.mockReset();
@@ -46,7 +49,10 @@ beforeEach(() => {
     return undefined;
   });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const open = (...views: SettingsView[]) =>
   render(
