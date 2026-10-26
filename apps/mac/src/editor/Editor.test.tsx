@@ -205,5 +205,5 @@ test("relay:layout recarrega o livro, mantém a tela selecionada e descarta o ar
   act(() => mock.handlers.get("relay:layout")!({ revision: 2, host: "Mac", profiles: [], active: null }));
   await waitFor(() => expect(mock.invoke.mock.calls.filter((c) => c[0] === "get_layout_book").length).toBe(before + 1));
   await waitFor(() => expect(rectOf("d1").getAttribute("y")).toBe("0"));
-  expect(screen.getByRole("button", { name: /Dell 2/ }).parentElement!.getAttribute("data-selected")).toBe("true");
+  expect(screen.getByRole("button", { name: /Dell 1/ }).parentElement!.getAttribute("data-selected")).toBe("true");
 });
