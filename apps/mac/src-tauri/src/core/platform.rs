@@ -62,6 +62,14 @@ pub trait Platform: Send + Sync + 'static {
     /// Assina o Secure Input; a assinatura vale enquanto o guarda viver.
     fn watch_secure_input(&self, callback: Box<dyn Fn(bool) + Send + Sync>) -> Box<dyn Any + Send>;
     fn browse(&self) -> Result<Box<dyn Browse>, String>;
+    /// Anuncia este Mac por mDNS (TXT `id/pv/udp/os/v`) com as portas reais de escuta; o anúncio
+    /// vale enquanto o guarda viver.
+    fn advertise(
+        &self,
+        device_id: &str,
+        control_port: u16,
+        input_port: u16,
+    ) -> Result<Box<dyn Any + Send>, String>;
 }
 
 /// Saída core→UI. O app Tauri implementa com `emit_*`; os testes, com um registro.
@@ -77,6 +85,8 @@ pub trait CoreEvents: Send + Sync + 'static {
     fn command_result(&self, result: &CommandResult);
     /// `relay:transfer-progress` (≤ 10 Hz).
     fn transfer_progress(&self, _progress: &TransferProgress) {}
+    /// `relay:update-available`: o PC está numa versão mais nova e pediu que o Mac se atualize.
+    fn update_available(&self, _version: &str) {}
 }
 
 /// Chaves UDP do microfone na sessão atual (derivadas do handshake Noise).

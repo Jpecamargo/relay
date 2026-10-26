@@ -4,7 +4,7 @@
 
 use relay_core::types::{
     CommandResult, DisplaysPayload, LatencyStats, LayoutBook, PairingEvent, PermissionsStatus,
-    SecureInputPayload, StatusSnapshot, SystemMetrics, TransferProgress,
+    SecureInputPayload, StatusSnapshot, SystemMetrics, TransferProgress, UpdateAvailable,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -50,4 +50,13 @@ pub fn emit_metrics(app: &AppHandle, m: &SystemMetrics) {
 }
 pub fn emit_pairing(app: &AppHandle, p: &PairingEvent) {
     emit(app, "relay:pairing", p);
+}
+pub fn emit_update_available(app: &AppHandle, version: &str) {
+    emit(
+        app,
+        "relay:update-available",
+        UpdateAvailable {
+            version: version.to_owned(),
+        },
+    );
 }

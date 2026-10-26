@@ -31,6 +31,7 @@ use super::*;
 use crate::backend::AppBackend;
 
 mod reverse;
+mod simetrica;
 
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
@@ -128,6 +129,10 @@ pub(super) struct MockPlatform {
     sys_cb: SysCb,
     perms: Mutex<PermissionsStatus>,
     opened: Mutex<Vec<PermissionKind>>,
+    /// Anúncios mDNS pedidos: (device_id, porta de controle, porta de input).
+    advertised: Mutex<Vec<(String, u16, u16)>>,
+    /// Peers que o mDNS "acha" (cada um é entregue uma vez).
+    browse_peers: Arc<Mutex<Vec<relay_core::types::DiscoveredPeer>>>,
 }
 
 impl MockPlatform {
@@ -155,6 +160,8 @@ impl MockPlatform {
                 input_monitoring: PermissionState::Granted,
             }),
             opened: Mutex::default(),
+            advertised: Mutex::default(),
+            browse_peers: Arc::default(),
         })
     }
 
@@ -170,9 +177,13 @@ impl MockPlatform {
     }
 }
 
-struct NoBrowse;
+/// Busca falsa: entrega uma vez cada peer posto em `MockPlatform::browse_peers`.
+struct NoBrowse(Arc<Mutex<Vec<relay_core::types::DiscoveredPeer>>>);
 impl Browse for NoBrowse {
     fn next_peer(&self, timeout: Duration) -> Option<relay_core::types::DiscoveredPeer> {
+        if let Some(p) = self.0.lock().unwrap().pop() {
+            return Some(p);
+        }
         std::thread::sleep(timeout);
         None
     }
@@ -246,7 +257,19 @@ impl Platform for MockPlatform {
         Box::new(())
     }
     fn browse(&self) -> Result<Box<dyn Browse>, String> {
-        Ok(Box::new(NoBrowse))
+        Ok(Box::new(NoBrowse(self.browse_peers.clone())))
+    }
+    fn advertise(
+        &self,
+        device_id: &str,
+        control_port: u16,
+        input_port: u16,
+    ) -> Result<Box<dyn Any + Send>, String> {
+        self.advertised
+            .lock()
+            .unwrap()
+            .push((device_id.to_owned(), control_port, input_port));
+        Ok(Box::new(()))
     }
 }
 
@@ -261,6 +284,7 @@ struct Rec {
     latency: Mutex<Vec<Instant>>,
     results: Mutex<Vec<CommandResult>>,
     layouts: Mutex<Vec<LayoutBook>>,
+    updates: Mutex<Vec<String>>,
 }
 impl CoreEvents for Rec {
     fn status(&self, s: &StatusSnapshot) {
@@ -284,6 +308,9 @@ impl CoreEvents for Rec {
     }
     fn command_result(&self, r: &CommandResult) {
         self.results.lock().unwrap().push(r.clone());
+    }
+    fn update_available(&self, version: &str) {
+        self.updates.lock().unwrap().push(version.to_owned());
     }
 }
 
@@ -517,10 +544,12 @@ fn options() -> CoreOptions {
     CoreOptions {
         bind_ip: LO,
         local_ports: Some(Ports {
+            control: 0,
             input: 0,
             ..Ports::default()
         }),
         manual_grace: Duration::ZERO,
+        app_version: None,
     }
 }
 

@@ -742,11 +742,13 @@ mod appcore {
             CoreOptions {
                 bind_ip: LO,
                 local_ports: Some(Ports {
+                    control: 0,
                     input: 0,
                     transfer: 0,
                     ..Ports::default()
                 }),
                 manual_grace: Duration::ZERO,
+                app_version: None,
             },
             Handle::current(),
         );

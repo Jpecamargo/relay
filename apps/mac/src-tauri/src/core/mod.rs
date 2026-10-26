@@ -29,12 +29,14 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use relay_core::config;
+use relay_core::net::PAIRING_CODE_TTL;
 use relay_core::node::layout_host::{LayoutEffect, LayoutError as HostError, LayoutHostState};
+use relay_core::node::session::keep_new_session;
 use relay_core::platform::{DisplaySource, KeyStore, LoopWaker};
 use relay_core::types::{
     AudioState, Caps, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host,
-    LatencyStats, LayoutBook, LayoutProfile, Machine, Os, PairedPeer, PermissionsStatus, Ports,
-    SaveLayoutResult, StatusSnapshot,
+    LatencyStats, LayoutBook, LayoutProfile, Machine, NewPairingCode, Os, PairedPeer,
+    PermissionsStatus, Ports, SaveLayoutResult, StatusSnapshot,
 };
 use relay_core::version::{APP_VERSION, peer_is_symmetric, version_sync};
 use relay_core::{crypto, layout};
@@ -42,13 +44,19 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use engine::CoreCmd;
-use net::NetCmd;
+use net::{NetCmd, PumpCmd};
 
 #[cfg(target_os = "macos")]
 pub use mac::MacPlatform;
 pub use platform::{
     AudioKeys, Browse, CoreEvents, MediaHooks, NoMedia, Platform, SessionCtx, Shared, SysEvent,
 };
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
 
 /// Conta do KeyStore com o `device_id` do PC pareado (um só par, usuário único).
 pub(crate) const ACTIVE_PEER_ACCOUNT: &str = "active_peer";
@@ -62,6 +70,8 @@ pub struct CoreOptions {
     pub local_ports: Option<Ports>,
     /// Espera pelo mDNS antes de usar o endereço manual.
     pub manual_grace: Duration,
+    /// Versão informada no Hello; `None` usa a do app (só os testes mudam, para simular a 0.3).
+    pub app_version: Option<String>,
 }
 
 impl Default for CoreOptions {
@@ -70,6 +80,7 @@ impl Default for CoreOptions {
             bind_ip: IpAddr::from([0, 0, 0, 0]),
             local_ports: None,
             manual_grace: Duration::from_secs(3),
+            app_version: None,
         }
     }
 }
@@ -89,6 +100,20 @@ pub(crate) struct State {
     /// Quando a sessão atual começou a discar (`None`: não há sessão).
     pub dialing_since: Option<Instant>,
     pub pairing: bool,
+    /// Código mostrado (Mac como Listener) vale até este instante.
+    pub pairing_until: Option<Instant>,
+    /// Sessão que vale agora (a que passou por `claim`) e o `device_id` de quem a discou.
+    pub active: Option<(u64, String)>,
+    /// Bombas de sessão vivas (uma por transporte): `claim` manda o descarte às perdedoras.
+    pub pumps: Vec<(u64, UnboundedSender<PumpCmd>)>,
+    /// Época da bomba cuja fila de saída e canal rápido o Controller usa.
+    pub attached: Option<u64>,
+    /// Desde quando não há sessão de pé (a espera de `DIAL_FALLBACK` conta daqui).
+    pub idle_since: Instant,
+    /// Caps do par na sessão (ou o baseline do SO legado, com peer 0.2); `None` sem sessão ainda.
+    pub peer_live: Option<Caps>,
+    /// Escuta de pé: `new_pairing_code` só vale com ela.
+    pub listening: bool,
     pub local: Vec<DisplayInfo>,
     pub remote: Vec<DisplayInfo>,
     pub profile: Option<LayoutProfile>,
@@ -132,7 +157,13 @@ pub(crate) fn pc_unreachable(status: ConnectionStatus, dialing_for: Option<Durat
 
 impl State {
     fn derive(&mut self) {
-        self.status.status = derive_status(self.peer.is_some(), self.pairing, self.session);
+        let showing_code =
+            self.pairing_until.is_some() && self.session != Some(ConnectionStatus::Connected);
+        self.status.status = derive_status(
+            self.peer.is_some(),
+            self.pairing || showing_code,
+            self.session,
+        );
         self.status.peer_unreachable =
             pc_unreachable(self.status.status, self.dialing_since.map(|t| t.elapsed()));
         self.status.peer_name = self.peer.as_ref().map(|p| p.name.clone());
@@ -152,6 +183,15 @@ impl State {
             Host::Peer
         };
         self.status.layout_editable = self.layout.editable(connected, symmetric);
+        // Com par salvo e sem sessão o painel ainda precisa saber o SO dele (Acordar o PC): vale
+        // o último Caps visto, senão o baseline do Windows (par da 0.3 é sempre do outro SO).
+        let (os, caps) = match (self.peer_live, self.peer.is_some()) {
+            (Some(c), _) => (Some(c.os), Some(c)),
+            (None, true) => (Some(Os::Windows), Some(Caps::baseline(Os::Windows))),
+            (None, false) => (None, None),
+        };
+        self.status.peer_os = os;
+        self.status.peer_caps = caps;
     }
 }
 
@@ -236,13 +276,48 @@ impl<P: Platform> Inner<P> {
     pub fn forget_peer(&self) {
         let peer = self.mutate(|s| {
             s.session = None;
+            s.peer_live = None;
             s.peer.take()
         });
         if let Some(peer) = peer {
+            self.net(NetCmd::PeerForgotten(peer.device_id.clone()));
             let ks: Arc<dyn KeyStore> = self.platform.key_store();
             if let Err(e) = crypto::forget_active_peer(&*ks, ACTIVE_PEER_ACCOUNT, &peer.device_id) {
                 tracing::warn!("não consegui remover o peer do Keychain: {e}");
             }
+        }
+    }
+
+    /// A sessão `epoch`, discada por `dialer_id`, ficou de pé. Sem outra de pé, ou com ela
+    /// perdendo para esta em `keep_new_session`, vale a nova e as demais bombas são mandadas
+    /// embora; senão a nova é recusada (quem chama a derruba).
+    pub fn claim(&self, epoch: u64, dialer_id: &str) -> bool {
+        let mut st = self.st();
+        let keep_new = match &st.active {
+            Some((e, _)) if *e == epoch => true,
+            Some((_, existing)) => keep_new_session(existing, dialer_id),
+            None => true,
+        };
+        if !keep_new {
+            return false;
+        }
+        st.active = Some((epoch, dialer_id.to_owned()));
+        st.session_gen = epoch;
+        st.dialing_since = None;
+        for (e, ctl) in &st.pumps {
+            if *e != epoch {
+                let _ = ctl.send(PumpCmd::Drop);
+            }
+        }
+        true
+    }
+
+    /// A sessão `epoch` deixou de estar de pé.
+    pub fn release(&self, epoch: u64) {
+        let mut st = self.st();
+        if st.active.as_ref().is_some_and(|(e, _)| *e == epoch) {
+            st.active = None;
+            st.idle_since = Instant::now();
         }
     }
 
@@ -379,6 +454,13 @@ impl<P: Platform> AppCore<P> {
             session_gen: 0,
             dialing_since: None,
             pairing: false,
+            pairing_until: None,
+            active: None,
+            pumps: Vec::new(),
+            attached: None,
+            idle_since: Instant::now(),
+            peer_live: None,
+            listening: false,
             local,
             remote: Vec::new(),
             profile: None,
@@ -562,6 +644,28 @@ impl<P: Platform> AppCore<P> {
         self.inner.forget_peer();
         self.inner.net(NetCmd::StopSession { notify: true });
         Ok(())
+    }
+
+    /// Abre o pareamento com o Mac como Listener: código de 6 dígitos, uso único, 120 s. O código
+    /// também sai em `relay:pairing`.
+    pub fn new_pairing_code(&self) -> Result<NewPairingCode, String> {
+        if !self.inner.st().listening {
+            return Err("O Relay não está escutando (porta em uso?).".into());
+        }
+        let code = crypto::generate_pairing_code();
+        let ttl = PAIRING_CODE_TTL;
+        let expires_at = now_ms() + ttl.as_millis() as u64;
+        self.inner.net(NetCmd::OpenPairing {
+            code: code.clone(),
+            ttl,
+            expires_at,
+        });
+        Ok(NewPairingCode { code, expires_at })
+    }
+
+    /// Host do layout escolhido na tela de pareamento: I10 o consome depois do pareamento.
+    pub fn set_pending_layout_host(&self, host: Option<Host>) {
+        self.inner.st().pending_layout_host = host;
     }
 
     /// Derruba e refaz a sessão (também sai de `IncompatibleVersion`).
