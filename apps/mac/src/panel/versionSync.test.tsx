@@ -11,7 +11,8 @@ const m = vi.hoisted(() => ({
   status: undefined as unknown as StatusSnapshot,
 }));
 
-vi.mock("@relay/protocol-types", () => ({
+vi.mock("@relay/protocol-types", async (importActual) => ({
+  ...(await importActual<typeof import("@relay/protocol-types")>()),
   listenEvent: async () => () => undefined,
   invokeCommand: m.invoke,
 }));
@@ -48,7 +49,7 @@ afterEach(() => {
 test("Mac mais antigo: confere a atualização na hora e abre o modal da janela principal explicando que é para igualar ao PC", async () => {
   render(<Panel />);
   await waitFor(() =>
-    expect(m.emitTo).toHaveBeenCalledWith("main", "relay:open-update", { name: "PC", version: "0.2.0" }),
+    expect(m.emitTo).toHaveBeenCalledWith("main", "relay:open-update", { name: "Desktop", version: "0.2.0" }),
   );
   expect(m.check).toHaveBeenCalledTimes(1);
 });

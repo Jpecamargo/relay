@@ -1,5 +1,5 @@
 // dono: U2 (redesenho: ui-redesign). Painel do menu bar: só o essencial, no estilo de menu nativo.
-import { invokeCommand, type PermissionsStatus } from "@relay/protocol-types";
+import { CAPS, hasCap, invokeCommand, type PermissionsStatus } from "@relay/protocol-types";
 import { Banner, Button, MenuRow, OPEN_UPDATE_EVENT, StatusDot, updateOf, useRelayEvent, useUpdater, type MatchPeer } from "@relay/ui";
 import { emit, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -48,12 +48,13 @@ export function Panel() {
     if (update) void emit("relay:update-available", { version: update }).catch(() => undefined);
   }, [update]);
   // O PC já está numa versão mais nova (ele é quem manda): procura na hora e mostra o modal.
+  const peer = status.peer_name ?? "outro computador";
   const behindPeer = status.version_sync === "LocalBehind" ? status.peer_version : null;
   const verify = updater.verify;
   useEffect(() => {
     if (!behindPeer) return;
-    void verify().then((r) => r.resultado === "disponivel" && openUpdateFromPanel({ name: "PC", version: behindPeer }));
-  }, [behindPeer, verify]);
+    void verify().then((r) => r.resultado === "disponivel" && openUpdateFromPanel({ name: peer, version: behindPeer }));
+  }, [behindPeer, verify, peer]);
   const { act, show, firstTime, toast } = useActions();
   const hotkey = useHotkeys();
   const root = useRef<HTMLElement>(null);
@@ -105,15 +106,17 @@ export function Panel() {
   const pcUpdate = !online
     ? null
     : status.version_sync === "PeerBehind"
-      ? `Atualizando o PC para a versão ${updater.version || "nova"}…`
+      ? `Atualizando ${peer} para a versão ${updater.version || "nova"}…`
       : status.version_sync === "PeerBehindManual"
-        ? `Atualize o Relay Agent no PC para ${updater.version || "a versão mais nova"}.`
+        ? `Atualize o Relay no ${peer} para ${updater.version || "a versão mais nova"}.`
         : null;
 
   const retry = (
     <Button variant="ghost" onClick={() => void act("Reconectar", () => invokeCommand("reconnect"))}>Tentar de novo</Button>
   );
   const mic = status.audio.mic_to_peer;
+  const hasVolume = hasCap(status.peer_caps, CAPS.VOLUME);
+  const hasMic = hasCap(status.local_caps, CAPS.MIC_SOURCE) && hasCap(status.peer_caps, CAPS.MIC_SINK);
 
   return (
     <main ref={root} className={styles.panel}>
@@ -124,14 +127,14 @@ export function Panel() {
         </div>
         <div className={styles.subRow}>
           <StatusDot tone={statusTone(key)} label={STATUS_LABELS[key] ?? key} />
-          <span>{firstUse ? "Nenhum PC pareado" : `${STATUS_LABELS[key] ?? key}${latency && online ? ` · ${decimal(latency.rtt_ms)} ms` : ""}`}</span>
-          {firstUse ? null : <span className={styles.focus}>{status.focus === "Local" ? "Foco: Mac" : "Foco: Windows"}</span>}
+          <span>{firstUse ? "Nenhum computador pareado" : `${STATUS_LABELS[key] ?? key}${latency && online ? ` · ${decimal(latency.rtt_ms)} ms` : ""}`}</span>
+          {firstUse ? null : <span className={styles.focus}>{status.focus === "Local" ? "Foco: Este computador" : `Foco: ${peer}`}</span>}
         </div>
       </header>
 
       {secure || missing.length > 0 || incompatible || status.peer_unreachable || key === "Reconnecting" || pcUpdate ? (
         <div className={styles.banners}>
-          {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado ao PC.</Banner> : null}
+          {secure ? <Banner variant="line" tone="warn">Secure Input ativo: o teclado não é encaminhado a {peer}.</Banner> : null}
           {missing.map(([kind, label]) => (
             <Banner
               key={kind} variant="line" tone="danger"
@@ -140,9 +143,9 @@ export function Panel() {
               Permissão faltando: {label}
             </Banner>
           ))}
-          {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este Mac {incompatible.local}, PC {incompatible.remote}). Atualize os dois lados.</Banner> : null}
-          {status.peer_unreachable ? <Banner variant="line" tone="warn" action={retry}>O PC está na rede mas não responde. O roteador pode estar isolando o Wi-Fi do cabo: tente a outra banda do Wi-Fi (2.4/5 GHz) ou ligue o Mac por cabo.</Banner> : null}
-          {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando ao PC…</Banner> : null}
+          {incompatible ? <Banner variant="line" tone="danger" action={retry}>Versão incompatível (este computador {incompatible.local}, {peer} {incompatible.remote}). Atualize os dois lados.</Banner> : null}
+          {status.peer_unreachable ? <Banner variant="line" tone="warn" action={retry}>{peer} está na rede mas não responde. O roteador pode estar isolando o Wi-Fi do cabo: tente a outra banda do Wi-Fi (2.4/5 GHz) ou ligue um dos computadores por cabo.</Banner> : null}
+          {key === "Reconnecting" ? <Banner variant="line" tone="warn" action={retry}>Reconectando a {peer}…</Banner> : null}
           {pcUpdate ? <Banner variant="line">{pcUpdate}</Banner> : null}
         </div>
       ) : null}
@@ -151,15 +154,14 @@ export function Panel() {
         <>
           <hr className={styles.sep} />
           <div className={styles.group}>
-            <MenuRow label="Conectar seu PC…" icon="link" onClick={() => openFromPanel()} />
+            <MenuRow label="Conectar outro computador…" icon="link" onClick={() => openFromPanel()} />
           </div>
           <hr className={styles.sep} />
         </>
       ) : (
         <>
         <hr className={styles.sep} />
-        <VolumeBlock act={act} online={online} />
-        <hr className={styles.sep} />
+        {hasVolume ? <><VolumeBlock act={act} online={online} peer={peer} /><hr className={styles.sep} /></> : null}
 
         <div className={styles.group}>
           <MenuRow
@@ -170,21 +172,23 @@ export function Panel() {
             label="Pausar compartilhamento" icon="pause" checked={status.paused} shortcut={hotkey("TogglePause")}
             onClick={() => void act("Pausar", () => invokeCommand("set_sharing_paused", { paused: !status.paused })).then(refresh)}
           />
-          <MenuRow
-            label="Microfone do Mac no PC" icon="mic" checked={mic}
-            onClick={() => void act("Microfone do Mac no PC", () => invokeCommand("set_audio_streams", { mic_to_peer: !mic })).then(refresh)}
-          />
+          {hasMic ? (
+            <MenuRow
+              label={`Microfone deste computador em ${peer}`} icon="mic" checked={mic}
+              onClick={() => void act("Microfone", () => invokeCommand("set_audio_streams", { mic_to_peer: !mic })).then(refresh)}
+            />
+          ) : null}
         </div>
         <hr className={styles.sep} />
 
         <div className={styles.group}>
           {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={() => openUpdateFromPanel()} /> : null}
           <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
-          <SoundMenu act={act} online={online} />
+          {hasVolume ? <SoundMenu act={act} online={online} peer={peer} /> : null}
           <LayoutMenu act={act} />
           <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />
-          {online ? <CaptureMenu show={show} firstTime={firstTime} /> : null}
-          <PcMenu act={act} online={online} canWake={canWake} wakeShortcut={hotkey("WakePc")} />
+          {online && hasCap(status.peer_caps, CAPS.SCREEN_CAPTURE) ? <CaptureMenu show={show} firstTime={firstTime} peer={peer} /> : null}
+          <PcMenu act={act} online={online} peer={peer} canCommand={hasCap(status.peer_caps, CAPS.COMMANDS)} canWake={canWake} hasWake={hasCap(status.peer_caps, CAPS.WOL_TARGET)} wakeShortcut={hotkey("WakePc")} />
           <MenuRow
             label="Enviar clipboard agora" icon="clipboard" shortcut={hotkey("ClipboardSendNow")}
             onClick={() => void act("Clipboard enviado", () => invokeCommand("clipboard_send_now"), "Clipboard enviado")}

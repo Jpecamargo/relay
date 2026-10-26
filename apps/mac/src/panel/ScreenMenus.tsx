@@ -75,11 +75,12 @@ export function LayoutMenu({ act }: { act: Act }) {
 }
 
 /**
- * "Capturar tela do PC ›": só envia `CaptureScreen`. O agente responde ok e manda o PNG como
+ * "Capturar tela do outro computador ›": só envia `CaptureScreen`. O agente responde ok e manda o PNG como
  * ClipboardOffer, que o app aplica direto no clipboard do Mac (janela aberta ao enviar o comando).
  * Com uma tela só, captura direto.
  */
-export function CaptureMenu({ show, firstTime }: {
+export function CaptureMenu({ show, firstTime, peer }: {
+  peer: string;
   show: (message: string, tone: "ok" | "danger") => void;
   firstTime: (r: CommandResult) => boolean;
 }) {
@@ -101,7 +102,7 @@ export function CaptureMenu({ show, firstTime }: {
   return (
     <>
       <MenuRow
-        label="Capturar tela do PC" icon="monitor" chevron={single ? undefined : open ? "open" : true}
+        label={`Capturar tela de ${peer}`} icon="monitor" chevron={single ? undefined : open ? "open" : true}
         onClick={() => (single ? capture(windows[0]!.id) : setOpen((o) => !o))}
       />
       {open && !single ? windows.map((d) => <MenuRow nested key={d.id} label={d.name} onClick={() => capture(d.id)} />) : null}

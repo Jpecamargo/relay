@@ -9,7 +9,8 @@ const bridge = vi.hoisted(() => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("@relay/protocol-types", () => ({
+vi.mock("@relay/protocol-types", async (importActual) => ({
+  ...(await importActual<typeof import("@relay/protocol-types")>()),
   listenEvent: async (name: string, cb: (p: unknown) => void) => {
     bridge.listeners.set(name, cb);
     return () => bridge.listeners.delete(name);
@@ -23,7 +24,7 @@ const STATUS: StatusSnapshot = {
   status: "Connected", peer_name: "Desktop", focus: "Local", locked: false, paused: false,
   secure_input: false, peer_unreachable: false, clipboard_sync: false, audio: { mic_to_peer: false, mic_from_peer: false },
   peer_version: null, version_sync: "InSync",
-  local_os: "Mac", peer_os: null, local_caps: { os: "Mac", features: 544 }, peer_caps: null, layout_host: "Local", layout_editable: true,
+  local_os: "Mac", peer_os: "Windows", local_caps: { os: "Mac", features: 544 }, peer_caps: { os: "Windows", features: 479 }, layout_host: "Local", layout_editable: true,
 };
 
 let sendResult: unknown;
@@ -66,13 +67,13 @@ const sentWith = (text: string) =>
 
 async function ready() {
   render(<Panel />);
-  await waitFor(() => expect(screen.getByRole("button", { name: "Mudo no Windows" }).hasAttribute("disabled")).toBe(false));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Mudo em Desktop" }).hasAttribute("disabled")).toBe(false));
 }
 
 /** Abre o submenu "PC ›" (energia). */
 const openPc = async () => {
   await ready();
-  fireEvent.click(screen.getByRole("button", { name: "PC" }));
+  fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
 };
 
 test("Bloquear envia Power Lock sem confirmação e sucesso não mostra toast", async () => {
@@ -117,10 +118,10 @@ test("evento de latência atualiza o texto do cabeçalho", async () => {
 
 test("cabeçalho mostra o PC pareado e onde está o foco", async () => {
   await ready();
-  expect(screen.getByText("Desktop")).toBeTruthy();
-  expect(screen.getByText("Foco: Mac")).toBeTruthy();
+  expect(screen.getAllByText("Desktop").length).toBeGreaterThan(0);
+  expect(screen.getByText("Foco: Este computador")).toBeTruthy();
   await emit("relay:status", { ...STATUS, focus: "Peer" });
-  expect(screen.getByText("Foco: Windows")).toBeTruthy();
+  expect(screen.getByText("Foco: Desktop")).toBeTruthy();
 });
 
 test("toggle de cursor chama set_cursor_lock sem toast de sucesso", async () => {
@@ -149,7 +150,7 @@ test("slider de volume do Windows envia SetVolume depois de 50 ms", async () => 
   await ready();
   vi.useFakeTimers();
   try {
-    fireEvent.change(screen.getByLabelText("Volume do Windows"), { target: { value: "0.3" } });
+    fireEvent.change(screen.getByLabelText("Volume de Desktop"), { target: { value: "0.3" } });
     expect(sentWith("SetVolume")).toHaveLength(0);
     await act(async () => void vi.advanceTimersByTime(50));
     expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { SetVolume: { level: 0.3 } } });
@@ -161,7 +162,7 @@ test("slider de volume do Windows envia SetVolume depois de 50 ms", async () => 
 test("volume exibido acompanha cada troca de saída do PC, não só a primeira", async () => {
   await ready();
   const metrics = (volume: number) => ({ cpu_pct: 0, mem_pct: 0, volume, muted: false });
-  const shown = () => Number((screen.getByLabelText("Volume do Windows") as HTMLInputElement).value);
+  const shown = () => Number((screen.getByLabelText("Volume de Desktop") as HTMLInputElement).value);
   for (const v of [0.8, 0.2]) {
     await emit("relay:metrics", metrics(v));
     expect(shown()).toBeCloseTo(v);
@@ -180,19 +181,19 @@ test("PC visto mas sem resposta explica o firewall; sem o flag, nada", async () 
   emit("relay:status", { ...STATUS, status: "Connecting" });
   expect(screen.queryByText(/firewall do Windows/)).toBeNull();
   emit("relay:status", { ...STATUS, status: "Connecting", peer_unreachable: true });
-  expect((await screen.findByText(/O PC está na rede mas não responde/)).textContent).toContain("isolando o Wi-Fi do cabo");
+  expect((await screen.findByText(/Desktop está na rede mas não responde/)).textContent).toContain("isolando o Wi-Fi do cabo");
 });
 
 test("PC mais antigo: o painel diz que o PC está atualizando, ou pede a atualização manual se ele é velho demais", async () => {
   await ready();
-  expect(screen.queryByText(/Atualizando o PC/)).toBeNull();
+  expect(screen.queryByText(/Atualizando Desktop/)).toBeNull();
   emit("relay:status", { ...STATUS, peer_version: "0.1.8", version_sync: "PeerBehind" });
-  expect(await screen.findByText("Atualizando o PC para a versão 0.2.0…")).toBeTruthy();
+  expect(await screen.findByText("Atualizando Desktop para a versão 0.2.0…")).toBeTruthy();
   emit("relay:status", { ...STATUS, peer_version: "0.1.0", version_sync: "PeerBehindManual" });
-  expect(await screen.findByText("Atualize o Relay Agent no PC para 0.2.0.")).toBeTruthy();
-  expect(screen.queryByText(/Atualizando o PC/)).toBeNull();
+  expect(await screen.findByText("Atualize o Relay no Desktop para 0.2.0.")).toBeTruthy();
+  expect(screen.queryByText(/Atualizando Desktop/)).toBeNull();
   emit("relay:status", { ...STATUS, peer_version: "0.2.0", version_sync: "InSync" });
-  await waitFor(() => expect(screen.queryByText(/Relay Agent no PC/)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/Relay no Desktop/)).toBeNull());
 });
 
 test("relay:command-result de áudio mostra toast e desliga o toggle", async () => {
@@ -281,7 +282,7 @@ test("Layout lista os perfis com check no atual e troca o perfil em uso", async 
 test("Capturar tela do PC só envia o comando e avisa que foi copiada", async () => {
   sendResult = { id: 3, ok: true, output: null, error: null };
   await ready();
-  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela do PC" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela de Desktop" }));
   fireEvent.click(await screen.findByRole("button", { name: "Dell 2" }));
   expect(await screen.findByText("Captura copiada para o clipboard")).toBeTruthy();
   expect(bridge.invoke).toHaveBeenCalledWith("send_command", { command: { CaptureScreen: { display_id: "d2" } } });
@@ -290,7 +291,7 @@ test("Capturar tela do PC só envia o comando e avisa que foi copiada", async ()
 test("falha na captura vira toast de erro e não diz que copiou", async () => {
   sendResult = { id: 4, ok: false, output: null, error: "timeout" };
   await ready();
-  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela do PC" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Capturar tela de Desktop" }));
   fireEvent.click(await screen.findByRole("button", { name: "Dell 1" }));
   expect((await screen.findByRole("alert")).textContent).toContain("O PC não respondeu a tempo.");
   expect(screen.queryByText(/copiada/)).toBeNull();
@@ -298,19 +299,47 @@ test("falha na captura vira toast de erro e não diz que copiou", async () => {
 
 test("itens condicionais: Capturar só online; Reconectar só desconectado", async () => {
   await ready();
-  expect(await screen.findByRole("button", { name: "Capturar tela do PC" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Capturar tela de Desktop" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Reconectar" })).toBeNull();
   await emit("relay:status", { ...STATUS, status: "Disconnected" });
   fireEvent.click(await screen.findByRole("button", { name: "Reconectar" }));
-  expect(screen.queryByRole("button", { name: "Capturar tela do PC" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Capturar tela de Desktop" })).toBeNull();
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("reconnect"));
 });
 
 test("sem PC pareado o painel leva à tela de pareamento e esconde os controles", async () => {
   await ready();
   await emit("relay:status", { ...STATUS, status: "Disconnected", peer_name: null });
-  expect(await screen.findByRole("button", { name: "Conectar seu PC…" })).toBeTruthy();
-  expect(screen.getByText("Nenhum PC pareado")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Conectar outro computador…" })).toBeTruthy();
+  expect(screen.getByText("Nenhum computador pareado")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Travar cursor" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Ajustes…" })).toBeNull();
+});
+
+const MAC_BASELINE = { os: "Mac", features: 544 } as const;
+const WIN_BASELINE = { os: "Windows", features: 479 } as const;
+const WIN_LOCAL: StatusSnapshot = { ...STATUS, local_os: "Windows", local_caps: WIN_BASELINE, peer_os: "Mac", peer_caps: MAC_BASELINE, peer_name: "Desktop-Joao" };
+
+test("status de Mac mostra os itens da 0.2: volume, saída, comandos, captura, microfone e acordar", async () => {
+  await ready();
+  expect(screen.getByLabelText("Volume de Desktop")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Saída de som" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Capturar tela de Desktop" })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: /Microfone deste computador em Desktop/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
+  expect(screen.getByRole("button", { name: "Reiniciar" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Acordar/ })).toBeTruthy();
+});
+
+test("status de Windows esconde os itens condicionados às capacidades do peer Mac", async () => {
+  render(<Panel />);
+  await waitFor(() => expect(bridge.listeners.has("relay:status")).toBe(true));
+  await emit("relay:status", WIN_LOCAL);
+  expect(await screen.findByText("Desktop-Joao")).toBeTruthy();
+  expect(screen.queryByLabelText(/Volume de/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Saída de som" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Capturar tela/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Desktop-Joao" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: /Microfone/ })).toBeNull();
+  expect(screen.getByText("Foco: Este computador")).toBeTruthy();
 });

@@ -11,8 +11,8 @@ const MEDIA: ReadonlyArray<{ action: MediaAction; label: string; icon: IconName 
   { action: "Next", label: "Próxima", icon: "next" },
 ];
 
-/** Volume do PC com mudo, e os controles de mídia como ícones pequenos. */
-export function VolumeBlock({ act, online }: { act: Act; online: boolean }) {
+/** Volume do outro computador com mudo, e os controles de mídia como ícones pequenos. */
+export function VolumeBlock({ act, online, peer }: { act: Act; online: boolean; peer: string }) {
   const [volume, setVolume] = useState(0.5);
   const [muted, setMuted] = useState(false);
   // O PC é a fonte da verdade (a troca de saída muda volume e mudo sem passar por aqui): segue as
@@ -32,13 +32,13 @@ export function VolumeBlock({ act, online }: { act: Act; online: boolean }) {
       <div className={styles.volumeRow}>
         <button
           type="button" className={styles.iconBtn} disabled={!online}
-          aria-label="Mudo no Windows" aria-pressed={muted}
+          aria-label={`Mudo em ${peer}`} aria-pressed={muted}
           onClick={() => { const m = !muted; setMuted(m); void act("Mudo", () => send({ SetMute: { muted: m } })); }}
         >
           <Icon name={icon} size={16} />
         </button>
         <Slider
-          compact label="Volume do Windows" value={volume} min={0} max={1} step={0.01} debounceMs={50}
+          compact label={`Volume de ${peer}`} value={volume} min={0} max={1} step={0.01} debounceMs={50}
           format={(v) => `${Math.round(v * 100)}%`} disabled={!online}
           onChange={(v) => { setVolume(v); void act("Volume", () => send({ SetVolume: { level: v } })); }}
         />
