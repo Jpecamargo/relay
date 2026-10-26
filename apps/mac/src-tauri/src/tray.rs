@@ -21,6 +21,8 @@ pub struct TrayHandles {
     status: MenuItem<Wry>,
     lock: CheckMenuItem<Wry>,
     pause: CheckMenuItem<Wry>,
+    /// Itens que citam o outro computador pelo nome.
+    peer_items: [MenuItem<Wry>; 3],
     tray: TrayIcon<Wry>,
     applied: Mutex<Applied>,
 }
@@ -30,6 +32,7 @@ pub struct TrayHandles {
 #[derive(Default)]
 struct Applied {
     label: String,
+    peer: String,
     locked: bool,
     paused: bool,
     connected: Option<bool>,
@@ -38,6 +41,7 @@ struct Applied {
 #[derive(Debug, Default, PartialEq)]
 struct Changes {
     label: bool,
+    peer: bool,
     locked: bool,
     paused: bool,
     icon: bool,
@@ -46,15 +50,18 @@ struct Changes {
 impl Applied {
     fn update(&mut self, s: &StatusSnapshot) -> Changes {
         let label = status_label(s);
+        let peer = peer_label(s);
         let connected = tray_connected(s);
         let changes = Changes {
             label: self.label != label,
+            peer: self.peer != peer,
             locked: self.locked != s.locked,
             paused: self.paused != s.paused,
             icon: self.connected != Some(connected),
         };
         *self = Applied {
             label,
+            peer,
             locked: s.locked,
             paused: s.paused,
             connected: Some(connected),
@@ -68,10 +75,19 @@ pub fn tray_connected(s: &StatusSnapshot) -> bool {
     matches!(s.status, ConnectionStatus::Connected)
 }
 
+/// Como o menu chama o outro computador: o nome do par, ou um texto neutro sem par.
+pub fn peer_label(s: &StatusSnapshot) -> String {
+    s.peer_name
+        .clone()
+        .unwrap_or_else(|| "o outro computador".into())
+}
+
 pub fn status_label(s: &StatusSnapshot) -> String {
     let text = match s.status {
         ConnectionStatus::Disconnected => "Desconectado",
-        ConnectionStatus::Discovering => "Procurando o PC",
+        ConnectionStatus::Discovering => {
+            return format!("Estado: Procurando {}", peer_label(s));
+        }
         ConnectionStatus::Connecting => "Conectando",
         ConnectionStatus::Pairing => "Pareando",
         ConnectionStatus::Connected => "Conectado",
@@ -93,6 +109,13 @@ impl TrayHandles {
             .update(s);
         if changes.label {
             let _ = self.status.set_text(status_label(s));
+        }
+        if changes.peer {
+            let name = peer_label(s);
+            let [lock, suspend, wake] = &self.peer_items;
+            let _ = lock.set_text(format!("Bloquear {name}"));
+            let _ = suspend.set_text(format!("Suspender {name}"));
+            let _ = wake.set_text(format!("Ligar {name}"));
         }
         if changes.locked {
             let _ = self.lock.set_checked(s.locked);
@@ -210,6 +233,12 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
+    let name = peer_label(&snapshot);
+    let peer_items = [
+        item("pc_lock", &format!("Bloquear {name}"))?,
+        item("pc_suspend", &format!("Suspender {name}"))?,
+        item("pc_wake", &format!("Ligar {name}"))?,
+    ];
     let menu = Menu::with_items(
         app,
         &[
@@ -219,9 +248,9 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             &pause,
             &item("clipboard", "Enviar clipboard")?,
             &PredefinedMenuItem::separator(app)?,
-            &item("pc_lock", "Bloquear PC")?,
-            &item("pc_suspend", "Suspender PC")?,
-            &item("pc_wake", "Ligar PC")?,
+            &peer_items[0],
+            &peer_items[1],
+            &peer_items[2],
             &item("reconnect", "Reconectar")?,
             &PredefinedMenuItem::separator(app)?,
             &item("editor", "Telas…")?,
@@ -257,6 +286,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         status,
         lock,
         pause,
+        peer_items,
         tray,
         applied: Mutex::new({
             let mut a = Applied::default();
@@ -280,6 +310,16 @@ mod tests {
         let mut s = s;
         s.status = ConnectionStatus::Reconnecting;
         assert_eq!(status_label(&s), "Estado: Reconectando");
+    }
+
+    #[test]
+    fn tray_names_the_peer_instead_of_pc() {
+        let mut s = MockBackend::default().get_status();
+        s.status = ConnectionStatus::Discovering;
+        assert_eq!(status_label(&s), "Estado: Procurando DESKTOP-RELAY");
+        s.peer_name = None;
+        assert_eq!(peer_label(&s), "o outro computador");
+        assert!(!status_label(&s).contains("PC"));
     }
 
     #[test]

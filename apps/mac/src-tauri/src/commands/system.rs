@@ -84,3 +84,9 @@ pub fn open_window(app: AppHandle, label: String) -> Result<(), String> {
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
+
+/// A bandeja do Mac não mostra o aviso de atualização: o front já o mostra (no-op).
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_update_available(version: Option<String>) {
+    let _ = version;
+}

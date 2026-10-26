@@ -29,13 +29,14 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use relay_core::config;
+use relay_core::node::layout_host::{LayoutEffect, LayoutError as HostError, LayoutHostState};
 use relay_core::platform::{DisplaySource, KeyStore, LoopWaker};
 use relay_core::types::{
     AudioState, Caps, Config, ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host,
-    LatencyStats, LayoutProfile, Os, PairedPeer, PermissionsStatus, Ports, SaveLayoutResult,
-    StatusSnapshot,
+    LatencyStats, LayoutBook, LayoutProfile, Machine, Os, PairedPeer, PermissionsStatus, Ports,
+    SaveLayoutResult, StatusSnapshot,
 };
-use relay_core::version::{APP_VERSION, version_sync};
+use relay_core::version::{APP_VERSION, peer_is_symmetric, version_sync};
 use relay_core::{crypto, layout};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -91,6 +92,11 @@ pub(crate) struct State {
     pub local: Vec<DisplayInfo>,
     pub remote: Vec<DisplayInfo>,
     pub profile: Option<LayoutProfile>,
+    /// Livro de layouts (D42): fonte única dos perfis. `config.layout` é o espelho gravado.
+    pub layout: LayoutHostState,
+    /// Escolha de host do pareamento novo (D44), preenchida pelo pareamento e consumida por
+    /// `LayoutHostState::on_new_pairing` depois da primeira troca de livros.
+    pub pending_layout_host: Option<Host>,
     pub discovered: Vec<DiscoveredPeer>,
     pub latency: LatencyStats,
 }
@@ -133,6 +139,19 @@ impl State {
         let connected = self.status.status == ConnectionStatus::Connected;
         self.status.peer_version = self.peer_version.clone().filter(|_| connected);
         self.status.version_sync = version_sync(APP_VERSION, self.status.peer_version.as_deref());
+        let symmetric = connected && peer_is_symmetric(self.peer_version.as_deref());
+        // Peer 0.2 conectado: o host efetivo é sempre o Mac (D43).
+        let host = if connected && !symmetric {
+            Machine::Mac
+        } else {
+            self.layout.host()
+        };
+        self.status.layout_host = if host == Machine::Mac {
+            Host::Local
+        } else {
+            Host::Peer
+        };
+        self.status.layout_editable = self.layout.editable(connected, symmetric);
     }
 }
 
@@ -227,15 +246,67 @@ impl<P: Platform> Inner<P> {
         }
     }
 
-    /// Acorda o PC pareado (Wake-on-LAN).
+    /// Acorda o PC pareado (Wake-on-LAN), se o par tem `WOL_TARGET`.
     pub fn wake_pc(&self) -> Result<(), String> {
-        let mac = self
-            .st()
-            .peer
-            .as_ref()
-            .map(|p| p.mac_address)
-            .ok_or("nenhum PC pareado")?;
+        let (mac, caps) = {
+            let st = self.st();
+            (st.peer.as_ref().map(|p| p.mac_address), st.status.peer_caps)
+        };
+        let mac = mac.ok_or("nenhum PC pareado")?;
+        wake_allowed(caps)?;
         relay_core::wol::send_wol(mac).map_err(|e| e.to_string())
+    }
+
+    /// Aplica os efeitos do livro de layouts, de qualquer thread: manda ao peer, grava o
+    /// espelho em `config.layout` e avisa a UI (`relay:layout`) e o engine.
+    pub fn apply_layout(&self, effects: Vec<LayoutEffect>) {
+        for effect in effects {
+            match effect {
+                LayoutEffect::Send(m) => self.core(CoreCmd::Send(m)),
+                LayoutEffect::Persist(_) => {
+                    let cfg = self.mutate(|s| {
+                        s.config.layout = s.layout.to_config();
+                        s.config.clone()
+                    });
+                    self.persist_config(&cfg);
+                }
+                LayoutEffect::Emit(book) => {
+                    self.events.layout(&book);
+                    self.core(CoreCmd::ProfilesChanged);
+                }
+            }
+        }
+    }
+
+    /// Edita o livro (perfis e ativo); só-leitura vira `layout_read_only`.
+    fn edit_layout(
+        &self,
+        profiles: Vec<LayoutProfile>,
+        active: Option<String>,
+    ) -> Result<(), String> {
+        let effects = self
+            .mutate(|s| s.layout.edit(profiles, active))
+            .map_err(read_only)?;
+        self.apply_layout(effects);
+        Ok(())
+    }
+}
+
+/// Código de erro da IPC para layout em só-leitura.
+pub(crate) const LAYOUT_READ_ONLY: &str = "layout_read_only";
+
+fn read_only(_: HostError) -> String {
+    LAYOUT_READ_ONLY.to_owned()
+}
+
+/// Wake-on-LAN só com a capacidade `WOL_TARGET`. Sem caps conhecidas (ainda sem sessão), vale
+/// o baseline do PC: todo par do Mac é Windows e o 0.2 já aceitava.
+pub(crate) fn wake_allowed(peer_caps: Option<Caps>) -> Result<(), String> {
+    let caps = peer_caps.unwrap_or(Caps::baseline(Os::Windows));
+    if caps.has(Caps::WOL_TARGET) {
+        Ok(())
+    } else {
+        Err(relay_core::types::error_code::UNSUPPORTED.to_owned())
     }
 }
 
@@ -278,6 +349,7 @@ impl<P: Platform> AppCore<P> {
             displays_waker.wake();
         }));
 
+        let layout_cfg = config.layout.clone();
         let status = StatusSnapshot {
             status: ConnectionStatus::Disconnected,
             peer_name: None,
@@ -297,28 +369,32 @@ impl<P: Platform> AppCore<P> {
             layout_host: Host::Local,
             layout_editable: true,
         };
+        let mut state = State {
+            status,
+            emitted: None,
+            config,
+            peer: None,
+            session: None,
+            peer_version: None,
+            session_gen: 0,
+            dialing_since: None,
+            pairing: false,
+            local,
+            remote: Vec::new(),
+            profile: None,
+            layout: LayoutHostState::new(Machine::Mac, layout_cfg),
+            pending_layout_host: None,
+            discovered: Vec::new(),
+            latency: LatencyStats::default(),
+        };
+        state.derive();
         let inner = Arc::new(Inner {
             platform: platform.clone(),
             events,
             media,
             opts,
             config_path,
-            state: Mutex::new(State {
-                status,
-                emitted: None,
-                config,
-                peer: None,
-                session: None,
-                peer_version: None,
-                session_gen: 0,
-                dialing_since: None,
-                pairing: false,
-                local,
-                remote: Vec::new(),
-                profile: None,
-                discovered: Vec::new(),
-                latency: LatencyStats::default(),
-            }),
+            state: Mutex::new(state),
             emit_lock: Mutex::new(()),
             core_tx,
             waker,
@@ -373,8 +449,24 @@ impl<P: Platform> AppCore<P> {
         })
     }
 
-    /// Valida, grava em `config.layout.profiles` (um por nome), torna-o o perfil em uso, aplica no
-    /// Controller e manda `LayoutSync`. Devolve os avisos de Dock e Hot Corner.
+    /// Livro de layouts oficial (perfis, ativo, host e revisão).
+    pub fn layout_book(&self) -> LayoutBook {
+        self.inner.st().layout.book()
+    }
+
+    /// Escolhe quem edita os layouts; só-leitura vira `layout_read_only`.
+    pub fn set_layout_host(&self, host: Host) -> Result<(), String> {
+        let effects = self
+            .inner
+            .mutate(|s| s.layout.set_host(host))
+            .map_err(read_only)?;
+        self.inner.apply_layout(effects);
+        Ok(())
+    }
+
+    /// Valida, põe em `layout.profiles` (um por nome) como perfil em uso e passa pelo livro:
+    /// o host grava e publica, o não-host propõe ao host. Em só-leitura: `layout_read_only`.
+    /// Devolve os avisos de Dock e Hot Corner.
     pub fn save_layout(&self, mut profile: LayoutProfile) -> Result<SaveLayoutResult, String> {
         layout::validate(&profile).map_err(|e| e.to_string())?;
         profile.name = profile.name.trim().to_owned();
@@ -382,19 +474,18 @@ impl<P: Platform> AppCore<P> {
             profile.name = layout::DEFAULT_PROFILE_NAME.to_owned();
         }
         let (dock, corners) = self.inner.platform.dock();
-        let cfg = self.inner.mutate(|s| {
-            let l = &mut s.config.layout;
-            match l.profiles.iter_mut().find(|p| p.name == profile.name) {
-                Some(p) => *p = profile.clone(),
-                None => l.profiles.push(profile.clone()),
-            }
-            l.active = Some(profile.name.clone());
-            s.config.clone()
-        });
-        self.inner.persist_config(&cfg);
-        self.inner.core(CoreCmd::ProfilesChanged);
-        let warnings =
-            layout::dock_warnings(&profile, dock, corners, cfg.transition.corner_dead_zone_mm);
+        let (book, corner_dead_zone_mm) = {
+            let st = self.inner.st();
+            (st.layout.book(), st.config.transition.corner_dead_zone_mm)
+        };
+        let mut profiles = book.profiles;
+        match profiles.iter_mut().find(|p| p.name == profile.name) {
+            Some(p) => *p = profile.clone(),
+            None => profiles.push(profile.clone()),
+        }
+        self.inner
+            .edit_layout(profiles, Some(profile.name.clone()))?;
+        let warnings = layout::dock_warnings(&profile, dock, corners, corner_dead_zone_mm);
         Ok(SaveLayoutResult { warnings })
     }
 
@@ -421,20 +512,15 @@ impl<P: Platform> AppCore<P> {
         if !names.contains(active.trim()) {
             return Err(format!("perfil {active} não existe"));
         }
-        let cfg = self.inner.mutate(|s| {
-            s.config.layout.profiles = profiles
-                .into_iter()
-                .map(|p| LayoutProfile {
-                    name: p.name.trim().to_owned(),
-                    ..p
-                })
-                .collect();
-            s.config.layout.active = Some(active.trim().to_owned());
-            s.config.clone()
-        });
-        self.inner.persist_config(&cfg);
-        self.inner.core(CoreCmd::ProfilesChanged);
-        Ok(())
+        let profiles = profiles
+            .into_iter()
+            .map(|p| LayoutProfile {
+                name: p.name.trim().to_owned(),
+                ..p
+            })
+            .collect();
+        self.inner
+            .edit_layout(profiles, Some(active.trim().to_owned()))
     }
 
     /// Grava o config vindo da UI. Os perfis de layout só mudam por `save_layout`.

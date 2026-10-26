@@ -9,7 +9,6 @@ pub async fn pair_with_code(
     state: State<'_, AppState>,
     code: String,
     address: Option<String>,
-    // D44: o host do layout só passa a valer com o núcleo simétrico; por ora é ignorado.
     layout_host: Option<Host>,
 ) -> Result<(), String> {
     let _ = layout_host;

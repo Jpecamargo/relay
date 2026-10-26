@@ -22,7 +22,7 @@ use relay_core::platform::{
 use relay_core::types::{
     CapturedEvent, CommandResult, Config, ConnectionStatus, DisplayInfo, DisplaysPayload, DockInfo,
     DockOrientation, HotCorners, HotkeyAction, HotkeyBinding, InputEvent, KeyCode, KeyCombo,
-    LatencyStats, Machine, MediaAction, Message, Modifier, PairingEvent, PairingState,
+    LatencyStats, LayoutBook, Machine, MediaAction, Message, Modifier, PairingEvent, PairingState,
     PermissionKind, PermissionState, PermissionsStatus, Ports, RemoteCommand, StatusSnapshot,
 };
 use tokio::runtime::Handle;
@@ -260,6 +260,7 @@ struct Rec {
     pairing: Mutex<Vec<PairingEvent>>,
     latency: Mutex<Vec<Instant>>,
     results: Mutex<Vec<CommandResult>>,
+    layouts: Mutex<Vec<LayoutBook>>,
 }
 impl CoreEvents for Rec {
     fn status(&self, s: &StatusSnapshot) {
@@ -270,6 +271,9 @@ impl CoreEvents for Rec {
     }
     fn displays(&self, d: &DisplaysPayload) {
         self.displays.lock().unwrap().push(d.clone());
+    }
+    fn layout(&self, b: &LayoutBook) {
+        self.layouts.lock().unwrap().push(b.clone());
     }
     fn permissions(&self, p: &PermissionsStatus) {
         self.permissions.lock().unwrap().push(*p);
@@ -293,6 +297,8 @@ struct Agent {
     active: Arc<AtomicBool>,
     /// Liga: o agente recebe `Command` mas não responde (provoca o timeout).
     mute: Arc<AtomicBool>,
+    /// Enviado ao Mac assim que o laço do agente o vê.
+    outbox: Arc<Mutex<Vec<Message>>>,
     /// Novo código a abrir (o anterior é de uso único).
     next_code: Arc<Mutex<Option<String>>>,
     stop: Arc<AtomicBool>,
@@ -312,7 +318,8 @@ impl Agent {
         let (ports_tx, ports_rx) = std::sync::mpsc::channel();
         let next_code: Arc<Mutex<Option<String>>> = Arc::default();
         let mute = Arc::new(AtomicBool::new(false));
-        let (r, i, a, s, n, m, code, v) = (
+        let outbox: Arc<Mutex<Vec<Message>>> = Arc::default();
+        let (r, i, a, s, n, m, code, v, ob) = (
             received.clone(),
             injected.clone(),
             active.clone(),
@@ -321,10 +328,24 @@ impl Agent {
             mute.clone(),
             code.to_owned(),
             app_version.to_owned(),
+            outbox.clone(),
         );
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(agent_main(code, v, ports_tx, r, i, a, n, m, s));
+            rt.block_on(agent_main(
+                code,
+                v,
+                ports_tx,
+                r,
+                i,
+                a,
+                AgentCtl {
+                    next_code: n,
+                    mute: m,
+                    outbox: ob,
+                },
+                s,
+            ));
         });
         let (control_port, input_port) = ports_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         Self {
@@ -334,6 +355,7 @@ impl Agent {
             injected,
             active,
             mute,
+            outbox,
             next_code,
             stop,
             thread: Some(thread),
@@ -365,6 +387,13 @@ impl relay_core::platform::CommandExecutor for OkExecutor {
     }
 }
 
+/// Alças que o teste usa para dirigir o agente falso.
+struct AgentCtl {
+    next_code: Arc<Mutex<Option<String>>>,
+    mute: Arc<AtomicBool>,
+    outbox: Arc<Mutex<Vec<Message>>>,
+}
+
 type AgentReceiver = Receiver<MockInjector, MockCursor>;
 
 #[allow(clippy::too_many_arguments)]
@@ -375,10 +404,14 @@ async fn agent_main(
     received: Arc<Mutex<Vec<Message>>>,
     injected: Arc<Mutex<Vec<InputEvent>>>,
     active: Arc<AtomicBool>,
-    next_code: Arc<Mutex<Option<String>>>,
-    mute: Arc<AtomicBool>,
+    ctl: AgentCtl,
     stop: Arc<AtomicBool>,
 ) {
+    let AgentCtl {
+        next_code,
+        mute,
+        outbox,
+    } = ctl;
     let identity = load_or_create_identity(&MemoryKeyStore::default()).unwrap();
     let device = LocalDevice {
         name: "PC de teste".into(),
@@ -424,6 +457,10 @@ async fn agent_main(
     while !stop.load(Ordering::SeqCst) {
         if let Some(code) = next_code.lock().unwrap().take() {
             listener.open_pairing(code, Duration::from_secs(120));
+        }
+        let pending: Vec<Message> = outbox.lock().unwrap().drain(..).collect();
+        for m in pending {
+            let _ = listener.send(m).await;
         }
         tokio::select! {
             ev = listener.recv_event() => match ev {
@@ -525,7 +562,8 @@ fn status_derivado() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
-    let agent = Agent::start("123456");
+    // Peer 0.2: recebe LayoutSync (o 0.3 recebe o livro, testado à parte).
+    let agent = Agent::start_versioned("123456", "0.2.9");
     let platform = MockPlatform::new(&base_config(&agent));
     let rec = Arc::new(Rec::default());
     let core = AppCore::start(
@@ -592,15 +630,17 @@ async fn loopback_pareia_conecta_e_leva_o_cursor_ao_agente() {
     assert_eq!(layout.displays.len(), 2);
     let shown = core.displays();
     assert_eq!((shown.local.len(), shown.peer.len()), (1, 1));
-    // Telas novas não criam perfil sozinhas: só o salvar do usuário.
-    assert!(core.config().layout.profiles.is_empty());
-    assert!(
+    wait_until("relay:displays com o peer", 3000, || {
         rec.displays
             .lock()
             .unwrap()
             .iter()
             .any(|d| d.peer.len() == 1)
-    );
+    })
+    .await;
+    // Conjunto de telas novo: o Mac, host, cria o perfil e grava (regra do I4).
+    assert_eq!(core.config().layout.profiles, vec![layout.clone()]);
+    assert_eq!(core.layout_book().profiles, vec![layout.clone()]);
 
     // save_layout: grava como perfil em uso, sem avisos (Dock sem autohide).
     let result = core.save_layout(layout.clone()).unwrap();
@@ -1013,4 +1053,208 @@ async fn pc_antigo_demais_para_o_pedido_fica_para_atualizar_a_mao_sem_pedido() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!agent.saw(|m| matches!(m, Message::RequestUpdate { .. })));
     core.shutdown();
+}
+
+// ---- layouts pelo LayoutHostState (I10) ----
+
+fn book(host: Machine, revision: u64) -> LayoutBook {
+    LayoutBook {
+        revision,
+        host,
+        profiles: Vec::new(),
+        active: None,
+    }
+}
+
+fn some_profile() -> LayoutProfile {
+    LayoutProfile {
+        key: relay_core::layout::profile_key(&[mac_display(), dell_display()]),
+        name: "Mesa".into(),
+        displays: Vec::new(),
+        windows_detached: false,
+    }
+}
+
+/// Entrega ao core uma mensagem como se viesse do peer.
+fn peer_says(core: &AppCore<MockPlatform>, msg: Message) {
+    core.inner.core(CoreCmd::Peer(msg));
+}
+
+fn config_with_layout_host(host: Machine) -> Config {
+    let mut cfg = Config::default();
+    cfg.layout.host = host;
+    cfg
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn layout_so_leitura_devolve_layout_read_only_e_o_status_reflete() {
+    // Host do livro é o PC e ele não está conectado: nada edita.
+    let platform = MockPlatform::new(&config_with_layout_host(Machine::Windows));
+    let rec = Arc::new(Rec::default());
+    let core = AppCore::start(
+        platform,
+        rec,
+        Arc::new(NoMedia),
+        options(),
+        Handle::current(),
+    );
+    let st = core.status();
+    assert_eq!(st.layout_host, Host::Peer);
+    assert!(!st.layout_editable);
+    assert_eq!(core.layout_book().host, Machine::Windows);
+    let err = |r: Result<(), String>| r.unwrap_err();
+    assert_eq!(
+        core.save_layout(some_profile()).unwrap_err(),
+        "layout_read_only"
+    );
+    assert_eq!(
+        err(core.set_layout_profiles(vec![some_profile()], "Mesa".into())),
+        "layout_read_only"
+    );
+    assert_eq!(err(core.set_layout_host(Host::Local)), "layout_read_only");
+    assert!(core.layout_book().profiles.is_empty());
+    core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn layout_do_host_local_edita_e_emite_relay_layout() {
+    let platform = MockPlatform::new(&Config::default());
+    let rec = Arc::new(Rec::default());
+    let core = AppCore::start(
+        platform.clone(),
+        rec.clone(),
+        Arc::new(NoMedia),
+        options(),
+        Handle::current(),
+    );
+    let st = core.status();
+    assert_eq!(st.layout_host, Host::Local);
+    assert!(st.layout_editable);
+    core.save_layout(some_profile()).unwrap();
+    let b = core.layout_book();
+    assert_eq!(
+        (b.revision, b.active.as_deref(), b.profiles.len()),
+        (1, Some("Mesa"), 1)
+    );
+    assert_eq!(rec.layouts.lock().unwrap().last(), Some(&b));
+    let on_disk = config::load_or_default(&platform.config_path).unwrap();
+    assert_eq!(on_disk.layout.profiles, b.profiles);
+    assert_eq!(on_disk.layout.revision, 1);
+    core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn peer_03_recebe_o_livro_cria_perfil_para_telas_novas_e_consome_o_host_do_pareamento() {
+    let agent = Agent::start_versioned("123456", "0.3.0");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = AppCore::start(
+        platform.clone(),
+        rec.clone(),
+        Arc::new(NoMedia),
+        options(),
+        Handle::current(),
+    );
+    // Escolha do pareamento novo: o outro computador será o host (D44).
+    core.inner
+        .mutate(|s| s.pending_layout_host = Some(Host::Peer));
+    let addr = format!("127.0.0.1:{}", agent.control_port);
+    core.pair_with_code("123456".into(), Some(addr))
+        .await
+        .unwrap();
+    wait_until("status Connected", 8000, || {
+        core.status().status == ConnectionStatus::Connected
+    })
+    .await;
+    // Peer 0.3: livro, não LayoutSync; e Displays do Mac.
+    wait_until("LayoutBookSync no agente", 5000, || {
+        agent.saw(|m| matches!(m, Message::LayoutBookSync(_)))
+    })
+    .await;
+    assert!(agent.saw(|m| matches!(m, Message::Displays(d) if d.len() == 1 && d[0].id == "mac")));
+    // Troca inicial: o livro do peer (o gate 0.2 do rótulo de versão do Mac nos testes impede o
+    // agente de mandá-lo pelo fio, então entra direto na fila do core); empate com o mesmo host.
+    peer_says(&core, Message::LayoutBookSync(book(Machine::Mac, 0)));
+    // Host escolhido no pareamento: o Mac propõe ao peer (LayoutBookEdit com host Windows).
+    wait_until("LayoutBookEdit com o host do pareamento", 5000, || {
+        agent.saw(|m| matches!(m, Message::LayoutBookEdit(b) if b.host == Machine::Windows))
+    })
+    .await;
+    assert_eq!(core.inner.st().pending_layout_host, None);
+    assert!(!agent.saw(|m| matches!(m, Message::LayoutSync(_))));
+
+    // O peer vira host: o Mac passa a só-leitura espelhando, e edita por proposta.
+    peer_says(
+        &core,
+        Message::LayoutBookSync(LayoutBook {
+            profiles: vec![some_profile()],
+            active: Some("Mesa".into()),
+            ..book(Machine::Windows, 9)
+        }),
+    );
+    wait_until("livro do peer adotado", 5000, || {
+        core.layout_book().revision == 9
+    })
+    .await;
+    assert_eq!(core.status().layout_host, Host::Peer);
+    assert!(core.status().layout_editable); // host conectado e simétrico
+    assert_eq!(core.config().layout.revision, 9);
+    assert!(rec.layouts.lock().unwrap().iter().any(|b| b.revision == 9));
+    core.save_layout(some_profile()).unwrap();
+    wait_until("proposta de edição ao host", 5000, || {
+        agent.saw(|m| matches!(m, Message::LayoutBookEdit(b) if b.revision == 9 && b.active.as_deref() == Some("Mesa")))
+    })
+    .await;
+    core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn host_local_com_peer_03_cria_perfil_para_conjunto_novo_de_telas() {
+    let agent = Agent::start_versioned("123456", "0.3.0");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "123456").await;
+    peer_says(&core, Message::LayoutBookSync(book(Machine::Mac, 0)));
+    wait_until("perfil criado e publicado ao peer", 5000, || {
+        agent.saw(|m| matches!(m, Message::LayoutBookSync(b) if b.profiles.len() == 1))
+    })
+    .await;
+    assert_eq!(core.layout_book().profiles.len(), 1);
+    core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn comando_remoto_recebido_e_respondido_com_unsupported() {
+    let agent = Agent::start_versioned("123456", "0.3.0");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "123456").await;
+    agent.outbox.lock().unwrap().push(Message::Command {
+        id: 77,
+        cmd: RemoteCommand::GetMetrics,
+    });
+    wait_until("UNSUPPORTED no agente", 5000, || {
+        agent.saw(|m| {
+            matches!(m, Message::CommandResult { id: 77, result }
+                if !result.ok && result.error.as_deref() == Some("unsupported"))
+        })
+    })
+    .await;
+    core.shutdown();
+}
+
+#[test]
+fn acordar_o_par_exige_wol_target() {
+    use relay_core::types::Os;
+    assert!(wake_allowed(None).is_ok());
+    assert!(wake_allowed(Some(Caps::baseline(Os::Windows))).is_ok());
+    let sem = Caps {
+        os: Os::Windows,
+        features: Caps::COMMANDS,
+    };
+    assert_eq!(wake_allowed(Some(sem)).unwrap_err(), "unsupported");
+    assert_eq!(
+        wake_allowed(Some(Caps::baseline(Os::Mac))).unwrap_err(),
+        "unsupported"
+    );
 }

@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use relay_core::types::{
     AudioDevice, AudioDevices, AudioState, Caps, CommandOutput, CommandResult, Config,
-    ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host, LatencyStats,
+    ConnectionStatus, DiscoveredPeer, DisplayInfo, DisplaysPayload, Host, LatencyStats, LayoutBook,
     LayoutProfile, Machine, Os, PermissionKind, PermissionState, PermissionsStatus, PlacedDisplay,
     ProfileKey, RectMm, RemoteCommand, SaveLayoutResult, StatusSnapshot,
 };
@@ -28,6 +28,10 @@ pub trait AppBackend: Send + Sync {
     fn set_manual_address(&self, address: Option<String>) -> BackendResult<()>;
     fn get_displays(&self) -> DisplaysPayload;
     fn get_layout(&self) -> LayoutProfile;
+    /// Livro de layouts oficial (perfis, ativo, host e revisão).
+    fn get_layout_book(&self) -> LayoutBook;
+    /// `Err("layout_read_only")` quando a edição não é permitida.
+    fn set_layout_host(&self, host: Host) -> BackendResult<()>;
     fn save_layout(&self, profile: LayoutProfile) -> BackendResult<SaveLayoutResult>;
     fn set_layout_profiles(
         &self,
@@ -229,6 +233,17 @@ impl AppBackend for MockBackend {
     }
     fn get_layout(&self) -> LayoutProfile {
         self.with(|s| s.layout.clone())
+    }
+    fn get_layout_book(&self) -> LayoutBook {
+        self.with(|s| LayoutBook {
+            revision: 0,
+            host: Machine::Mac,
+            profiles: vec![s.layout.clone()],
+            active: Some(s.layout.name.clone()),
+        })
+    }
+    fn set_layout_host(&self, _host: Host) -> BackendResult<()> {
+        Ok(())
     }
     fn save_layout(&self, profile: LayoutProfile) -> BackendResult<SaveLayoutResult> {
         self.with(|s| s.layout = profile);

@@ -3,7 +3,7 @@
 //! `relay:transfer-progress` no máximo 10 Hz: a limitação é de quem chama.
 
 use relay_core::types::{
-    CommandResult, DisplaysPayload, LatencyStats, PairingEvent, PermissionsStatus,
+    CommandResult, DisplaysPayload, LatencyStats, LayoutBook, PairingEvent, PermissionsStatus,
     SecureInputPayload, StatusSnapshot, SystemMetrics, TransferProgress,
 };
 use serde::Serialize;
@@ -29,6 +29,9 @@ pub fn emit_latency(app: &AppHandle, s: &LatencyStats) {
 }
 pub fn emit_displays(app: &AppHandle, d: &DisplaysPayload) {
     emit(app, "relay:displays", d);
+}
+pub fn emit_layout(app: &AppHandle, book: &LayoutBook) {
+    emit(app, "relay:layout", book);
 }
 pub fn emit_command_result(app: &AppHandle, r: &CommandResult) {
     emit(app, "relay:command-result", r);

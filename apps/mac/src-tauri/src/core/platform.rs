@@ -14,8 +14,8 @@ use relay_core::platform::{
 };
 use relay_core::types::{
     AudioDevices, CapturedEvent, CommandResult, Config, DiscoveredPeer, DisplaysPayload, DockInfo,
-    HotCorners, InputEvent, LatencyStats, Message, PairedPeer, PairingEvent, PermissionKind,
-    PermissionsStatus, Ports, StatusSnapshot, TransferProgress,
+    HotCorners, InputEvent, LatencyStats, LayoutBook, Message, PairedPeer, PairingEvent,
+    PermissionKind, PermissionsStatus, Ports, StatusSnapshot, TransferProgress,
 };
 use std::net::IpAddr;
 use tokio::sync::mpsc::UnboundedSender;
@@ -69,6 +69,8 @@ pub trait CoreEvents: Send + Sync + 'static {
     fn status(&self, status: &StatusSnapshot);
     fn latency(&self, latency: &LatencyStats);
     fn displays(&self, displays: &DisplaysPayload);
+    /// `relay:layout`: o livro de layouts mudou.
+    fn layout(&self, _book: &LayoutBook) {}
     fn permissions(&self, permissions: &PermissionsStatus);
     fn secure_input(&self, active: bool);
     fn pairing(&self, event: &PairingEvent);
