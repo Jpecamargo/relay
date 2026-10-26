@@ -17,13 +17,16 @@ export interface CanvasProps {
   info: ReadonlyMap<string, DisplayInfo>;
   jump: ReadonlyMap<string, number>;
   detached: boolean;
+  readOnly?: boolean;
+  /** Ids das telas deste computador: ganham o selo "Este computador". */
+  localIds?: ReadonlySet<string>;
   selected: string | undefined;
   onSelect: (id: string) => void;
   onChange: (displays: PlacedDisplay[]) => void;
 }
 
 /** Canvas SVG em mm. As telas Mac são fixas; as Windows arrastam em bloco ou soltas. */
-export function Canvas({ displays, info, jump, detached, selected, onSelect, onChange }: CanvasProps) {
+export function Canvas({ displays, info, jump, detached, readOnly, localIds, selected, onSelect, onChange }: CanvasProps) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag>();
   const [preview, setPreview] = useState<PlacedDisplay[]>();
@@ -48,7 +51,7 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
 
   const onDown = (e: PointerEvent<SVGGElement>, d: PlacedDisplay) => {
     onSelect(d.display_id);
-    if (d.machine === "Mac") return;
+    if (readOnly || d.machine === "Mac") return;
     const ids = new Set(detached ? [d.display_id] : displays.filter((x) => x.machine === "Windows").map((x) => x.display_id));
     e.currentTarget.setPointerCapture?.(e.pointerId);
     setDrag({ ids, startX: e.clientX, startY: e.clientY, mmPerPx: mmPerPx() });
@@ -83,7 +86,8 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
     >
       {shown.map((d) => {
         const r = d.rect_mm;
-        const fixed = d.machine === "Mac";
+        const fixed = readOnly || d.machine === "Mac";
+        const local = localIds?.has(d.display_id);
         const meta = info.get(d.display_id);
         return (
           <g
@@ -101,8 +105,13 @@ export function Canvas({ displays, info, jump, detached, selected, onSelect, onC
               {meta?.name ?? d.display_id}
             </text>
             <text x={r.x + r.w / 2} y={r.y + r.h / 2 + 14 * unit} textAnchor="middle" fontSize={11 * unit} className={styles.dim}>
-              {Math.round(r.w)} × {Math.round(r.h)} mm{fixed ? " · fixa" : ""}
+              {Math.round(r.w)} × {Math.round(r.h)} mm{d.machine === "Mac" ? " · fixa" : ""}
             </text>
+            {local ? (
+              <text x={r.x + r.w / 2} y={r.y + r.h / 2 + 30 * unit} textAnchor="middle" fontSize={11 * unit} className={styles.dim}>
+                Este computador
+              </text>
+            ) : null}
             <circle cx={r.x + 16 * unit} cy={r.y + 16 * unit} r={10 * unit} className={styles.badge} />
             <text x={r.x + 16 * unit} y={r.y + 16 * unit + 4 * unit} textAnchor="middle" fontSize={11 * unit} className={styles.badgeText}>
               {jump.get(d.display_id)}
