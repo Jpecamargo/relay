@@ -20,7 +20,7 @@ use super::media::platform::{
 };
 use super::media::{CaptureSource, Media, MediaDeps};
 use super::routed::{PipeInjector, SharedPipe};
-use super::{AgentDeps, ForegroundSource};
+use super::{AgentDeps, ForegroundSource, PeerBrowse};
 
 impl PipeInjector for InjectPipeClient {
     fn is_available(&self) -> bool {
@@ -31,6 +31,18 @@ impl PipeInjector for InjectPipeClient {
 impl ForegroundSource for ForegroundWatcher {
     fn start(&mut self, on_change: Box<dyn Fn(String) + Send + Sync>) {
         ForegroundWatcher::start(self, on_change);
+    }
+}
+
+/// A busca mDNS do core como `PeerBrowse`.
+struct RealBrowse(relay_core::discovery::Browser);
+
+impl PeerBrowse for RealBrowse {
+    fn next_peer(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Option<relay_core::types::DiscoveredPeer> {
+        self.0.next_peer(timeout)
     }
 }
 
@@ -109,5 +121,11 @@ pub fn real_deps() -> AgentDeps {
         config_path: Some(relay_core::config::config_path()),
         bind_ip: [0, 0, 0, 0].into(),
         advertise: true,
+        app_version: None,
+        browse: Some(Box::new(|| {
+            relay_core::discovery::Browser::start()
+                .map(|b| Box::new(RealBrowse(b)) as Box<dyn PeerBrowse>)
+                .map_err(|e| e.to_string())
+        })),
     }
 }

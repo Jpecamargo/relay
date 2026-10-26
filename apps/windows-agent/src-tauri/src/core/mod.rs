@@ -7,6 +7,7 @@
 //! UI, mudança de telas, app em primeiro plano e o relógio do `Receiver` (≤ 10 ms enquanto o Mac
 //! controla este lado). A UI (`AgentBackend`) só enfileira comandos e lê o snapshot.
 
+mod dialing;
 pub mod executor;
 pub mod media;
 mod pump;
@@ -32,8 +33,8 @@ use relay_core::platform::{
     CommandExecutor, CursorControl, DisplaySource, InputInjector, KeyStore,
 };
 use relay_core::types::{
-    AudioState, Caps, Config, ConnectionStatus, Host, LatencyStats, Message, NewPairingCode, Os,
-    PairingEvent, ServiceStatus, StatusSnapshot,
+    AudioState, Caps, Config, ConnectionStatus, DiscoveredPeer, Host, LatencyStats, Message,
+    NewPairingCode, Os, PairingEvent, ServiceStatus, StatusSnapshot,
 };
 use tokio::sync::mpsc;
 
@@ -62,6 +63,22 @@ pub trait ForegroundSource: Send {
     fn start(&mut self, on_change: Box<dyn Fn(String) + Send + Sync>);
 }
 
+/// Busca mDNS (`Browser` no Windows real): devolve o próximo par resolvido ou `None` no tempo.
+pub trait PeerBrowse: Send {
+    fn next_peer(&mut self, timeout: std::time::Duration) -> Option<DiscoveredPeer>;
+}
+
+/// Abre uma busca nova (a thread de descoberta a refaz se a anterior falhar).
+pub type BrowseFactory = Box<dyn Fn() -> Result<Box<dyn PeerBrowse>, String> + Send + Sync>;
+
+/// Qual das duas sessões possíveis com o par: a que chegou ao `SessionListener` (o par discou) ou a
+/// do `SessionDialer` (este PC discou). Só uma é a sessão em uso (D41).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Listener,
+    Dialer,
+}
+
 /// Gancho para mensagens que o núcleo não trata (clipboard, arquivos, áudio: WI3). Devolve as
 /// mensagens a enviar de volta.
 pub type MessageHook = Box<dyn FnMut(&Message) -> Vec<Message> + Send>;
@@ -88,14 +105,39 @@ pub struct AgentDeps {
     pub bind_ip: IpAddr,
     /// Anuncia `_relay._tcp` por mDNS.
     pub advertise: bool,
+    /// Busca mDNS do par pareado, para discar quando `dial_decision` mandar. `None` = só escuta.
+    pub browse: Option<BrowseFactory>,
     pub message_hook: Option<MessageHook>,
     pub engine_events: Option<EventHandler>,
     /// Mídia (WI3): áudio, clipboard e arquivos. `None` = sem mídia.
     pub media: Option<Box<dyn media::MediaPort>>,
+    /// Versão anunciada no Hello (`None` = a do pacote). Só os testes a trocam, para simular o
+    /// agente de uma versão que o peer fake enxerga como simétrica.
+    pub app_version: Option<String>,
 }
 
 pub(crate) enum Cmd {
-    OpenPairing { code: String, expires_at_ms: u64 },
+    OpenPairing {
+        code: String,
+        expires_at_ms: u64,
+    },
+    /// Este PC disca como Dialer para parear com o código que o outro lado mostra.
+    PairWith {
+        code: String,
+        address: Option<String>,
+        layout_host: Host,
+        reply: PairReply,
+    },
+    /// Resultado da tentativa de `PairWith` (a rede roda fora do pump).
+    PairDone {
+        result: Result<(relay_core::types::PairedPeer, SocketAddr), String>,
+        layout_host: Host,
+        reply: PairReply,
+    },
+    Discovered(DiscoveredPeer),
+    /// Só testes: lê o `pending_layout_host` do pump.
+    #[cfg(test)]
+    PendingLayoutHost(std::sync::mpsc::Sender<Option<Host>>),
     Revoke,
     SetPaused(bool),
     SetLocked(bool),
@@ -109,6 +151,11 @@ pub(crate) enum Cmd {
     Shutdown,
 }
 
+pub(crate) type PairReply = std::sync::mpsc::Sender<Result<(), String>>;
+
+/// Quanto `pair_with_code` espera o pump (a rede do pareamento tem 15 s de teto).
+const PAIR_REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+
 /// Estado compartilhado entre a UI (threads do Tauri) e o pump.
 pub(crate) struct Shared {
     pub snapshot: Mutex<StatusSnapshot>,
@@ -117,6 +164,8 @@ pub(crate) struct Shared {
     pub pipe: Option<SharedPipe>,
     pub service_probe: Box<dyn Fn(bool) -> ServiceStatus + Send + Sync>,
     pub config_path: Option<PathBuf>,
+    /// Pares vistos pelo mDNS (o outro lado, sem o próprio id).
+    pub discovered: Mutex<Vec<DiscoveredPeer>>,
 }
 
 impl Shared {
@@ -207,6 +256,7 @@ impl AgentCore {
             config: Mutex::new(config),
             tx,
             service_probe: probe,
+            discovered: Mutex::new(Vec::new()),
         });
 
         let (init_tx, init_rx) = std::sync::mpsc::channel();
@@ -317,8 +367,34 @@ impl AgentBackend for AgentCore {
         Ok(NewPairingCode { code, expires_at })
     }
 
-    fn revoke_pair(&self) -> AgentResult<()> {
+    fn pair_with_code(
+        &self,
+        code: String,
+        address: Option<String>,
+        layout_host: Host,
+    ) -> AgentResult<()> {
+        let (reply, done) = std::sync::mpsc::channel();
+        self.send(Cmd::PairWith {
+            code,
+            address,
+            layout_host,
+            reply,
+        })?;
+        done.recv_timeout(PAIR_REPLY_TIMEOUT)
+            .map_err(|_| AgentError::Backend("O pareamento não respondeu a tempo.".into()))?
+            .map_err(AgentError::Backend)
+    }
+
+    fn unpair(&self) -> AgentResult<()> {
         self.send(Cmd::Revoke)
+    }
+
+    fn list_discovered(&self) -> Vec<DiscoveredPeer> {
+        self.shared
+            .discovered
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn service_status(&self) -> ServiceStatus {
@@ -364,8 +440,11 @@ async fn setup(
         mac_address: deps.mac_address,
     };
     let ports = shared.config().network.ports.clone();
-    let mut lcfg = ListenerConfig::new(identity, device, peers.clone(), ports);
+    let mut lcfg = ListenerConfig::new(identity.clone(), device.clone(), peers.clone(), ports);
     lcfg.bind_ip = deps.bind_ip;
+    if let Some(v) = deps.app_version.clone() {
+        lcfg.app_version = v;
+    }
 
     let fast_tx = shared.tx.clone();
     let listener = SessionListener::start(
@@ -403,6 +482,12 @@ async fn setup(
         }));
     }
 
-    let pump = pump::Pump::new(deps, shared, listener, advertiser, events, peers, reverse);
+    let me = pump::Me {
+        id: device_id.clone(),
+        identity,
+        device,
+        peer: peers.into_iter().next(),
+    };
+    let pump = pump::Pump::new(deps, shared, listener, advertiser, events, reverse, me);
     Ok((pump, addrs, device_id))
 }

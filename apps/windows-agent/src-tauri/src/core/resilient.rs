@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use relay_core::types::{
-    Caps, Config, ConnectionStatus, Host, NewPairingCode, Os, ServiceStatus, StatusSnapshot,
+    Caps, Config, ConnectionStatus, DiscoveredPeer, Host, NewPairingCode, Os, ServiceStatus,
+    StatusSnapshot,
 };
 
 use super::AgentCore;
@@ -149,8 +150,25 @@ impl AgentBackend for ResilientBackend {
         self.core()?.new_pairing_code()
     }
 
-    fn revoke_pair(&self) -> AgentResult<()> {
-        self.core()?.revoke_pair()
+    fn pair_with_code(
+        &self,
+        code: String,
+        address: Option<String>,
+        layout_host: Host,
+    ) -> AgentResult<()> {
+        self.retry();
+        self.core()?.pair_with_code(code, address, layout_host)
+    }
+
+    fn unpair(&self) -> AgentResult<()> {
+        self.core()?.unpair()
+    }
+
+    fn list_discovered(&self) -> Vec<DiscoveredPeer> {
+        lock(&self.core)
+            .as_ref()
+            .map(|c| c.list_discovered())
+            .unwrap_or_default()
     }
 
     fn service_status(&self) -> ServiceStatus {

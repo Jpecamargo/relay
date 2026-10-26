@@ -118,8 +118,10 @@ fn start_reverse_agent() -> RevAgent {
         config_path: Some(config_path.clone()),
         bind_ip: LO,
         advertise: false,
+        browse: None,
         message_hook: None,
         engine_events: Some(Box::new(move |e| sink.lock().unwrap().push(e))),
+        app_version: Some(super::AGENT_VERSION.into()),
     };
     let sink: Sink = Arc::default();
     let swallow = Arc::new(AtomicBool::new(false));
@@ -148,6 +150,7 @@ fn start_reverse_agent() -> RevAgent {
             engaged: Arc::default(),
             live_guards: Arc::default(),
             config_path,
+            browse: std::sync::mpsc::channel().0,
             _dir: dir,
         },
         sink,
