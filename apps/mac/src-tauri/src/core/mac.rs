@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use relay_core::crypto::SystemKeyStore;
+use relay_core::crypto::{FileKeyStore, SystemKeyStore};
 use relay_core::discovery::{Browser, local_hostname};
 use relay_core::platform::{KeyStore, PlatformError};
 use relay_core::types::{DiscoveredPeer, DockInfo, HotCorners, PermissionKind, PermissionsStatus};
@@ -56,8 +56,21 @@ impl Platform for MacPlatform {
         MacDisplays::default()
     }
 
+    /// Uma instância só: o `FileKeyStore` guarda o arquivo em memória.
     fn key_store(&self) -> Arc<dyn KeyStore> {
-        Arc::new(SystemKeyStore)
+        static STORE: std::sync::OnceLock<Arc<dyn KeyStore>> = std::sync::OnceLock::new();
+        STORE
+            .get_or_init(|| {
+                let path = self.config_path().with_file_name("secrets.bin");
+                match FileKeyStore::open(path, Some(Box::new(SystemKeyStore))) {
+                    Ok(store) => Arc::new(store),
+                    Err(e) => {
+                        tracing::error!("segredos ilegíveis, usando o Keychain: {e}");
+                        Arc::new(SystemKeyStore)
+                    }
+                }
+            })
+            .clone()
     }
 
     fn config_path(&self) -> PathBuf {

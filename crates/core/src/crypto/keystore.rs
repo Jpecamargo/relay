@@ -1,6 +1,8 @@
 //! KeyStore (Keychain / Credential Manager), identidade X25519 e pares salvos.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use blake2::{Blake2s256, Digest};
@@ -178,9 +180,127 @@ impl KeyStore for SystemKeyStore {
     }
 }
 
+/// Conta -> segredo; `None` marca a conta como apagada, para não ressuscitá-la do `legacy`.
+type Secrets = HashMap<String, Option<Vec<u8>>>;
+
+/// KeyStore num arquivo legível só pelo usuário (0600). No Mac substitui o Keychain: o app é
+/// assinado sem Team ID, e o Keychain amarra cada item ao hash de uma build, então cada
+/// atualização pedia a senha de novo para cada conta. Conta ausente no arquivo é lida uma vez do
+/// `legacy` (o Keychain antigo) e copiada para cá.
+pub struct FileKeyStore {
+    path: PathBuf,
+    legacy: Option<Box<dyn KeyStore>>,
+    secrets: Mutex<Secrets>,
+}
+
+impl FileKeyStore {
+    pub fn open(
+        path: PathBuf,
+        legacy: Option<Box<dyn KeyStore>>,
+    ) -> Result<Self, KeyStoreError> {
+        let secrets = match std::fs::read(&path) {
+            Ok(bytes) => {
+                bincode::serde::decode_from_slice(&bytes, bincode::config::standard())
+                    .map_err(backend)?
+                    .0
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Secrets::new(),
+            Err(e) => return Err(backend(e)),
+        };
+        Ok(Self {
+            path,
+            legacy,
+            secrets: Mutex::new(secrets),
+        })
+    }
+
+    fn update(&self, account: &str, value: Option<Vec<u8>>) -> Result<(), KeyStoreError> {
+        let mut secrets = self.secrets.lock().map_err(backend)?;
+        let mut next = secrets.clone();
+        next.insert(account.to_owned(), value);
+        self.write(&next)?;
+        *secrets = next;
+        Ok(())
+    }
+
+    /// Temporário + rename, criado já com 0600 para o segredo nunca ficar legível por outros.
+    fn write(&self, secrets: &Secrets) -> Result<(), KeyStoreError> {
+        let bytes =
+            bincode::serde::encode_to_vec(secrets, bincode::config::standard()).map_err(backend)?;
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir).map_err(backend)?;
+        }
+        let mut tmp = self.path.as_os_str().to_owned();
+        tmp.push(".tmp");
+        let tmp = PathBuf::from(tmp);
+        let write = || -> std::io::Result<()> {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+            let mut f = opts.open(&tmp)?;
+            f.write_all(&bytes)?;
+            f.sync_all()?;
+            std::fs::rename(&tmp, &self.path)
+        };
+        write().map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            backend(e)
+        })
+    }
+}
+
+impl KeyStore for FileKeyStore {
+    fn get(&self, account: &str) -> Result<Option<Vec<u8>>, KeyStoreError> {
+        if let Some(v) = self.secrets.lock().map_err(backend)?.get(account) {
+            return Ok(v.clone());
+        }
+        let Some(legacy) = &self.legacy else {
+            return Ok(None);
+        };
+        let found = legacy.get(account)?;
+        if let Some(v) = &found {
+            self.update(account, Some(v.clone()))?;
+        }
+        Ok(found)
+    }
+
+    fn set(&self, account: &str, secret: &[u8]) -> Result<(), KeyStoreError> {
+        self.update(account, Some(secret.to_vec()))
+    }
+
+    fn delete(&self, account: &str) -> Result<(), KeyStoreError> {
+        self.update(account, None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_store_migrates_from_legacy_once_and_never_revives_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Relay/secrets.bin");
+        let legacy = MemoryKeyStore::default();
+        legacy.set("identity", b"chave").unwrap();
+        legacy.set("active_peer", b"pc").unwrap();
+        let store = FileKeyStore::open(path.clone(), Some(Box::new(legacy))).unwrap();
+        assert_eq!(store.get("identity").unwrap(), Some(b"chave".to_vec()));
+        store.delete("active_peer").unwrap();
+        assert_eq!(store.get("active_peer").unwrap(), None);
+
+        // Reaberto sem o legado (outra build): o que foi migrado continua, o apagado não volta.
+        let reopened = FileKeyStore::open(path.clone(), None).unwrap();
+        assert_eq!(reopened.get("identity").unwrap(), Some(b"chave".to_vec()));
+        assert_eq!(reopened.get("active_peer").unwrap(), None);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
 
     #[test]
     fn identity_is_generated_once_and_reused() {
