@@ -4,6 +4,7 @@
 
 pub mod audio;
 pub mod clipboard;
+pub mod compat;
 pub mod config;
 pub mod crypto;
 pub mod discovery;
