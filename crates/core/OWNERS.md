@@ -45,7 +45,7 @@ Mudar um destes pede ao PO/orquestrador. Se um tipo faltar, reporte em vez de ed
 | `capture.rs`, `examples/tap_probe.rs` | M1 |
 | `inject.rs`, `cursor.rs`, `permissions.rs`, `secure_input.rs`, `examples/cursor_probe.rs` | M2 |
 | `displays.rs`, `system_events.rs`, `login_item.rs`, `dock.rs` | M3 |
-| `audio.rs`, `examples/audio_loop.rs` | M4 |
+| `audio.rs` | M4 |
 | `clipboard.rs`, `files.rs` | M5 |
 
 `DockInfo` e `HotCorners` vivem em `relay_core::types` (o core não depende do backend); `dock.rs`

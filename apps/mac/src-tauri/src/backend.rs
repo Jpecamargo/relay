@@ -48,13 +48,8 @@ pub trait AppBackend: Send + Sync {
     /// Derruba e refaz a sessão com o PC (também sai de `IncompatibleVersion`).
     fn reconnect(&self) -> BackendResult<()>;
     fn list_audio_devices(&self) -> AudioDevices;
-    fn set_audio_streams(&self, pc_to_mac: bool, mac_to_pc: bool) -> BackendResult<()>;
-    fn set_audio_devices(
-        &self,
-        output_id: Option<String>,
-        input_id: Option<String>,
-    ) -> BackendResult<()>;
-    fn set_stream_volume(&self, volume: f32) -> BackendResult<()>;
+    fn set_audio_streams(&self, mac_to_pc: bool) -> BackendResult<()>;
+    fn set_audio_devices(&self, input_id: Option<String>) -> BackendResult<()>;
     fn check_permissions(&self) -> PermissionsStatus;
     fn open_permission_settings(&self, kind: PermissionKind) -> BackendResult<()>;
     fn set_launch_at_login(&self, enabled: bool) -> BackendResult<()>;
@@ -168,10 +163,7 @@ impl Default for MockBackend {
                     peer_version: None,
                     version_sync: Default::default(),
                     clipboard_sync: true,
-                    audio: AudioState {
-                        pc_to_mac: false,
-                        mac_to_pc: false,
-                    },
+                    audio: AudioState { mac_to_pc: false },
                 },
                 config: Config::default(),
                 layout: mock_layout(),
@@ -299,28 +291,12 @@ impl AppBackend for MockBackend {
             inputs: vec![device("mac-mic", "Microfone do MacBook", true)],
         }
     }
-    fn set_audio_streams(&self, pc_to_mac: bool, mac_to_pc: bool) -> BackendResult<()> {
-        self.with(|s| {
-            s.status.audio = AudioState {
-                pc_to_mac,
-                mac_to_pc,
-            }
-        });
+    fn set_audio_streams(&self, mac_to_pc: bool) -> BackendResult<()> {
+        self.with(|s| s.status.audio = AudioState { mac_to_pc });
         Ok(())
     }
-    fn set_audio_devices(
-        &self,
-        output_id: Option<String>,
-        input_id: Option<String>,
-    ) -> BackendResult<()> {
-        self.with(|s| {
-            s.config.audio.mac_output_id = output_id;
-            s.config.audio.mac_input_id = input_id;
-        });
-        Ok(())
-    }
-    fn set_stream_volume(&self, volume: f32) -> BackendResult<()> {
-        self.with(|s| s.config.audio.stream_volume = volume);
+    fn set_audio_devices(&self, input_id: Option<String>) -> BackendResult<()> {
+        self.with(|s| s.config.audio.mac_input_id = input_id);
         Ok(())
     }
     fn check_permissions(&self) -> PermissionsStatus {

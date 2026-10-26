@@ -1,21 +1,17 @@
 //! dono: M4
-//! Áudio no macOS com cpal: enumeração, reprodução do stream do PC e captura do microfone.
+//! Áudio no macOS com cpal: enumeração e captura do microfone.
 //!
 //! Formato do fio (D13): 48 kHz estéreo, quadros de 5 ms (240 amostras por canal).
-//! A reprodução consome f32 intercalado de um ring sem lock; a captura entrega quadros i16 exatos
-//! a um ring sem lock. Nos callbacks do sistema nada é alocado: os buffers nascem na criação do
-//! stream. A posse do ring fica num `Arc<Mutex<_>>` só para sobreviver à troca de dispositivo
+//! A captura entrega quadros i16 exatos a um ring sem lock. Nos callbacks do sistema nada é
+//! alocado: os buffers nascem na criação do stream. A posse do ring fica num `Arc<Mutex<_>>` só para sobreviver à troca de dispositivo
 //! (o stream antigo morre, o novo reaproveita o ring); o callback usa `try_lock`, que nunca bloqueia.
 
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use relay_core::audio::{FrameSplitter, f32_sample_to_i16 as f32_to_i16};
-use relay_core::platform::{
-    AUDIO_CHANNELS, AudioCapture, AudioFrame, AudioPlayback, PlatformError,
-};
+use relay_core::platform::{AUDIO_CHANNELS, AudioCapture, AudioFrame, PlatformError};
 use relay_core::types::{AudioDevice, AudioDevices};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{
@@ -219,149 +215,6 @@ impl CaptureConverter {
     }
 }
 
-fn volume_to_bits(v: f32) -> u32 {
-    v.clamp(0.0, 1.0).to_bits()
-}
-
-/// Preenche `out` (intercalado, `out_channels` canais) com estéreo do ring, aplicando ganho.
-/// Falta de dados vira silêncio. Não aloca.
-fn fill_output(out: &mut [f32], out_channels: usize, source: &mut rtrb::Consumer<f32>, gain: f32) {
-    for frame in out.chunks_exact_mut(out_channels) {
-        if source.slots() >= 2 {
-            let l = source.pop().unwrap_or(0.0) * gain;
-            let r = source.pop().unwrap_or(0.0) * gain;
-            frame[0] = l;
-            if out_channels == 1 {
-                frame[0] = (l + r) * 0.5;
-            } else {
-                frame[1] = r;
-                frame[2..].fill(0.0);
-            }
-        } else {
-            frame.fill(0.0);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Reprodução
-// ---------------------------------------------------------------------------
-
-type SharedConsumer = Arc<Mutex<rtrb::Consumer<f32>>>;
-
-pub struct MacAudioPlayback {
-    device_id: Option<String>,
-    volume: Arc<AtomicU32>,
-    source: Option<SharedConsumer>,
-    stream: Option<cpal::Stream>,
-}
-
-impl std::fmt::Debug for MacAudioPlayback {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MacAudioPlayback")
-            .field("device_id", &self.device_id)
-            .field("running", &self.stream.is_some())
-            .finish()
-    }
-}
-
-impl Default for MacAudioPlayback {
-    fn default() -> Self {
-        Self {
-            device_id: None,
-            volume: Arc::new(AtomicU32::new(volume_to_bits(1.0))),
-            source: None,
-            stream: None,
-        }
-    }
-}
-
-impl MacAudioPlayback {
-    fn build(&self, source: &SharedConsumer) -> Result<cpal::Stream, PlatformError> {
-        let device = find_device(self.device_id.as_deref(), false)?;
-        let supported = {
-            let default = device.default_output_config().map_err(err)?;
-            if default.sample_rate() == WIRE_RATE
-                && default.sample_format() == cpal::SampleFormat::F32
-            {
-                default
-            } else {
-                device
-                    .supported_output_configs()
-                    .map_err(err)?
-                    .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
-                    .filter_map(|c| c.try_with_sample_rate(WIRE_RATE))
-                    .min_by_key(|c| c.channels().abs_diff(2))
-                    .ok_or(PlatformError::Unsupported)?
-            }
-        };
-        let config = supported.config();
-        let out_channels = usize::from(config.channels);
-        let source = Arc::clone(source);
-        let volume = Arc::clone(&self.volume);
-        let stream = device
-            .build_output_stream(
-                config,
-                move |data: &mut [f32], _| {
-                    if let Ok(mut src) = source.try_lock() {
-                        let gain = f32::from_bits(volume.load(Ordering::Relaxed));
-                        fill_output(data, out_channels, &mut src, gain);
-                    } else {
-                        data.fill(0.0);
-                    }
-                },
-                |e| tracing::warn!("áudio (saída): {e}"),
-                None,
-            )
-            .map_err(err)?;
-        stream.play().map_err(err)?;
-        Ok(stream)
-    }
-}
-
-impl AudioPlayback for MacAudioPlayback {
-    fn start(&mut self, source: rtrb::Consumer<f32>) -> Result<(), PlatformError> {
-        self.stop();
-        let source = Arc::new(Mutex::new(source));
-        self.stream = Some(self.build(&source)?);
-        self.source = Some(source);
-        Ok(())
-    }
-
-    fn stop(&mut self) {
-        self.stream = None;
-        self.source = None;
-    }
-
-    fn set_volume(&mut self, volume: f32) {
-        self.volume.store(volume_to_bits(volume), Ordering::Relaxed);
-    }
-
-    fn set_device(&mut self, device_id: Option<&str>) -> Result<(), PlatformError> {
-        let previous = std::mem::replace(&mut self.device_id, device_id.map(str::to_owned));
-        let Some(source) = self.source.clone() else {
-            return Ok(());
-        };
-        // Para o stream antigo antes de abrir o novo; se o novo falhar, volta ao anterior.
-        self.stream = None;
-        match self.build(&source) {
-            Ok(stream) => {
-                self.stream = Some(stream);
-                Ok(())
-            }
-            Err(e) => {
-                self.device_id = previous;
-                self.stream = self.build(&source).ok();
-                Err(e)
-            }
-        }
-    }
-
-    fn list_devices(&self) -> Result<Vec<AudioDevice>, PlatformError> {
-        list_output_devices()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Captura
 // ---------------------------------------------------------------------------
@@ -531,27 +384,6 @@ mod tests {
             "{frames} quadros, esperado ~{expected}"
         );
         assert!((15_000..17_500).contains(&peak), "pico {peak}");
-    }
-
-    #[test]
-    fn fill_output_aplica_ganho_e_silencio_no_underrun() {
-        let (mut tx, mut rx) = rtrb::RingBuffer::<f32>::new(16);
-        for s in [1.0, -1.0, 0.5, 0.5] {
-            tx.push(s).unwrap();
-        }
-        let mut out = [9.0f32; 6];
-        fill_output(&mut out, 2, &mut rx, 0.5);
-        assert_eq!(out, [0.5, -0.5, 0.25, 0.25, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn fill_output_mapeia_para_mais_canais() {
-        let (mut tx, mut rx) = rtrb::RingBuffer::<f32>::new(4);
-        tx.push(1.0).unwrap();
-        tx.push(2.0).unwrap();
-        let mut out = [9.0f32; 4];
-        fill_output(&mut out, 4, &mut rx, 1.0);
-        assert_eq!(out, [1.0, 2.0, 0.0, 0.0]);
     }
 
     /// Depende de dispositivo de áudio: não roda em runner de CI sem placa de som.

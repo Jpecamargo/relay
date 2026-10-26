@@ -3,7 +3,7 @@
 //! `relay:transfer-progress` no máximo 10 Hz: a limitação é de quem chama.
 
 use relay_core::types::{
-    AudioStats, CommandResult, DisplaysPayload, LatencyStats, PairingEvent, PermissionsStatus,
+    CommandResult, DisplaysPayload, LatencyStats, PairingEvent, PermissionsStatus,
     SecureInputPayload, StatusSnapshot, SystemMetrics, TransferProgress,
 };
 use serde::Serialize;
@@ -44,9 +44,6 @@ pub fn emit_permissions(app: &AppHandle, p: &PermissionsStatus) {
 }
 pub fn emit_metrics(app: &AppHandle, m: &SystemMetrics) {
     emit(app, "relay:metrics", m);
-}
-pub fn emit_audio_stats(app: &AppHandle, a: &AudioStats) {
-    emit(app, "relay:audio-stats", a);
 }
 pub fn emit_pairing(app: &AppHandle, p: &PairingEvent) {
     emit(app, "relay:pairing", p);

@@ -15,7 +15,7 @@ vi.mock("@relay/protocol-types", () => ({
 }));
 
 const config = {
-  audio: { pc_mode: "process", virtual_output_name: null },
+  audio: { jitter_target_ms: 20, mac_input_id: null },
   clipboard: { enabled: true },
   general: { launch_at_login: false },
 };

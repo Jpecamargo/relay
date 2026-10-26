@@ -686,18 +686,11 @@ impl<P: Platform> Core<P> {
                 self.flush_results(now);
             }
             // Estado real do áudio no PC (pode ter recusado um dos sentidos).
-            Message::AudioControl {
-                pc_to_mac,
-                mac_to_pc,
-            } => {
-                self.inner.mutate(|s| {
-                    s.status.audio = AudioState {
-                        pc_to_mac,
-                        mac_to_pc,
-                    }
-                });
+            Message::AudioControl { mac_to_pc, .. } => {
+                self.inner
+                    .mutate(|s| s.status.audio = AudioState { mac_to_pc });
                 self.inner.media.on_message(&Message::AudioControl {
-                    pc_to_mac,
+                    pc_to_mac: false,
                     mac_to_pc,
                 });
             }

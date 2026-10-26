@@ -511,7 +511,6 @@ async fn pump<P: Platform>(
             let _ = out_tx.send(request);
         }
         let audio_keys = dialer.audio_link().map(|l| AudioKeys {
-            pc_to_mac: l.pc_to_mac,
             mac_to_pc: l.mac_to_pc,
         });
         inner.core(CoreCmd::MediaUp(Box::new(SessionCtx {

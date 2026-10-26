@@ -1,58 +1,39 @@
 //! dono: MI3
-//! Áudio (D13): PCM s16le, 48 kHz estéreo, quadros de 5 ms.
+//! Microfone do Mac no PC (D13): PCM s16le, 48 kHz estéreo, quadros de 5 ms.
+//! `AudioCapture` → `AudioPacket` → `UdpAead` → UDP `audio_mac_to_pc`.
 //!
-//! PC→Mac: UDP `audio_pc_to_mac` → `UdpAead` → `JitterBuffer` → `DriftCompensator` → ring f32 →
-//! `AudioPlayback`. Mac→PC: `AudioCapture` → `AudioPacket` → `UdpAead` → UDP `audio_mac_to_pc`.
-//!
-//! Datagrama (contrato do WI3, os dois sentidos): `relay_core::audio::{seal,open}_datagram`.
-//! `stream` = 0 no PC→Mac e 1 no Mac→PC.
+//! Datagrama (contrato do WI3): `relay_core::audio::seal_datagram`, `stream` = 1.
 
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use relay_core::audio::{
-    CHANNELS, DATAGRAM_LEN, DriftCompensator, JitterBuffer, PLAIN_LEN, STREAM_MIC, STREAM_PC,
-    i16_to_f32, open_datagram, seal_datagram,
-};
+use relay_core::audio::{CHANNELS, DATAGRAM_LEN, PLAIN_LEN, STREAM_MIC, seal_datagram};
 use relay_core::crypto::{ReplayMode, UdpAead};
-use relay_core::platform::{AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame, AudioPlayback};
-use relay_core::types::{AudioConfig, AudioStats, Message};
+use relay_core::platform::{AUDIO_FRAME_SAMPLES, AudioCapture, AudioFrame};
+use relay_core::types::{AudioConfig, Message};
 
 use super::Sh;
-use crate::core::{CoreEvents, SessionCtx};
+use crate::core::SessionCtx;
 
 const TAG_LEN: usize = 16;
-const READ_TIMEOUT: Duration = Duration::from_millis(20);
-/// Frames por chamada do compensador (2,5 ms: abaixo do pacote, o alvo do jitter fica livre).
-const CHUNK_FRAMES: usize = 120;
-/// Quanto o ring de reprodução guarda à frente do dispositivo (em chunks).
-const RING_CHUNKS: usize = 4;
-const STATS_EVERY: Duration = Duration::from_secs(1);
-const LOG_EVERY: Duration = Duration::from_secs(5);
 const CAPTURE_RING: usize = 64;
 
-/// Os dois sentidos de áudio de uma sessão; cada um liga e desliga sozinho.
+/// O microfone de uma sessão, quando ligado.
 #[derive(Default)]
 pub(crate) struct AudioRun {
-    rx: Option<Playback>,
     tx: Option<Capture>,
 }
 
 impl AudioRun {
-    pub fn rx_addr(&self) -> Option<SocketAddr> {
-        self.rx.as_ref().map(|p| p.addr)
-    }
-
     #[cfg(test)]
     pub fn tx_running(&self) -> bool {
         self.tx.is_some()
     }
 
     pub fn stop(&mut self) {
-        self.rx = None;
         self.tx = None;
     }
 }
@@ -87,24 +68,6 @@ impl Drop for Stopper {
     }
 }
 
-struct Playback {
-    addr: SocketAddr,
-    device: Arc<Mutex<Box<dyn AudioPlayback>>>,
-    cur_device: Option<String>,
-    // Declarado depois do dispositivo: as threads páram antes de ele cair.
-    stopper: Stopper,
-}
-
-impl Drop for Playback {
-    fn drop(&mut self) {
-        self.stopper.flag.store(true, Ordering::Relaxed);
-        for t in self.stopper.threads.drain(..) {
-            let _ = t.join();
-        }
-        self.device.lock().unwrap_or_else(|e| e.into_inner()).stop();
-    }
-}
-
 struct Capture {
     device: Box<dyn AudioCapture>,
     cur_device: Option<String>,
@@ -123,26 +86,21 @@ impl Drop for Capture {
 
 // ---- ganchos ----
 
-/// Pedido do usuário: manda `AudioControl` e liga/desliga os sentidos locais.
-pub(super) fn set_streams(sh: &Arc<Sh>, pc_to_mac: bool, mac_to_pc: bool) {
+/// Pedido do usuário: manda `AudioControl` e liga/desliga o microfone.
+pub(super) fn set_streams(sh: &Arc<Sh>, mac_to_pc: bool) {
     let has_session = sh.session().is_some();
-    tracing::info!(
-        pc_to_mac,
-        mac_to_pc,
-        has_session,
-        "áudio: pedido do usuário"
-    );
-    sh.st().want = (pc_to_mac, mac_to_pc);
+    tracing::info!(mac_to_pc, has_session, "áudio: pedido do usuário");
+    sh.st().want = mac_to_pc;
     sh.send(Message::AudioControl {
-        pc_to_mac,
+        pc_to_mac: false,
         mac_to_pc,
     });
     apply(sh);
 }
 
-/// O PC respondeu com o estado real dos streams: ajusta os sentidos locais, sem reenviar.
-pub(super) fn pc_state(sh: &Arc<Sh>, pc_to_mac: bool, mac_to_pc: bool) {
-    sh.st().want = (pc_to_mac, mac_to_pc);
+/// O PC respondeu com o estado real do microfone: ajusta o local, sem reenviar.
+pub(super) fn pc_state(sh: &Arc<Sh>, mac_to_pc: bool) {
+    sh.st().want = mac_to_pc;
     apply(sh);
 }
 
@@ -150,11 +108,10 @@ pub(super) fn pc_state(sh: &Arc<Sh>, pc_to_mac: bool, mac_to_pc: bool) {
 pub(super) fn session_up(sh: &Arc<Sh>) {
     // Chaves novas: nada do que corria com as velhas serve.
     sh.st().audio.stop();
-    let (p, m) = sh.st().want;
-    if p || m {
+    if sh.st().want {
         sh.send(Message::AudioControl {
-            pc_to_mac: p,
-            mac_to_pc: m,
+            pc_to_mac: false,
+            mac_to_pc: true,
         });
     }
     apply(sh);
@@ -164,76 +121,49 @@ pub(super) fn session_down(sh: &Arc<Sh>) {
     sh.st().audio.stop();
 }
 
-/// Volume e dispositivos mudaram.
+/// O microfone escolhido mudou.
 pub(super) fn config_changed(sh: &Arc<Sh>) {
     let mut st = sh.st();
-    let cfg = st.cfg.audio.clone();
-    if let Some(p) = st.audio.rx.as_mut() {
-        let mut dev = p.device.lock().unwrap_or_else(|e| e.into_inner());
-        dev.set_volume(cfg.stream_volume.clamp(0.0, 1.0));
-        if p.cur_device != cfg.mac_output_id {
-            match dev.set_device(cfg.mac_output_id.as_deref()) {
-                Ok(()) => p.cur_device = cfg.mac_output_id.clone(),
-                Err(e) => tracing::warn!("saída de áudio {:?}: {e}", cfg.mac_output_id),
-            }
-        }
-    }
+    let input = st.cfg.audio.mac_input_id.clone();
     if let Some(c) = st.audio.tx.as_mut()
-        && c.cur_device != cfg.mac_input_id
+        && c.cur_device != input
     {
-        match c.device.set_device(cfg.mac_input_id.as_deref()) {
-            Ok(()) => c.cur_device = cfg.mac_input_id.clone(),
-            Err(e) => tracing::warn!("entrada de áudio {:?}: {e}", cfg.mac_input_id),
+        match c.device.set_device(input.as_deref()) {
+            Ok(()) => c.cur_device = input,
+            Err(e) => tracing::warn!("entrada de áudio {input:?}: {e}"),
         }
     }
 }
 
-/// Liga ou desliga cada sentido para casar com `want` e a sessão atual.
+/// Liga ou desliga o microfone para casar com `want` e a sessão atual.
 fn apply(sh: &Arc<Sh>) {
     let (want, ctx, cfg) = {
         let st = sh.st();
         (st.want, st.session.clone(), st.cfg.audio.clone())
     };
     // Tira do estado antes de soltar: o `Drop` espera as threads, sem segurar o lock.
-    let (old_rx, old_tx) = {
+    let old = {
         let mut st = sh.st();
-        let rx = if want.0 && ctx.is_some() && st.audio.rx.is_some() {
-            None
-        } else {
-            st.audio.rx.take()
-        };
-        let tx = if want.1 && ctx.is_some() && st.audio.tx.is_some() {
+        if want && ctx.is_some() && st.audio.tx.is_some() {
             None
         } else {
             st.audio.tx.take()
-        };
-        (rx, tx)
+        }
     };
-    drop((old_rx, old_tx));
+    drop(old);
     let Some(ctx) = ctx else {
-        if want.0 || want.1 {
+        if want {
             tracing::warn!("áudio pedido sem sessão de mídia: liga quando a sessão subir");
         }
         return;
     };
     let Some(keys) = ctx.audio_keys.clone() else {
-        if want.0 || want.1 {
+        if want {
             tracing::warn!("sessão sem chaves de áudio: áudio desligado");
         }
         return;
     };
-    if want.0 && sh.st().audio.rx.is_none() {
-        match start_playback(
-            sh,
-            &ctx,
-            UdpAead::new(keys.pc_to_mac, ReplayMode::Window64),
-            &cfg,
-        ) {
-            Ok(p) => sh.st().audio.rx = Some(p),
-            Err(e) => tracing::warn!("áudio PC→Mac não iniciou: {e}"),
-        }
-    }
-    if want.1 && sh.st().audio.tx.is_none() {
+    if want && sh.st().audio.tx.is_none() {
         match start_capture(
             sh,
             &ctx,
@@ -242,158 +172,6 @@ fn apply(sh: &Arc<Sh>) {
         ) {
             Ok(c) => sh.st().audio.tx = Some(c),
             Err(e) => tracing::warn!("áudio Mac→PC não iniciou: {e}"),
-        }
-    }
-}
-
-// ---- PC → Mac ----
-
-fn start_playback(
-    sh: &Arc<Sh>,
-    ctx: &SessionCtx,
-    mut aead: UdpAead,
-    cfg: &AudioConfig,
-) -> Result<Playback, String> {
-    let socket = UdpSocket::bind((ctx.bind_ip, ctx.local_ports.audio_pc_to_mac))
-        .map_err(|e| format!("UDP {}: {e}", ctx.local_ports.audio_pc_to_mac))?;
-    socket
-        .set_read_timeout(Some(READ_TIMEOUT))
-        .map_err(|e| e.to_string())?;
-    let addr = socket.local_addr().map_err(|e| e.to_string())?;
-    tracing::info!(%addr, "áudio PC→Mac: escutando");
-    let (producer, consumer) = rtrb::RingBuffer::new(CHUNK_FRAMES * CHANNELS * RING_CHUNKS * 2);
-    let mut device = sh.platform.playback();
-    device.set_volume(cfg.stream_volume.clamp(0.0, 1.0));
-    if cfg.mac_output_id.is_some()
-        && let Err(e) = device.set_device(cfg.mac_output_id.as_deref())
-    {
-        tracing::warn!("saída de áudio {:?}: {e}", cfg.mac_output_id);
-    }
-    device.start(consumer).map_err(|e| e.to_string())?;
-    let device = Arc::new(Mutex::new(device));
-
-    let jitter = Arc::new(Mutex::new(JitterBuffer::new(cfg.jitter_target_ms)));
-    let mut stopper = Stopper::new();
-    let (flag, peer_ip) = (stopper.flag.clone(), ctx.peer_ip);
-    let jb = jitter.clone();
-    stopper.spawn("relay-audio-rx", move || {
-        let mut buf = [0u8; 2048];
-        let mut plain = Vec::with_capacity(PLAIN_LEN + TAG_LEN);
-        let (mut ok, mut foreign, mut bad, mut last) = (0u64, 0u64, 0u64, Instant::now());
-        while !flag.load(Ordering::Relaxed) {
-            if last.elapsed() >= LOG_EVERY {
-                last = Instant::now();
-                // Tudo zerado: nada chegou na porta (firewall do Mac ou o PC não envia).
-                tracing::info!(ok, foreign, bad, %addr, "áudio PC→Mac recebido");
-                (ok, foreign, bad) = (0, 0, 0);
-            }
-            let Ok((n, from)) = socket.recv_from(&mut buf) else {
-                continue;
-            };
-            if from.ip() != peer_ip {
-                if foreign == 0 {
-                    tracing::warn!(%from, %peer_ip, "áudio de origem diferente do PC descartado");
-                }
-                foreign += 1;
-                continue;
-            }
-            let Some((seq, payload)) = open_datagram(&mut aead, &buf[..n], STREAM_PC, &mut plain)
-            else {
-                bad += 1;
-                continue;
-            };
-            ok += 1;
-            jb.lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push_payload(seq, payload)
-                .ok();
-        }
-    });
-    let flag = stopper.flag.clone();
-    let events = sh.events.clone();
-    stopper.spawn("relay-audio-play", move || {
-        play_loop(&flag, &jitter, producer, &*events);
-    });
-    Ok(Playback {
-        addr,
-        device,
-        cur_device: cfg.mac_output_id.clone(),
-        stopper,
-    })
-}
-
-/// Mantém o ring do dispositivo cheio até `RING_CHUNKS` chunks, tirando do jitter buffer pelo
-/// compensador de deriva. O dispositivo consome no relógio dele: é isso que paceia o laço.
-fn play_loop(
-    stop: &AtomicBool,
-    jitter: &Mutex<JitterBuffer>,
-    mut ring: rtrb::Producer<f32>,
-    events: &dyn CoreEvents,
-) {
-    let Ok(mut drift) = DriftCompensator::new(CHUNK_FRAMES) else {
-        tracing::warn!("compensador de deriva indisponível");
-        return;
-    };
-    let capacity = ring.buffer().capacity();
-    let chunk_samples = CHUNK_FRAMES * CHANNELS;
-    let mut pcm = vec![0i16; 4 * CHUNK_FRAMES * CHANNELS];
-    let mut input = vec![0f32; pcm.len()];
-    let mut out = vec![0f32; chunk_samples];
-    let mut last_stats = Instant::now();
-    let mut last_log = Instant::now();
-    while !stop.load(Ordering::Relaxed) {
-        let filled = capacity - ring.slots();
-        if filled >= RING_CHUNKS * chunk_samples {
-            // O ring guarda `RING_CHUNKS` chunks (10 ms): reabastecer com ≤3 ms de atraso não
-            // chega perto de esvaziá-lo e poupa ~1000 despertares/s.
-            thread::sleep(Duration::from_millis(2));
-        } else {
-            let n = {
-                let mut jb = jitter.lock().unwrap_or_else(|e| e.into_inner());
-                let _ = drift.update(jb.mean_level_frames() as f32, jb.target_frames() as f32);
-                let n = drift.input_frames_next() * CHANNELS;
-                if n > pcm.len() {
-                    pcm.resize(n, 0);
-                    input.resize(n, 0.0);
-                }
-                jb.read(&mut pcm[..n]);
-                n
-            };
-            if i16_to_f32(&pcm[..n], &mut input[..n]).is_err()
-                || drift.process(&input[..n], &mut out).is_err()
-            {
-                continue;
-            }
-            if let Ok(mut chunk) = ring.write_chunk(chunk_samples) {
-                let (a, b) = chunk.as_mut_slices();
-                let (first, second) = out.split_at(a.len());
-                a.copy_from_slice(first);
-                b.copy_from_slice(second);
-                chunk.commit_all();
-            }
-        }
-        if last_stats.elapsed() >= STATS_EVERY {
-            last_stats = Instant::now();
-            let s = jitter.lock().unwrap_or_else(|e| e.into_inner()).stats();
-            if last_log.elapsed() >= LOG_EVERY {
-                last_log = Instant::now();
-                tracing::info!(
-                    received = s.received,
-                    played = s.played,
-                    lost = s.lost,
-                    underruns = s.underruns,
-                    skipped = s.skipped,
-                    late = s.late,
-                    level_ms = s.level_ms,
-                    "áudio PC→Mac jitter"
-                );
-            }
-            let ring_ms = (capacity - ring.slots()) as f32 / CHANNELS as f32 / 48.0;
-            events.audio_stats(&AudioStats {
-                buffer_ms: s.level_ms,
-                loss_pct: s.loss_pct(),
-                latency_ms: s.level_ms + ring_ms,
-            });
         }
     }
 }

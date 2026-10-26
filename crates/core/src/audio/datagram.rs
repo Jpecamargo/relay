@@ -1,4 +1,4 @@
-//! Datagrama UDP de áudio, igual nos dois sentidos: `hdr17 ++ seal(seq, aad = hdr17, plain)`.
+//! Datagrama UDP de áudio (microfone do Mac → PC): `hdr17 ++ seal(seq, aad = hdr17, plain)`.
 //!
 //! `hdr17` = stream u8, seq u64 LE, ts_samples u64 LE (os 17 primeiros bytes do `AudioPacket`,
 //! em claro: são o AAD). `plain` = codec u8, channels u8, frames u16 LE e os 960 bytes de PCM
@@ -9,8 +9,6 @@ use super::{
 };
 use crate::crypto::UdpAead;
 
-/// `stream` do cabeçalho: 0 = som do PC → Mac.
-pub const STREAM_PC: u8 = 0;
 /// `stream` do cabeçalho: 1 = microfone do Mac → PC.
 pub const STREAM_MIC: u8 = 1;
 
@@ -88,7 +86,7 @@ mod tests {
 
     fn pair() -> (UdpAead, UdpAead) {
         let hh = [7u8; 32];
-        let k = |dialer| derive_udp_keys(&hh, UdpChannel::AudioPcToMac, dialer);
+        let k = |dialer| derive_udp_keys(&hh, UdpChannel::AudioMacToPc, dialer);
         (
             UdpAead::new(k(false), ReplayMode::Window64),
             UdpAead::new(k(true), ReplayMode::Window64),
@@ -103,18 +101,18 @@ mod tests {
             .collect();
         let (mut p, mut c, mut w) = (Vec::new(), Vec::new(), Vec::new());
         assert!(seal_datagram(
-            &tx, STREAM_PC, 5, &frame, &mut p, &mut c, &mut w
+            &tx, STREAM_MIC, 5, &frame, &mut p, &mut c, &mut w
         ));
         assert_eq!(w.len(), DATAGRAM_LEN);
         // stream errado é descartado antes de decifrar (e não consome o seq).
-        assert!(open_datagram(&mut rx, &w, STREAM_MIC, &mut p).is_none());
-        let (seq, pcm) = open_datagram(&mut rx, &w, STREAM_PC, &mut p).unwrap();
+        assert!(open_datagram(&mut rx, &w, 0, &mut p).is_none());
+        let (seq, pcm) = open_datagram(&mut rx, &w, STREAM_MIC, &mut p).unwrap();
         assert_eq!(seq, 5);
         assert_eq!(pcm.len(), PACKET_PAYLOAD_BYTES);
         assert_eq!(&pcm[..4], &[0, 0, 1, 0]);
         // replay e adulteração
-        assert!(open_datagram(&mut rx, &w, STREAM_PC, &mut p).is_none());
+        assert!(open_datagram(&mut rx, &w, STREAM_MIC, &mut p).is_none());
         w[30] ^= 1;
-        assert!(open_datagram(&mut rx, &w, STREAM_PC, &mut p).is_none());
+        assert!(open_datagram(&mut rx, &w, STREAM_MIC, &mut p).is_none());
     }
 }

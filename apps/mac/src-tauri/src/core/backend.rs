@@ -144,34 +144,16 @@ impl<P: Platform> AppBackend for AppCore<P> {
         self.inner.media.audio_devices()
     }
 
-    fn set_audio_streams(&self, pc_to_mac: bool, mac_to_pc: bool) -> BackendResult<()> {
-        self.inner.mutate(|s| {
-            s.status.audio = relay_core::types::AudioState {
-                pc_to_mac,
-                mac_to_pc,
-            }
-        });
-        self.inner.media.set_audio_streams(pc_to_mac, mac_to_pc);
+    fn set_audio_streams(&self, mac_to_pc: bool) -> BackendResult<()> {
+        self.inner
+            .mutate(|s| s.status.audio = relay_core::types::AudioState { mac_to_pc });
+        self.inner.media.set_audio_streams(mac_to_pc);
         Ok(())
     }
 
-    fn set_audio_devices(
-        &self,
-        output_id: Option<String>,
-        input_id: Option<String>,
-    ) -> BackendResult<()> {
+    fn set_audio_devices(&self, input_id: Option<String>) -> BackendResult<()> {
         let cfg = self.inner.mutate(|s| {
-            s.config.audio.mac_output_id = output_id;
             s.config.audio.mac_input_id = input_id;
-            s.config.clone()
-        });
-        self.inner.persist_config(&cfg);
-        Ok(())
-    }
-
-    fn set_stream_volume(&self, volume: f32) -> BackendResult<()> {
-        let cfg = self.inner.mutate(|s| {
-            s.config.audio.stream_volume = volume.clamp(0.0, 1.0);
             s.config.clone()
         });
         self.inner.persist_config(&cfg);

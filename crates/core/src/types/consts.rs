@@ -7,8 +7,6 @@ pub const PROTOCOL_VERSION: u16 = 1;
 pub const PORT_CONTROL: u16 = 47800;
 /// UDP: input (cada lado escuta nela).
 pub const PORT_INPUT: u16 = 47801;
-/// UDP: áudio PC→Mac (o Mac escuta).
-pub const PORT_AUDIO_PC_TO_MAC: u16 = 47802;
 /// UDP: microfone Mac→PC (o Windows escuta).
 pub const PORT_AUDIO_MAC_TO_PC: u16 = 47803;
 /// TCP: transferência de arquivos.

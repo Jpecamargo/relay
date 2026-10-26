@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: async () => undefined }
 
 const STATUS: StatusSnapshot = {
   status: "Connected", peer_name: "Desktop", focus: "Mac", locked: false, paused: false,
-  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { pc_to_mac: false, mac_to_pc: false },
+  secure_input: false, pc_unreachable: false, clipboard_sync: false, audio: { mac_to_pc: false },
   peer_version: "0.2.0", version_sync: "LocalBehind",
 };
 

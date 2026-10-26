@@ -40,7 +40,6 @@ pub enum VersionSync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AudioState {
-    pub pc_to_mac: bool,
     pub mac_to_pc: bool,
 }
 
@@ -70,14 +69,6 @@ pub struct LatencyStats {
     pub rtt_ms: f32,
     pub jitter_ms: f32,
     pub loss_pct: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct AudioStats {
-    pub buffer_ms: f32,
-    pub loss_pct: f32,
-    pub latency_ms: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]

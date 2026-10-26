@@ -105,18 +105,8 @@ pub fn migrate(table: &mut Table) {
                 }
                 table.insert("schema_version".into(), Value::Integer(2));
             }
-            // v2 -> v3: o padrão do áudio do PC passa a ser o sistema inteiro. Quem estava no padrão
-            // antigo (só o Discord) nunca escolheu isso e quase sempre ficava sem som.
+            // v2 -> v3: mexia no modo do som do PC no Mac, recurso que saiu na 0.2.0.
             2 => {
-                if let Some(Value::Table(t)) = table.get_mut("audio") {
-                    let only_discord = t
-                        .get("process_names")
-                        .and_then(Value::as_array)
-                        .is_some_and(|a| a.len() == 1 && a[0].as_str() == Some("Discord.exe"));
-                    if t.get("pc_mode").and_then(Value::as_str) == Some("process") && only_discord {
-                        t.insert("pc_mode".into(), Value::String("system".into()));
-                    }
-                }
                 table.insert("schema_version".into(), Value::Integer(3));
             }
             // v3 -> v4: perfis de layout passam a ser do usuário. Antes, cada combinação de telas
@@ -200,7 +190,7 @@ pub fn save(path: &Path, config: &Config) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ClipboardMode, PcAudioMode};
+    use crate::types::ClipboardMode;
 
     fn dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
@@ -340,25 +330,20 @@ mod tests {
     }
 
     #[test]
-    fn migra_v2_troca_o_audio_so_do_discord_pelo_sistema_e_mantem_o_escolhido() {
-        let load = |toml: &str| {
-            let d = dir();
-            let p = d.path().join("config.toml");
-            fs::write(&p, toml).unwrap();
-            load_or_default(&p).unwrap()
-        };
-        let old = "[audio]\npc_mode = \"process\"\nprocess_names = [\"Discord.exe\"]\n";
-        let c = load(&format!("schema_version = 2\n{old}"));
-        assert_eq!(
-            (c.schema_version, c.audio.pc_mode),
-            (4, PcAudioMode::System)
-        );
-        let c = load(
-            "schema_version = 2\n[audio]\npc_mode = \"process\"\nprocess_names = [\"Spotify.exe\"]\n",
-        );
-        assert_eq!(c.audio.pc_mode, PcAudioMode::Process);
-        let c = load(&format!("schema_version = 3\n{old}"));
-        assert_eq!(c.audio.pc_mode, PcAudioMode::Process);
+    fn config_com_os_campos_do_som_do_pc_no_mac_ainda_carrega() {
+        let d = dir();
+        let p = d.path().join("config.toml");
+        fs::write(
+            &p,
+            "schema_version = 2\n[audio]\npc_mode = \"process\"\nprocess_names = [\"Discord.exe\"]\n\
+             stream_volume = 0.5\nmac_output_id = \"x\"\njitter_target_ms = 30\n\
+             [network.ports]\naudio_pc_to_mac = 1\ncontrol = 9\n",
+        )
+        .unwrap();
+        let c = load_or_default(&p).unwrap();
+        assert_eq!(c.schema_version, 4);
+        assert_eq!(c.audio.jitter_target_ms, 30);
+        assert_eq!(c.network.ports.control, 9);
     }
 
     #[test]
@@ -366,14 +351,8 @@ mod tests {
         let c = Config::default();
         let n = &c.network.ports;
         assert_eq!(
-            (
-                n.control,
-                n.input,
-                n.audio_pc_to_mac,
-                n.audio_mac_to_pc,
-                n.transfer
-            ),
-            (47800, 47801, 47802, 47803, 47804)
+            (n.control, n.input, n.audio_mac_to_pc, n.transfer),
+            (47800, 47801, 47803, 47804)
         );
         assert_eq!(c.schema_version, 4);
         assert_eq!(c.transition.dwell_ms, 0);
@@ -383,8 +362,6 @@ mod tests {
         assert_eq!(c.clipboard.mode, ClipboardMode::OnSwitch);
         assert_eq!(c.clipboard.max_bytes, 50 * 1024 * 1024);
         assert_eq!(c.audio.jitter_target_ms, 20);
-        assert_eq!(c.audio.pc_mode, PcAudioMode::System);
-        assert_eq!(c.audio.process_names, vec!["Discord.exe"]);
         assert_eq!(c.hotkeys, crate::types::config::default_hotkeys());
         assert_eq!(c.hotkeys.len(), 5);
     }

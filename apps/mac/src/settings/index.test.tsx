@@ -12,12 +12,12 @@ vi.mock("@relay/protocol-types", () => ({
 
 const CONFIG: Config = {
   schema_version: 1,
-  network: { ports: { control: 1, input: 2, audio_pc_to_mac: 3, audio_mac_to_pc: 4, transfer: 5 }, manual_address: null },
+  network: { ports: { control: 1, input: 2, audio_mac_to_pc: 4, transfer: 5 }, manual_address: null },
   transition: { dwell_ms: 150, edge_resistance_pt: 8, require_modifier: null, corner_dead_zone_mm: 5 },
   keymap: { cmd_tap_timeout_ms: 300, rules: [], app_exceptions: [], reverse_modifiers: { ctrl_cmd: false } } as unknown as Config["keymap"],
   hotkeys: [{ combo: { modifiers: ["Ctrl", "Option"], key: "Digit1" }, action: { JumpTo: 1 } }],
   clipboard: { enabled: true, mode: "on_switch", max_bytes: 10 * 1024 * 1024, formats: ["Text"] },
-  audio: { pc_mode: "system", process_names: [], virtual_output_name: null, jitter_target_ms: 40, mac_output_id: null, mac_input_id: null, stream_volume: 1 },
+  audio: { jitter_target_ms: 40, mac_input_id: null },
   layout: {} as Config["layout"],
   general: { launch_at_login: false },
 };

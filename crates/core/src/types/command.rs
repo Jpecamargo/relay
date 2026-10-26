@@ -81,9 +81,7 @@ pub mod error_code {
     pub const TIMEOUT: &str = "timeout";
     pub const CONFIRMATION_REQUIRED: &str = "confirmation_required";
     pub const VBCABLE_MISSING: &str = "vbcable_missing";
-    pub const VIRTUAL_OUTPUT_MISSING: &str = "virtual_output_missing";
     pub const UNSUPPORTED: &str = "unsupported";
-    pub const PROCESS_NOT_FOUND: &str = "process_not_found";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

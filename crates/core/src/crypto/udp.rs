@@ -10,7 +10,6 @@ use super::CryptoError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdpChannel {
     Input,
-    AudioPcToMac,
     AudioMacToPc,
 }
 
@@ -18,7 +17,6 @@ impl UdpChannel {
     fn label(self) -> &'static str {
         match self {
             UdpChannel::Input => "input",
-            UdpChannel::AudioPcToMac => "audio_pc_to_mac",
             UdpChannel::AudioMacToPc => "audio_mac_to_pc",
         }
     }
@@ -213,11 +211,7 @@ mod tests {
 
     #[test]
     fn both_sides_derive_the_same_and_keys_are_distinct() {
-        let chans = [
-            UdpChannel::Input,
-            UdpChannel::AudioPcToMac,
-            UdpChannel::AudioMacToPc,
-        ];
+        let chans = [UdpChannel::Input, UdpChannel::AudioMacToPc];
         let mut all = Vec::new();
         for c in chans {
             let d = derive_udp_keys(&HH, c, true);
