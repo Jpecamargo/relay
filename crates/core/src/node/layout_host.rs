@@ -152,7 +152,10 @@ impl LayoutHostState {
             self.awaiting_exchange = false;
             return self.resolve(peer_book);
         }
-        if self.is_host() || peer_book.revision < self.revision {
+        // O host só aceita Sync de quem assumiu o papel de host (book.host é o outro lado).
+        let handover =
+            self.is_host() && peer_book.revision > self.revision && peer_book.host != self.local;
+        if (self.is_host() && !handover) || peer_book.revision < self.revision {
             return Vec::new();
         }
         self.adopt(peer_book);
@@ -242,9 +245,11 @@ impl LayoutHostState {
         }
     }
 
-    /// `LayoutBookEdit` recebido: só o host aplica; vale a última escrita.
+    /// `LayoutBookEdit` recebido: o host aplica (vale a última escrita); o não-host só quando o
+    /// Edit o nomeia host, e então assume o papel.
     pub fn on_book_edit(&mut self, edit: LayoutBook) -> Vec<LayoutEffect> {
-        if !self.is_host() {
+        // Não-host só aceita o Edit que lhe passa o papel de host (edit.host é ele mesmo).
+        if !self.is_host() && !(edit.host == self.local && edit.revision > self.revision) {
             return Vec::new();
         }
         self.revision = self.revision.max(edit.revision) + 1;
@@ -617,5 +622,61 @@ mod tests {
         assert!(s.on_displays(&ds).is_empty());
         let mut n = connected(state(Windows, Mac, 1, &[]), true);
         assert!(n.on_displays(&ds).is_empty());
+    }
+
+    #[test]
+    fn host_handover_by_sync_and_by_edit() {
+        // o outro assumiu: Sync com revision maior e host diferente de mim
+        let mut mac = connected(state(Mac, Mac, 2, &["a"]), true);
+        let book = LayoutBook {
+            revision: 3,
+            host: Windows,
+            profiles: vec![prof("a")],
+            active: None,
+        };
+        let fx = mac.on_book_sync(book);
+        assert!(matches!(
+            fx.as_slice(),
+            [LayoutEffect::Persist(_), LayoutEffect::Emit(_)]
+        ));
+        assert!(!mac.is_host());
+        // Sync que não troca o host, ou com revision menor, o host ignora
+        let mut mac = connected(state(Mac, Mac, 2, &["a"]), true);
+        assert!(
+            mac.on_book_sync(LayoutBook {
+                revision: 9,
+                host: Mac,
+                profiles: vec![],
+                active: None
+            })
+            .is_empty()
+        );
+        assert!(
+            mac.on_book_sync(LayoutBook {
+                revision: 1,
+                host: Windows,
+                profiles: vec![],
+                active: None
+            })
+            .is_empty()
+        );
+        // Edit que me nomeia host: assumo com max+1 e publico
+        let mut win = connected(state(Windows, Mac, 2, &["a"]), true);
+        let edit = LayoutBook {
+            revision: 3,
+            host: Windows,
+            profiles: vec![prof("a")],
+            active: None,
+        };
+        let fx = win.on_book_edit(edit);
+        assert_eq!((win.book().host, win.book().revision), (Windows, 4));
+        assert!(matches!(
+            fx.as_slice(),
+            [
+                LayoutEffect::Persist(_),
+                LayoutEffect::Emit(_),
+                LayoutEffect::Send(Message::LayoutBookSync(_))
+            ]
+        ));
     }
 }

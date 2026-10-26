@@ -135,8 +135,12 @@ impl Link {
 #[test]
 fn novo_pareamento_aplica_a_escolha_de_host_dos_dois_lados() {
     // Mac com layouts da 0.2 (revision 2, host Mac); PC recém-instalado.
-    // (Windows, Local) e (Mac, Peer) expõem defeito de I4: ver o relatório da onda 2.
-    for (typer, choice) in [(Machine::Mac, Host::Local), (Machine::Windows, Host::Peer)] {
+    for (typer, choice) in [
+        (Machine::Mac, Host::Local),
+        (Machine::Mac, Host::Peer),
+        (Machine::Windows, Host::Local),
+        (Machine::Windows, Host::Peer),
+    ] {
         {
             let mut l = Link::new(
                 config(Machine::Mac, 2, &["casa"]),
