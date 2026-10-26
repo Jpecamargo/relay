@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.2.0
+
+- O Mac não pede mais a senha (3 vezes) a cada atualização. As chaves do pareamento saem do Keychain para um arquivo que só o seu usuário lê. Nesta atualização o macOS ainda pede uma última vez, para copiá-las; o pareamento continua.
+- Saiu o "Som do PC no Mac", que nunca funcionou com qualidade aceitável. O microfone do Mac no PC e o controle de volume do PC continuam.
+
 ## 0.1.16
 
 - Novo submenu "Layout" no menu da barra: troca o perfil de layout das telas em uso sem abrir o editor. Aparece quando há dois perfis ou mais.

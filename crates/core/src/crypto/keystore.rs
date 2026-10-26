@@ -194,10 +194,7 @@ pub struct FileKeyStore {
 }
 
 impl FileKeyStore {
-    pub fn open(
-        path: PathBuf,
-        legacy: Option<Box<dyn KeyStore>>,
-    ) -> Result<Self, KeyStoreError> {
+    pub fn open(path: PathBuf, legacy: Option<Box<dyn KeyStore>>) -> Result<Self, KeyStoreError> {
         let secrets = match std::fs::read(&path) {
             Ok(bytes) => {
                 bincode::serde::decode_from_slice(&bytes, bincode::config::standard())
