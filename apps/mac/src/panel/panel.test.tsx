@@ -35,6 +35,7 @@ const MAC_DEVICES = {
   outputs: [{ id: "m1", name: "MacBook Speakers", is_default: true }, { id: "m2", name: "AirPods", is_default: false }],
   inputs: [],
 };
+const PROFILES = [{ name: "Casa", key: "k", displays: [], windows_detached: false }, { name: "Jogo", key: "k", displays: [], windows_detached: false }];
 const info = (id: string, name: string, machine: string) => ({ id, name, machine, origin_px: [0, 0], size_px: [1, 1], scale: 1, size_mm: null, is_primary: false, is_builtin: false });
 const placed = (id: string, machine: string, x: number) => ({ display_id: id, machine, rect_mm: { x, y: 0, w: 100, h: 100 }, sensitivity: 1, rotation: null });
 
@@ -51,9 +52,9 @@ beforeEach(() => {
       case "get_status": return STATUS;
       case "check_permissions": return { accessibility: "Granted", input_monitoring: "Granted" };
       case "list_audio_devices": return MAC_DEVICES;
-      case "get_config": return { audio: { stream_volume: 1, mac_output_id: null }, hotkeys };
+      case "get_config": return { audio: { stream_volume: 1, mac_output_id: null }, hotkeys, layout: { profiles: PROFILES, active: "Casa" } };
       case "get_displays": return { mac: [info("mac", "MacBook", "Mac")], windows: [info("d1", "Dell 1", "Windows"), info("d2", "Dell 2", "Windows")] };
-      case "get_layout": return { displays: [placed("mac", "Mac", 0), placed("d1", "Windows", 100), placed("d2", "Windows", 200)] };
+      case "get_layout": return { name: "Casa", displays: [placed("mac", "Mac", 0), placed("d1", "Windows", 100), placed("d2", "Windows", 200)] };
       case "send_command":
         if (args?.command === "ListOutputDevices") return { id: 5, ok: true, output: { Devices: DEVICES }, error: null };
         return sendResult;
@@ -287,6 +288,16 @@ test("Ir para lista as telas na ordem do pulo, com o atalho configurado, e pula"
   expect(names[0]).toContain("MacBook");
   fireEvent.click(dell2);
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("jump_to", { n: 3 }));
+});
+
+test("Layout lista os perfis com check no atual e troca o perfil em uso", async () => {
+  await ready();
+  fireEvent.click(await screen.findByRole("button", { name: "Layout" }));
+  const jogo = await screen.findByRole("menuitemradio", { name: "Jogo" });
+  expect(screen.getByRole("menuitemradio", { name: "Casa" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(jogo);
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_layout_profiles", { profiles: PROFILES, active: "Jogo" }));
+  expect(jogo.getAttribute("aria-checked")).toBe("true");
 });
 
 test("Capturar tela do PC só envia o comando e avisa que foi copiada", async () => {

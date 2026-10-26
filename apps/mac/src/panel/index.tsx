@@ -12,7 +12,7 @@ import { useLiveStatus } from "../shared/useLiveStatus";
 import { openMain } from "../shared/windows";
 import styles from "./panel.module.css";
 import { PcMenu } from "./PcMenu";
-import { CaptureMenu, GotoMenu } from "./ScreenMenus";
+import { CaptureMenu, GotoMenu, LayoutMenu } from "./ScreenMenus";
 import { SoundMenu } from "./SoundMenu";
 import { useFitWindow } from "./useFitWindow";
 import { VolumeBlock } from "./VolumeBlock";
@@ -199,6 +199,7 @@ export function Panel() {
           {update ? <MenuRow label={`Atualização ${update} disponível`} icon="download" onClick={() => openUpdateFromPanel()} /> : null}
           <MenuRow label="Abrir Relay…" icon="window" onClick={() => openFromPanel()} />
           <SoundMenu act={act} online={online} streamToMac={audio.pc_to_mac} />
+          <LayoutMenu act={act} />
           <GotoMenu act={act} online={online} hotkey={(n) => hotkey({ JumpTo: n })} />
           {online ? <CaptureMenu show={show} firstTime={firstTime} /> : null}
           <PcMenu act={act} online={online} canWake={canWake} wakeShortcut={hotkey("WakePc")} />

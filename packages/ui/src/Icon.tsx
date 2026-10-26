@@ -38,6 +38,7 @@ const PATHS = {
   send: "M4 12 20 4l-6 16-3-7z",
   externalLink: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
   chart: "M4 20V6M4 20h16M8 16v-4M12 16V8M16 16v-6",
+  layout: "M2 7h10v8H2zM14 5h8v10h-8zM5 19h4M17 19h2",
 } as const;
 
 export type IconName = keyof typeof PATHS;

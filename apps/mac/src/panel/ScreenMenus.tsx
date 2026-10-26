@@ -1,4 +1,4 @@
-import { invokeCommand, type CommandResult, type DisplayInfo } from "@relay/protocol-types";
+import { invokeCommand, type CommandResult, type DisplayInfo, type LayoutProfile } from "@relay/protocol-types";
 import { MenuRow } from "@relay/ui";
 import { useEffect, useState } from "react";
 import { errorText } from "../shared/errors";
@@ -43,6 +43,33 @@ export function GotoMenu({ act, online, hotkey }: { act: Act; online: boolean; h
             />
           ))
         : null}
+    </>
+  );
+}
+
+/** "Layout ›": troca o perfil de layout em uso. Só aparece com dois perfis ou mais. */
+export function LayoutMenu({ act }: { act: Act }) {
+  const [open, setOpen] = useState(false);
+  const [profiles, setProfiles] = useState<LayoutProfile[]>([]);
+  const [active, setActive] = useState("");
+  // Relê ao abrir: os perfis mudam no editor e o painel vive o dia todo.
+  useEffect(() => {
+    void Promise.all([invokeCommand("get_config"), invokeCommand("get_layout")]).then(([c, l]) => {
+      setProfiles(c.layout.profiles);
+      setActive(l.name);
+    }).catch(() => undefined);
+  }, [open]);
+
+  if (profiles.length < 2) return null;
+  const choose = (name: string) => {
+    if (name === active) return;
+    setActive(name);
+    void act("Trocar layout", () => invokeCommand("set_layout_profiles", { profiles, active: name }));
+  };
+  return (
+    <>
+      <MenuRow label="Layout" icon="layout" chevron={open ? "open" : true} onClick={() => setOpen((o) => !o)} />
+      {open ? profiles.map((p) => <MenuRow nested key={p.name} label={p.name} selected={p.name === active} onClick={() => choose(p.name)} />) : null}
     </>
   );
 }

@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.1.16
+
+- Novo submenu "Layout" no menu da barra: troca o perfil de layout das telas em uso sem abrir o editor. Aparece quando há dois perfis ou mais.
+
 ## 0.1.15
 
 - Volta a dar para usar o teclado do Mac com o mouse do PC (e o mouse do Mac com o teclado do PC). Na 0.1.13, qualquer movimento do mouse do PC tirava o controle do Mac e o teclado voltava a digitar no Mac. Agora a máquina só toma o controle quando o mouse dela atravessa a borda para a outra.
