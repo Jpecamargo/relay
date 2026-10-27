@@ -47,7 +47,7 @@ cada tela continua mostrando o próprio computador, e o Relay só move o seu inp
 - **Funciona onde outros param.** Um serviço do Windows leva o seu input até o prompt do UAC e a tela de
   bloqueio. E o caminho inverso também existe: o teclado e o mouse do PC controlam o Mac.
 - **Privado por padrão.** Pareamento por código de 6 dígitos, todo o tráfego cifrado (Noise + ChaCha20-
-  Poly1305), chaves no Keychain e no Credential Manager. Nada passa por servidor: é direto, na sua rede.
+  Poly1305), chaves num arquivo só seu no Mac e no Credential Manager do Windows. Nada passa por servidor: é direto, na sua rede.
 
 ## Instalação
 
@@ -80,9 +80,13 @@ na 0.2 já avisa sozinho).
      computador / no outro computador** (padrão: este computador).
 2. Faça um lado **Mostrar código** e o outro **Digitar código**.
 3. Conceda ao Relay **Acessibilidade** e **Monitoramento de Entrada** quando o macOS pedir, e permita o
-   acesso à rede local.
+   acesso à rede local e as conexões de entrada (o Mac também recebe a conexão do PC).
 4. Em **Telas**, posicione os monitores do PC em volta do MacBook como estão na sua mesa.
 5. Leve o cursor até a borda. Para voltar ao Mac a qualquer momento: **⌃⌥1**.
+
+Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência). O microfone do Mac no PC usa o
+[VB-CABLE](https://vb-audio.com/Cable/), driver da VB-Audio distribuído como donationware: o instalador do
+Relay oferece instalá-lo.
 
 ### Layouts: quem guarda a versão oficial
 
@@ -90,10 +94,6 @@ O computador escolhido como **host** guarda a versão oficial dos layouts, e as 
 (a edição de quem não é host é enviada ao host). A troca de host fica em **Ajustes**. Sem o host
 conectado, a outra máquina mostra os layouts em modo só-leitura; o host continua editando normalmente.
 Pareamentos feitos na 0.2 mantêm o Mac como host.
-
-Requisitos: as duas máquinas na mesma rede local (cabo no PC é a melhor melhoria de latência). O microfone do Mac no PC usa o
-[VB-CABLE](https://vb-audio.com/Cable/), driver da VB-Audio distribuído como donationware: o instalador do
-Relay oferece instalá-lo.
 
 ## Roteiro
 
@@ -136,7 +136,12 @@ Teclado. Atalhos do Relay: ⌃⌥1/2/3 pulam para uma tela, ⌃⌥L trava o curs
 - **O PC aparece mas fica em "Conectando":** o roteador está isolando os aparelhos do Wi-Fi dos do cabo
   (comum na rede de 5 GHz ou de convidados de modems de fibra). Desligue "AP Isolation"/"Isolamento" nas
   configurações do Wi-Fi do roteador, use a outra banda ou ligue o Mac por cabo.
-- **O Mac não encontra o PC:** confira o acesso à rede local no Mac e se a rede não isola clientes (Wi-Fi de visitantes). Use o IP manual como plano B.
+- **Um computador não encontra o outro:** confira o acesso à rede local no Mac e se a rede não isola clientes (Wi-Fi de visitantes). Use o IP manual como plano B.
+- **O Mac pedia a senha do Keychain a cada atualização:** desde a 0.2.0 as chaves do pareamento ficam num
+  arquivo que só o seu usuário lê. Na atualização para a 0.2 o macOS pede a senha uma última vez.
+- **No Windows o atalho se chama "Relay Agent":** é de propósito. A pasta de instalação e o nome em
+  Adicionar/Remover Programas continuam os da 0.2 para a atualização instalar por cima; janelas e bandeja
+  já mostram "Relay".
 - **Logs:** `~/Library/Logs/Relay/relay.log` (Mac) e `%LOCALAPPDATA%\Relay\logs\agent.log` (Windows).
 </details>
 

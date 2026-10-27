@@ -96,6 +96,7 @@ pub fn run() {
         .on_window_event(|window, event| match (window.label(), event) {
             // O painel fecha ao perder o foco.
             ("panel", WindowEvent::Focused(false)) => tray::panel_blurred(window.app_handle()),
+            ("panel", WindowEvent::Resized(_)) => tray::panel_resized(window.app_handle()),
             // Fechar uma janela só a esconde: o app continua na bandeja.
             (_, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();

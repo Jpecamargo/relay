@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.1
+
+- No Windows, o painel que abre pela bandeja fica no lugar: antes ele abria deslocado e saía ainda mais da posição ao abrir os submenus.
+
 ## 0.3.0
 
 - Agora o Relay é o mesmo app, com a mesma interface, no Mac e no PC. Os dois podem mostrar o código de pareamento ou digitá-lo, e os dois podem editar o layout das telas.

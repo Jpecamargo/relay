@@ -30,6 +30,12 @@ const REOPEN_GUARD: Duration = Duration::from_millis(300);
 /// Quando o painel foi escondido por perder o foco.
 static PANEL_BLURRED_AT: Mutex<Option<Instant>> = Mutex::new(None);
 
+/// Área de trabalho e ponto da bandeja da última abertura. O painel ajusta a altura ao conteúdo
+/// (`useFitWindow`) e o Windows mantém o canto de cima fixo: com a bandeja embaixo ele cresceria
+/// para baixo da barra de tarefas. A cada redimensionamento ele é reencostado no mesmo canto.
+type Anchor = ((i32, i32, u32, u32), PhysicalPosition<f64>);
+static PANEL_ANCHOR: Mutex<Option<Anchor>> = Mutex::new(None);
+
 /// Item "Atualização disponível" e o menu; só fica no menu enquanto `update_shown`.
 struct TrayItems<R: Runtime> {
     menu: Menu<R>,
@@ -95,22 +101,40 @@ fn toggle_panel<R: Runtime>(app: &AppHandle<R>, tray: PhysicalPosition<f64>) {
         .ok()
         .flatten()
         .or_else(|| panel.current_monitor().ok().flatten());
-    if let (Some(monitor), Ok(size)) = (monitor, panel.outer_size()) {
+    if let Some(monitor) = monitor {
         let work = monitor.work_area();
-        let pos = panel_origin(
-            (
-                work.position.x,
-                work.position.y,
-                work.size.width,
-                work.size.height,
-            ),
-            size,
-            tray,
+        let area = (
+            work.position.x,
+            work.position.y,
+            work.size.width,
+            work.size.height,
         );
-        let _ = panel.set_position(pos);
+        if let Ok(mut anchor) = PANEL_ANCHOR.lock() {
+            *anchor = Some((area, tray));
+        }
+        place_panel(&panel);
     }
     let _ = panel.show();
     let _ = panel.set_focus();
+}
+
+fn place_panel<R: Runtime>(panel: &tauri::WebviewWindow<R>) {
+    let Some((area, tray)) = PANEL_ANCHOR.lock().ok().and_then(|a| *a) else {
+        return;
+    };
+    if let Ok(size) = panel.outer_size() {
+        let pos = panel_origin(area, size, tray);
+        if panel.outer_position().ok() != Some(pos) {
+            let _ = panel.set_position(pos);
+        }
+    }
+}
+
+/// Chamado quando o painel muda de tamanho (submenus abrindo e fechando).
+pub fn panel_resized<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(panel) = app.get_webview_window("panel") {
+        place_panel(&panel);
+    }
 }
 
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
