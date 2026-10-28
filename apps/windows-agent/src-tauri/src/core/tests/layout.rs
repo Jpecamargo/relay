@@ -1,7 +1,7 @@
 //! dono: WI1
 //! Layouts no agente (D42–D47): o PC como host publica `LayoutBookSync` com revision+1 para um Mac
 //! 0.3; com um Mac 0.2 só-leitura; o Mac 0.3 como host manda o livro, que vira o perfil do
-//! Receiver; telas novas criam perfil quando o PC é host.
+//! Receiver; telas novas adaptam o perfil em uso, sem criar outro.
 
 use super::*;
 
@@ -195,9 +195,10 @@ async fn livro_do_mac_host_vira_o_perfil_do_receiver_e_so_leitura_sem_ele() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn telas_novas_criam_perfil_quando_o_pc_e_host() {
-    let (agent, mut mac) = host_pc_with_mac03().await;
-    // O livro inicial só tem a chave {dell, mac}; um monitor novo no PC muda o conjunto.
+async fn monitor_novo_no_pc_host_adapta_o_perfil_sem_criar_outro() {
+    let (agent, _mac) = host_pc_with_mac03().await;
+    // O livro só tem a chave {dell, mac}; um monitor novo (ou um que volta de apagar) muda o
+    // conjunto. Desde a 0.1.12 o ativo se adapta: nada de "Principal 2".
     agent.displays.lock().unwrap().push(display(
         "dell2",
         Machine::Windows,
@@ -206,15 +207,13 @@ async fn telas_novas_criam_perfil_quando_o_pc_e_host() {
         false,
     ));
     (agent.display_cb.lock().unwrap().as_ref().unwrap())();
-    mac.pump_until("perfil do conjunto novo", |m| {
-        m.got(
-            |x| matches!(x, Message::LayoutBookSync(b) if b.revision == 5 && b.profiles.len() == 2),
-        )
+    eventually("perfil em uso com a tela nova", || {
+        agent.core.get_layout().displays.len() == 3
     })
     .await;
-    let payload = agent.core.get_displays();
-    assert_eq!((payload.local.len(), payload.peer.len()), (2, 1));
-    assert!(!agent.rec.displays.lock().unwrap().is_empty());
+    let book = agent.core.get_layout_book();
+    assert_eq!((book.revision, book.profiles.len()), (4, 1));
+    assert_eq!(agent.core.get_layout().name, "t");
     agent.core.shutdown();
 }
 

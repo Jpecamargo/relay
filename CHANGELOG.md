@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.3
+
+- Quando um monitor apaga e volta (o Windows desligando a tela, por exemplo), o Relay não cria mais um layout novo ("Principal 2") nem troca o layout em uso: o layout atual se adapta às telas, como desde a 0.1.12. Os "Principal 2", "Principal 3"… criados assim somem na atualização, e o layout em uso volta para o "Principal".
+
 ## 0.3.2
 
 - O submenu "Layout" acompanha a troca feita no outro computador. Antes ele continuava marcando o layout antigo e ignorava o clique no layout que ele achava já estar em uso, e era preciso escolher outro e voltar.

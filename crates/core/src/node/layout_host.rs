@@ -1,10 +1,8 @@
 //! Máquina de estados pura do host de layouts (D42–D44): quem guarda o livro oficial, quem pode
 //! editar e o que enviar/gravar/emitir a cada evento. Sem I/O: cada operação devolve efeitos.
 
-use crate::layout::{profile_key, select_profile};
-use crate::types::{
-    DisplayInfo, Host, LayoutBook, LayoutConfig, LayoutProfile, Machine, Message, ProfileKey,
-};
+use crate::layout::{DEFAULT_PROFILE_NAME, select_profile};
+use crate::types::{DisplayInfo, Host, LayoutBook, LayoutConfig, LayoutProfile, Machine, Message};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutEffect {
@@ -46,7 +44,8 @@ fn other(m: Machine) -> Machine {
 }
 
 impl LayoutHostState {
-    pub fn new(local: Machine, config: LayoutConfig) -> Self {
+    pub fn new(local: Machine, mut config: LayoutConfig) -> Self {
+        drop_auto_profiles(&mut config);
         Self {
             local,
             revision: config.revision,
@@ -315,7 +314,7 @@ impl LayoutHostState {
         vec![LayoutEffect::Send(Message::LayoutBookEdit(book))]
     }
 
-    /// Conjunto de telas (local + do peer) mudou. O host cria o perfil da `ProfileKey` se faltar.
+    /// Conjunto de telas (local + do peer) mudou. Livro vazio no host: cria o primeiro perfil.
     pub fn on_displays(&mut self, displays: &[DisplayInfo]) -> Vec<LayoutEffect> {
         self.displays = displays.to_vec();
         if self.is_host() && self.ensure_profile() {
@@ -325,36 +324,55 @@ impl LayoutHostState {
         }
     }
 
-    /// Cria (com revision+1) o perfil das telas atuais se o livro não tiver um. `true` se criou.
+    /// Livro sem perfil nenhum: cria (com revision+1) o perfil das telas atuais. `true` se criou.
+    /// Com perfis, nunca cria: o ativo se adapta às telas (D28, 0.1.12). Criar um por conjunto
+    /// fazia um monitor do PC apagando virar "Principal 2" ativo.
     fn ensure_profile(&mut self) -> bool {
-        let key = profile_key(&self.displays);
-        if self.displays.is_empty() || self.has_profile_for(&key) {
+        if self.displays.is_empty() || !self.profiles.is_empty() {
             return false;
         }
-        let Some(mut profile) = select_profile(&[], None, &self.displays) else {
+        let Some(profile) = select_profile(&[], None, &self.displays) else {
             return false;
         };
-        let mut name = profile.name.clone();
-        let mut n = 2;
-        while self.profiles.iter().any(|p| p.name == name) {
-            name = format!("{} {n}", profile.name);
-            n += 1;
-        }
-        profile.name = name.clone();
+        self.active = Some(profile.name.clone());
         self.profiles.push(profile);
-        self.active = Some(name);
         self.revision += 1;
         true
     }
+}
 
-    fn has_profile_for(&self, key: &ProfileKey) -> bool {
-        self.profiles.iter().any(|p| &p.key == key)
+/// Desfaz os perfis "Principal N" que a 0.3.0–0.3.2 criava sozinha a cada conjunto de telas
+/// novo (monitor apagando, por exemplo). O editor batiza os do usuário de "Perfil N". Roda igual
+/// nos dois lados, sem mexer na revisão, então os livros continuam iguais.
+fn drop_auto_profiles(config: &mut LayoutConfig) {
+    let auto = |p: &LayoutProfile| {
+        p.name
+            .strip_prefix(DEFAULT_PROFILE_NAME)
+            .and_then(|n| n.strip_prefix(' '))
+            .is_some_and(|n| n.parse::<u32>().is_ok_and(|n| n >= 2))
+    };
+    if config.profiles.iter().all(auto) {
+        return;
+    }
+    config.profiles.retain(|p| !auto(p));
+    let gone = config
+        .active
+        .as_deref()
+        .is_some_and(|a| !config.profiles.iter().any(|p| p.name == a));
+    if gone {
+        let main = config
+            .profiles
+            .iter()
+            .find(|p| p.name == DEFAULT_PROFILE_NAME);
+        config.active = main.or(config.profiles.first()).map(|p| p.name.clone());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::profile_key;
+    use crate::types::ProfileKey;
     use Machine::{Mac, Windows};
 
     fn prof(name: &str) -> LayoutProfile {
@@ -652,6 +670,53 @@ mod tests {
         assert!(s.on_displays(&ds).is_empty());
         let mut n = connected(state(Windows, Mac, 1, &[]), true);
         assert!(n.on_displays(&ds).is_empty());
+    }
+
+    #[test]
+    fn monitor_apagando_nao_cria_perfil_nem_troca_o_ativo() {
+        let mut s = connected(state(Mac, Mac, 4, &["Principal", "Side"]), true);
+        let all = [
+            display("m1", Mac),
+            display("w1", Windows),
+            display("w2", Windows),
+        ];
+        assert!(s.on_displays(&all).is_empty());
+        // um monitor do PC apaga e volta
+        assert!(s.on_displays(&all[..2]).is_empty());
+        assert!(s.on_displays(&all).is_empty());
+        let b = s.book();
+        assert_eq!(
+            (b.revision, b.profiles.len(), b.active.as_deref()),
+            (4, 2, Some("Principal"))
+        );
+    }
+
+    #[test]
+    fn perfis_principal_n_criados_sozinhos_somem_ao_abrir() {
+        let cfg = |names: &[&str], active: &str| LayoutConfig {
+            profiles: names.iter().map(|n| prof(n)).collect(),
+            active: Some(active.into()),
+            host: Mac,
+            revision: 11,
+        };
+        let s = LayoutHostState::new(
+            Mac,
+            cfg(&["Principal", "Side Mac", "Principal 2"], "Principal 2"),
+        );
+        let b = s.book();
+        let names: Vec<_> = b.profiles.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Principal", "Side Mac"]);
+        assert_eq!((b.active.as_deref(), b.revision), (Some("Principal"), 11));
+        // os do usuário ficam; e se só houver "Principal N", nada some
+        let s = LayoutHostState::new(Mac, cfg(&["Perfil 2", "Principal 3"], "Perfil 2"));
+        assert_eq!(s.book().profiles.len(), 1);
+        assert_eq!(
+            LayoutHostState::new(Mac, cfg(&["Principal 2"], "Principal 2"))
+                .book()
+                .profiles
+                .len(),
+            1
+        );
     }
 
     #[test]
