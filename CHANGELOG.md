@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.2
+
+- O submenu "Layout" acompanha a troca feita no outro computador. Antes ele continuava marcando o layout antigo e ignorava o clique no layout que ele achava já estar em uso, e era preciso escolher outro e voltar.
+
 ## 0.3.1
 
 - No Windows, o painel que abre pela bandeja fica no lugar: antes ele abria deslocado e saía ainda mais da posição ao abrir os submenus.

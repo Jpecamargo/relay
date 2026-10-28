@@ -1287,3 +1287,33 @@ fn acordar_o_par_exige_wol_target() {
         "unsupported"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ativo_trocado_pelo_pc_vira_o_perfil_em_uso_do_mac() {
+    let agent = Agent::start_versioned("123456", "0.3.0");
+    let platform = MockPlatform::new(&base_config(&agent));
+    let rec = Arc::new(Rec::default());
+    let core = connected(&agent, &platform, &rec, "123456").await;
+    peer_says(&core, Message::LayoutBookSync(book(Machine::Mac, 0)));
+    wait_until("perfil criado", 5000, || {
+        core.layout_book().profiles.len() == 1
+    })
+    .await;
+    let mut a = core.layout_book().profiles[0].clone();
+    a.name = "A".into();
+    let mut b = a.clone();
+    b.name = "B".into();
+    core.set_layout_profiles(vec![a.clone(), b.clone()], "A".into())
+        .unwrap();
+    wait_until("A em uso", 5000, || core.layout().name == "A").await;
+    let pc_book = core.layout_book();
+    peer_says(
+        &core,
+        Message::LayoutBookEdit(LayoutBook {
+            active: Some("B".into()),
+            ..pc_book.clone()
+        }),
+    );
+    wait_until("B em uso", 5000, || core.layout().name == "B").await;
+    core.shutdown();
+}

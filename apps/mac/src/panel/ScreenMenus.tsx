@@ -1,5 +1,5 @@
-import { invokeCommand, type CommandResult, type DisplayInfo, type LayoutProfile } from "@relay/protocol-types";
-import { MenuRow } from "@relay/ui";
+import { invokeCommand, type CommandResult, type DisplayInfo, type LayoutBook, type LayoutProfile } from "@relay/protocol-types";
+import { MenuRow, useRelayEvent } from "@relay/ui";
 import { useEffect, useState } from "react";
 import { errorText } from "../shared/errors";
 import { jumpIds } from "../shared/jump";
@@ -52,13 +52,16 @@ export function LayoutMenu({ act }: { act: Act }) {
   const [open, setOpen] = useState(false);
   const [profiles, setProfiles] = useState<LayoutProfile[]>([]);
   const [active, setActive] = useState("");
-  // Relê ao abrir: os perfis mudam no editor e o painel vive o dia todo.
+  // O painel vive o dia todo e o livro muda no editor ou no outro computador: relê ao abrir e
+  // segue cada relay:layout. Sem isso o ativo ficava velho e o clique nele era ignorado.
+  const show = (book: LayoutBook) => {
+    setProfiles(book.profiles);
+    setActive(book.profiles.some((p) => p.name === book.active) ? book.active ?? "" : book.profiles[0]?.name ?? "");
+  };
   useEffect(() => {
-    void Promise.all([invokeCommand("get_config"), invokeCommand("get_layout")]).then(([c, l]) => {
-      setProfiles(c.layout.profiles);
-      setActive(l.name);
-    }).catch(() => undefined);
+    void invokeCommand("get_layout_book").then(show).catch(() => undefined);
   }, [open]);
+  useRelayEvent("relay:layout", show);
 
   if (profiles.length < 2) return null;
   const choose = (name: string) => {

@@ -51,6 +51,7 @@ beforeEach(() => {
       case "check_permissions": return { accessibility: "Granted", input_monitoring: "Granted" };
       case "get_config": return { audio: { jitter_target_ms: 20, mac_input_id: null }, hotkeys, layout: { profiles: PROFILES, active: "Casa" } };
       case "get_displays": return { local: [info("mac", "MacBook", "Mac")], peer: [info("d1", "Dell 1", "Windows"), info("d2", "Dell 2", "Windows")] };
+      case "get_layout_book": return { revision: 1, host: "Mac", profiles: PROFILES, active: "Casa" };
       case "get_layout": return { name: "Casa", displays: [placed("mac", "Mac", 0), placed("d1", "Windows", 100), placed("d2", "Windows", 200)] };
       case "send_command":
         if (args?.command === "ListOutputDevices") return { id: 5, ok: true, output: { Devices: DEVICES }, error: null };
@@ -277,6 +278,20 @@ test("Layout lista os perfis com check no atual e troca o perfil em uso", async 
   fireEvent.click(jogo);
   await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_layout_profiles", { profiles: PROFILES, active: "Jogo" }));
   expect(jogo.getAttribute("aria-checked")).toBe("true");
+});
+
+test("Layout segue a troca feita no outro computador e volta a aceitar o perfil antigo", async () => {
+  await ready();
+  fireEvent.click(await screen.findByRole("button", { name: "Layout" }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "Jogo" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_layout_profiles", { profiles: PROFILES, active: "Jogo" }));
+  // O outro computador volta para "Casa": o submenu aberto acompanha.
+  await emit("relay:layout", { revision: 3, host: "Mac", profiles: PROFILES, active: "Casa" });
+  expect(screen.getByRole("menuitemradio", { name: "Casa" }).getAttribute("aria-checked")).toBe("true");
+  // E escolher "Jogo" de novo é enviado (antes o menu achava que já era o ativo e ignorava).
+  bridge.invoke.mockClear();
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Jogo" }));
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_layout_profiles", { profiles: PROFILES, active: "Jogo" }));
 });
 
 test("Capturar tela do PC só envia o comando e avisa que foi copiada", async () => {
