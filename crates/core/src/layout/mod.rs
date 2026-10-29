@@ -388,17 +388,91 @@ fn follow_mac(mut profile: LayoutProfile, displays: &[DisplayInfo]) -> LayoutPro
         (rect(Machine::Mac), rect(Machine::Windows))
     };
     if wins.iter().any(|w| macs.iter().any(|m| overlaps(w, m))) {
-        let mac_right = macs.iter().map(|r| r.x + r.w).fold(f32::MIN, f32::max);
-        let win_left = wins.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+        let main_rect = profile
+            .displays
+            .iter()
+            .find(|p| p.display_id == mac[main].id)
+            .map(|p| p.rect_mm);
+        let (dx, dy) = main_rect
+            .and_then(|m| slide_off(&macs, &wins, &m))
+            .unwrap_or_else(|| {
+                let mac_right = macs.iter().map(|r| r.x + r.w).fold(f32::MIN, f32::max);
+                let win_left = wins.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+                (mac_right - win_left, 0.0)
+            });
         for p in profile
             .displays
             .iter_mut()
             .filter(|p| p.machine == Machine::Windows)
         {
-            p.rect_mm.x += mac_right - win_left;
+            p.rect_mm.x += dx;
+            p.rect_mm.y += dy;
         }
     }
     profile
+}
+
+/// Menor deslocamento que tira o bloco Windows de cima das telas do Mac deslizando ao longo da borda
+/// que ele divide com a tela principal do Mac, sem perdê-la (um monitor novo no Mac invade o PC
+/// posto em cima do MacBook: o PC desliza para o lado e continua em cima). `None` se o bloco não
+/// encostava na principal ou se nenhum deslizamento mantém a borda.
+fn slide_off(macs: &[RectMm], wins: &[RectMm], main: &RectMm) -> Option<(f32, f32)> {
+    let moved = |dx: f32, dy: f32| {
+        wins.iter().map(move |w| RectMm {
+            x: w.x + dx,
+            y: w.y + dy,
+            ..*w
+        })
+    };
+    let (side, cap) = wins.iter().fold((false, false), |(s, c), w| {
+        let (ws, wc) = contact(w, main);
+        (s || ws, c || wc)
+    });
+    let along_x = [(1.0, 0.0), (-1.0, 0.0)].into_iter().filter(|_| cap);
+    let along_y = [(0.0, -1.0), (0.0, 1.0)].into_iter().filter(|_| side);
+    along_x
+        .chain(along_y)
+        .filter_map(|(ux, uy)| {
+            let mut d = 0.0;
+            // Cada passo resolve ao menos um par de vez (seguir no mesmo sentido não volta a
+            // sobrepor), então basta um passo por par.
+            for _ in 0..=macs.len() * wins.len() {
+                let need = moved(ux * d, uy * d)
+                    .flat_map(|w| {
+                        macs.iter().filter(move |m| overlaps(&w, m)).map(move |m| {
+                            match (ux as i8, uy as i8) {
+                                (1, _) => m.x + m.w - w.x,
+                                (-1, _) => w.x + w.w - m.x,
+                                (_, -1) => w.y + w.h - m.y,
+                                _ => m.y + m.h - w.y,
+                            }
+                        })
+                    })
+                    .fold(0.0, f32::max);
+                if need <= 0.0 {
+                    let (dx, dy) = (ux * d, uy * d);
+                    return moved(dx, dy)
+                        .any(|w| contact(&w, main) != (false, false))
+                        .then_some((d, (dx, dy)));
+                }
+                d += need;
+            }
+            None
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, delta)| delta)
+}
+
+/// Como `a` encosta em `b` com trecho em comum (o que vira link em `shared_edges`): pela lateral
+/// (esquerda/direita) e/ou por cima/baixo.
+fn contact(a: &RectMm, b: &RectMm) -> (bool, bool) {
+    let ox = (a.x + a.w).min(b.x + b.w) - a.x.max(b.x);
+    let oy = (a.y + a.h).min(b.y + b.h) - a.y.max(b.y);
+    let side = (a.x + a.w - b.x).abs() <= EDGE_TOLERANCE_MM
+        || (a.x - (b.x + b.w)).abs() <= EDGE_TOLERANCE_MM;
+    let cap = (a.y + a.h - b.y).abs() <= EDGE_TOLERANCE_MM
+        || (a.y - (b.y + b.h)).abs() <= EDGE_TOLERANCE_MM;
+    (side && oy > OVERLAP_EPS_MM, cap && ox > OVERLAP_EPS_MM)
 }
 
 /// Move o bloco Windows (ou só `display_id` se `windows_detached`) por `delta_mm`.
@@ -900,6 +974,35 @@ mod tests {
         assert!(validate(&got).is_ok(), "{:?}", got.displays);
         let dell = got.displays[1].rect_mm;
         assert!((got.displays[2].rect_mm.x - (dell.x + dell.w)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn dell_novo_no_mac_nao_tira_o_pc_de_cima_do_macbook() {
+        // Perfil do usuário: monitor do PC em cima do MacBook, um pouco à esquerda. O Dell em
+        // retrato passa para o Mac (à esquerda do MacBook no macOS) e invade esse monitor.
+        let all = mac_com_dell_a_esquerda();
+        let saved = profile(vec![
+            pd("mb", Machine::Mac, 0.0, 0.0, 290.5, 188.9),
+            pd("w1", Machine::Windows, -121.6, -336.0, 597.0, 336.0),
+        ]);
+        let got = select_profile(&[saved], None, &all).unwrap();
+        assert!(validate(&got).is_ok(), "{:?}", got.displays);
+        let w1 = got.displays.iter().find(|d| d.display_id == "w1").unwrap();
+        assert_eq!(w1.rect_mm.y, -336.0, "o PC continua em cima");
+        let links = shared_edges(&got);
+        let has = |from: &str, side: Side| {
+            links
+                .iter()
+                .any(|l| l.from_display == from && l.to_display == "w1" && l.side == side)
+        };
+        assert!(
+            has("mb", Side::Top),
+            "topo do MacBook leva ao PC: {links:?}"
+        );
+        assert!(
+            has("dell", Side::Right),
+            "lado livre do Dell leva ao PC: {links:?}"
+        );
     }
 
     #[test]
