@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
 
 use super::fast::FastShared;
-use super::stats::{Backoff, RttTracker, now_us};
+use super::stats::{Backoff, LatencyReport, RttTracker, now_us};
 use super::{DialerConfig, NetError, SessionEvent};
 use crate::compat::v02::allowed_for_peer;
 use crate::crypto::{
@@ -211,10 +211,12 @@ async fn run_session(
     let peer = noise.peer.clone();
     let remote_ip = stream.peer_addr().ok().map(|a| a.ip());
     let (mut rd, mut wr) = stream.into_split();
-    let (ftx, mut frx) = mpsc::channel::<Vec<u8>>(64);
+    // Cada quadro sai do socket com a hora da chegada: o RTT do Pong e o tempo que o Ping espera
+    // aqui antes do Pong não incluem a fila do laço.
+    let (ftx, mut frx) = mpsc::channel::<(u64, Vec<u8>)>(64);
     let _reader = AbortOnDrop(tokio::spawn(async move {
         while let Ok(frame) = read_frame(&mut rd).await {
-            if ftx.send(frame).await.is_err() {
+            if ftx.send((now_us(), frame)).await.is_err() {
                 break;
             }
         }
@@ -241,7 +243,7 @@ async fn run_session(
     let remote_hello = loop {
         let frame = tokio::select! {
             f = timeout(HELLO_TIMEOUT, frx.recv()) => match f {
-                Ok(Some(f)) => f,
+                Ok(Some((_, f))) => f,
                 _ => return (End::Lost, false),
             },
             () = wait_shutdown(&mut shutdown) => return (End::Shutdown, false),
@@ -306,12 +308,14 @@ async fn run_session(
     }
 
     let mut rtt = RttTracker::default();
+    let mut report = LatencyReport::new();
     let mut tick = interval(Duration::from_millis(HEARTBEAT_MS));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut last_rx = Instant::now();
     let mut ping_id = 0u32;
     let peer_app_version = Some(remote_app_version.trim().to_owned()).filter(|v| !v.is_empty());
 
+    let mut arrived_us = 0u64;
     let end = 'session: loop {
         let mut inbound: Vec<Message> = pending_msgs.drain(..).collect();
         tokio::select! {
@@ -325,7 +329,8 @@ async fn run_session(
             }
             new = next_established(&mut replace) => break End::Replaced(Box::new(new)),
             frame = frx.recv() => {
-                let Some(frame) = frame else { break End::Lost };
+                let Some((arrived, frame)) = frame else { break End::Lost };
+                arrived_us = arrived;
                 last_rx = Instant::now();
                 match decode_msgs(&mut noise, &mut reader, &frame, &mut sc) {
                     Ok(msgs) => inbound.extend(msgs),
@@ -357,8 +362,9 @@ async fn run_session(
                 if ctx.role == Role::Dialer {
                     shared.fast.probe();
                 }
-                let fast = shared.fast.stats().map(|s| (s.jitter_us, s.loss_pct));
-                shared.stats.send_replace(rtt.snapshot(fast));
+                shared.fast.echo();
+                shared.stats.send_replace(rtt.snapshot(shared.fast.stats()));
+                report.maybe_log(&rtt, &shared.fast);
             }
         }
         for msg in inbound {
@@ -371,11 +377,11 @@ async fn run_session(
                     {
                         break 'session End::Lost;
                     }
+                    report.held(now_us().saturating_sub(arrived_us));
                 }
                 Message::Pong { ts_us, .. } => {
-                    rtt.sample(now_us().saturating_sub(ts_us));
-                    let fast = shared.fast.stats().map(|s| (s.jitter_us, s.loss_pct));
-                    shared.stats.send_replace(rtt.snapshot(fast));
+                    rtt.sample(arrived_us.saturating_sub(ts_us));
+                    shared.stats.send_replace(rtt.snapshot(shared.fast.stats()));
                 }
                 Message::Hello { .. } | Message::HelloAck => {}
                 Message::Bye => break 'session End::Lost,

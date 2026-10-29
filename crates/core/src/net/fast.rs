@@ -3,7 +3,9 @@
 //!
 //! Pacote no fio: cabeçalho de 17 bytes (AAD) + corpo cifrado + tag de 16 bytes. Um pacote de
 //! `kind` 0 só com a tag é um "probe": autentica o remetente (o agente fixa o endereço do Mac
-//! por ele) e mantém o mapeamento do firewall aberto, sem virar evento.
+//! por ele) e mantém o mapeamento do firewall aberto, sem virar evento. `kind` 0x10 é um pedido de
+//! eco e 0x11 a resposta, com o `ts_us` do pedido: mede o RTT no mesmo caminho do mouse. Versões
+//! que não conhecem esses kinds autenticam e descartam (`UnknownKind`).
 
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
@@ -22,6 +24,8 @@ use crate::types::InputEvent;
 
 const TAG_LEN: usize = 16;
 const KIND_PROBE: u8 = 0;
+const KIND_ECHO: u8 = 0x10;
+const KIND_ECHO_REPLY: u8 = 0x11;
 const WIRE_MAX: usize = FAST_PACKET_MAX + TAG_LEN;
 /// Buffer de recepção do socket: absorve rajadas sem perder pacote.
 const RCVBUF: usize = 4 << 20;
@@ -86,6 +90,8 @@ pub struct FastStats {
     pub received: u64,
     pub jitter_us: f64,
     pub loss_pct: f32,
+    /// RTT suavizado do eco UDP, em us; `None` antes da primeira resposta (par sem eco).
+    pub rtt_us: Option<f64>,
 }
 
 struct SendLink {
@@ -114,6 +120,10 @@ pub(super) struct FastShared {
     received: AtomicU64,
     expected: AtomicU64,
     jitter_bits: AtomicU64,
+    /// RTT do eco (us, EWMA 1/8) em bits de f64; 0 = sem amostra.
+    rtt_bits: AtomicU64,
+    /// Amostras de RTT do eco desde o último `take_rtt_samples` (para o log).
+    rtt_samples: Mutex<Vec<u32>>,
     unsupported: AtomicU64,
     unsent: AtomicU64,
 }
@@ -129,6 +139,8 @@ impl FastShared {
         self.received.store(0, Ordering::Relaxed);
         self.expected.store(0, Ordering::Relaxed);
         self.jitter_bits.store(0f64.to_bits(), Ordering::Relaxed);
+        self.rtt_bits.store(0f64.to_bits(), Ordering::Relaxed);
+        lock(&self.rtt_samples).clear();
         *lock(&self.send) = Some(SendLink {
             aead: UdpAead::new(keys.clone(), ReplayMode::Strict),
             seq: 0,
@@ -156,6 +168,32 @@ impl FastShared {
         self.transmit(&mut sc, None);
     }
 
+    /// Pede um eco ao par: a resposta vira amostra de RTT do canal rápido.
+    pub(super) fn echo(&self) {
+        let mut sc = Scratch::new();
+        self.transmit_header(&mut sc, KIND_ECHO, now_us());
+    }
+
+    /// Amostras de RTT do eco (us) desde a última chamada.
+    pub(super) fn take_rtt_samples(&self) -> Vec<u32> {
+        std::mem::take(&mut *lock(&self.rtt_samples))
+    }
+
+    fn on_echo_reply(&self, ts_us: u64) {
+        let rtt = now_us().saturating_sub(ts_us).max(1) as f64;
+        let prev = f64::from_bits(self.rtt_bits.load(Ordering::Relaxed));
+        let next = if prev == 0.0 {
+            rtt
+        } else {
+            prev + (rtt - prev) / 8.0
+        };
+        self.rtt_bits.store(next.to_bits(), Ordering::Relaxed);
+        let mut samples = lock(&self.rtt_samples);
+        if samples.len() < 4096 {
+            samples.push(rtt.min(f64::from(u32::MAX)) as u32);
+        }
+    }
+
     pub(super) fn stats(&self) -> Option<FastStats> {
         let received = self.received.load(Ordering::Relaxed);
         if received == 0 {
@@ -166,6 +204,8 @@ impl FastShared {
             received,
             jitter_us: f64::from_bits(self.jitter_bits.load(Ordering::Relaxed)),
             loss_pct: (100.0 * (expected - received) as f64 / expected as f64) as f32,
+            rtt_us: Some(f64::from_bits(self.rtt_bits.load(Ordering::Relaxed)))
+                .filter(|r| *r > 0.0),
         })
     }
 
@@ -179,6 +219,30 @@ impl FastShared {
     }
 
     fn transmit(&self, sc: &mut Scratch, body: Option<FastBody>) -> bool {
+        match body {
+            Some(body) => self.send_packet(sc, now_us(), |seq, ts_us, buf| {
+                (FastPacket { seq, ts_us, body }).encode(buf).ok()
+            }),
+            None => self.transmit_header(sc, KIND_PROBE, now_us()),
+        }
+    }
+
+    /// Pacote só com o cabeçalho autenticado (probe, eco).
+    fn transmit_header(&self, sc: &mut Scratch, kind: u8, ts_us: u64) -> bool {
+        self.send_packet(sc, ts_us, |seq, ts_us, buf| {
+            buf[0] = kind;
+            buf[1..9].copy_from_slice(&seq.to_le_bytes());
+            buf[9..17].copy_from_slice(&ts_us.to_le_bytes());
+            Some(FAST_HEADER_LEN)
+        })
+    }
+
+    fn send_packet(
+        &self,
+        sc: &mut Scratch,
+        ts_us: u64,
+        encode: impl FnOnce(u64, u64, &mut [u8; FAST_PACKET_MAX]) -> Option<usize>,
+    ) -> bool {
         let mut guard = lock(&self.send);
         let Some(link) = guard.as_mut() else {
             return false;
@@ -188,18 +252,8 @@ impl FastShared {
         };
         link.seq += 1;
         let seq = link.seq;
-        let ts_us = now_us();
-        let len = match body {
-            Some(body) => match (FastPacket { seq, ts_us, body }).encode(&mut sc.buf) {
-                Ok(n) => n,
-                Err(_) => return false,
-            },
-            None => {
-                sc.buf[0] = KIND_PROBE;
-                sc.buf[1..9].copy_from_slice(&seq.to_le_bytes());
-                sc.buf[9..17].copy_from_slice(&ts_us.to_le_bytes());
-                FAST_HEADER_LEN
-            }
+        let Some(len) = encode(seq, ts_us, &mut sc.buf) else {
+            return false;
         };
         let (header, plain) = sc.buf[..len].split_at(FAST_HEADER_LEN);
         if link.aead.seal(seq, header, plain, &mut sc.sealed).is_err() {
@@ -275,6 +329,8 @@ impl FastChannel {
             received: AtomicU64::new(0),
             expected: AtomicU64::new(0),
             jitter_bits: AtomicU64::new(0),
+            rtt_bits: AtomicU64::new(0),
+            rtt_samples: Mutex::new(Vec::new()),
             unsupported: AtomicU64::new(0),
             unsent: AtomicU64::new(0),
         });
@@ -371,6 +427,7 @@ fn sender_loop(shared: &FastShared, waker: &Waker, mut ring: Consumer<InputEvent
 
 fn receiver_loop(shared: &FastShared, mut on_event: Box<dyn FnMut(FastEvent) + Send>) {
     let mut buf = [0u8; 256];
+    let mut sc = Scratch::new();
     let mut plain = Vec::with_capacity(FAST_PACKET_MAX);
     while !shared.stop.load(Ordering::Relaxed) {
         let (n, src) = match shared.socket.recv_from(&mut buf) {
@@ -415,7 +472,10 @@ fn receiver_loop(shared: &FastShared, mut on_event: Box<dyn FnMut(FastEvent) + S
                 continue;
             }
             let recv_us = now_us();
-            link.jitter.update(recv_us as f64 - ts_us as f64);
+            // A resposta do eco traz o relógio deste lado: não é trânsito de ida.
+            if kind != KIND_ECHO_REPLY {
+                link.jitter.update(recv_us as f64 - ts_us as f64);
+            }
             link.received += 1;
             let base = *link.base.get_or_insert(seq);
             link.highest = link.highest.max(seq);
@@ -437,8 +497,17 @@ fn receiver_loop(shared: &FastShared, mut on_event: Box<dyn FnMut(FastEvent) + S
                 send.dest = Some(src);
             }
         }
-        if kind == KIND_PROBE {
-            continue;
+        match kind {
+            KIND_PROBE => continue,
+            KIND_ECHO => {
+                shared.transmit_header(&mut sc, KIND_ECHO_REPLY, ts_us);
+                continue;
+            }
+            KIND_ECHO_REPLY => {
+                shared.on_echo_reply(ts_us);
+                continue;
+            }
+            _ => {}
         }
         let mut pkt = [0u8; FAST_PACKET_MAX];
         let len = FAST_HEADER_LEN + plain.len();

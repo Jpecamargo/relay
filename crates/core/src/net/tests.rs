@@ -166,6 +166,16 @@ async fn pair_then_session_with_nodelay_stats_and_one_hello_version() {
     .expect("rtt publicado");
     assert!(s.rtt_ms.is_finite() && s.jitter_ms.is_finite() && s.loss_pct.is_finite());
     assert!(s.rtt_ms > 0.0);
+    // Eco UDP: os dois lados medem o RTT no caminho do mouse (o agente depois de fixar o destino).
+    timeout(Duration::from_secs(4), async {
+        while dialer.fast_stats().and_then(|f| f.rtt_us).is_none()
+            || listener.fast_stats().and_then(|f| f.rtt_us).is_none()
+        {
+            sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("eco UDP respondido nos dois sentidos");
     dialer.shutdown().await;
     listener.shutdown().await;
 }

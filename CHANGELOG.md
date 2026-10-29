@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.4
+
+- A latência mostrada é medida no mesmo caminho do mouse (UDP), não mais no canal de controle (TCP), que espera na fila das outras mensagens e mostrava um número maior que o atraso real do cursor.
+- Os dois apps registram no log, a cada minuto, a latência do caminho do mouse, a do canal de controle e quanto tempo cada lado segurou a medição antes de responder, para separar o que é rede do que é software.
+
 ## 0.3.3
 
 - Quando um monitor apaga e volta (o Windows desligando a tela, por exemplo), o Relay não cria mais um layout novo ("Principal 2") nem troca o layout em uso: o layout atual se adapta às telas, como desde a 0.1.12. Os "Principal 2", "Principal 3"… criados assim somem na atualização, e o layout em uso volta para o "Principal".
