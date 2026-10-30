@@ -15,6 +15,8 @@ const ALT: u16 = 0x38;
 const WIN: u16 = 0xE05B;
 const KEY_C: u16 = 0x2E;
 const DIGIT_2: u16 = 0x03;
+const KEY_P: u16 = 0x19;
+const KEY_L: u16 = 0x26;
 
 type Sink = Arc<Mutex<Option<rtrb::Producer<CapturedEvent>>>>;
 
@@ -372,6 +374,72 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
     ra.push_left_edge();
     mac.pump_until("PC assumiu de novo", |m| m.rx.is_active())
         .await;
+    ra.agent.core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn atalhos_de_pausar_e_travar_no_teclado_do_pc_valem_com_o_pc_no_mac() {
+    let ra = start_reverse_agent();
+    let mac_id = identity();
+    let peer = pair(&ra.agent, &mac_id).await;
+    let mut mac = connect_mac(&ra, &mac_id, peer).await;
+    mac.pump_until("Displays do agente", |m| {
+        m.got(|x| matches!(x, Message::Displays(d) if d.len() == 1))
+    })
+    .await;
+    mac.rx
+        .on_message(Message::Displays(vec![dell_display()]), Instant::now());
+    mac.dialer
+        .send(Message::Displays(vec![mac_display()]))
+        .await
+        .unwrap();
+    mac.dialer
+        .send(Message::LayoutSync(profile()))
+        .await
+        .unwrap();
+    eventually("layout no config", || {
+        ra.agent.core.config().layout.profiles == vec![profile()]
+    })
+    .await;
+    sleep(Duration::from_millis(100)).await;
+    ra.push_left_edge();
+    mac.pump_until("PC no Mac", |m| m.rx.is_active()).await;
+
+    let combo = |k: u16| {
+        ra.key(CTRL, true);
+        ra.key(ALT, true);
+        ra.key(k, true);
+        ra.key(k, false);
+        ra.key(ALT, false);
+        ra.key(CTRL, false);
+    };
+    // Ctrl+Alt+L trava (e o painel mostra); antes o estado do app nem sabia.
+    combo(KEY_L);
+    eventually("travado", || ra.agent.core.status().locked).await;
+    combo(KEY_L);
+    eventually("destravado", || !ra.agent.core.status().locked).await;
+
+    // Ctrl+Alt+P pausa: o PC devolve o Mac e fica pausado (antes despausava na volta seguinte).
+    combo(KEY_P);
+    mac.pump_until("Mac devolvido", |m| {
+        !m.rx.is_active() && m.got(|x| matches!(x, Message::FocusReturn { .. }))
+    })
+    .await;
+    eventually("pausado", || ra.agent.core.status().paused).await;
+    sleep(Duration::from_millis(100)).await;
+    assert!(
+        ra.agent.core.status().paused,
+        "a pausa não se desfaz sozinha"
+    );
+    mac.received.clear();
+    ra.push_left_edge();
+    mac.pump_until("pausado não atravessa", |m| {
+        sleep_blocking(300);
+        !m.got(|x| matches!(x, Message::FocusEnter { .. }))
+    })
+    .await;
+    combo(KEY_P);
+    eventually("despausado", || !ra.agent.core.status().paused).await;
     ra.agent.core.shutdown();
 }
 

@@ -340,6 +340,7 @@ impl Worker {
             control,
         );
         ctl.set_reverse(config.keymap.reverse_modifiers.clone());
+        ctl.set_external_toggles(true);
         // Ao entrar no Mac o PC perde o foco: ClipboardSwitch e "enviar agora" vão à mídia.
         if let Some(h) = events {
             ctl.set_event_handler(h);

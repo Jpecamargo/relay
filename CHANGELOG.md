@@ -6,6 +6,12 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.6
+
+- "Pausar compartilhamento" e "Travar cursor" valem também quando o mouse do PC está controlando o Mac. Pausar no Mac devolve o mouse ao PC e não deixa ele voltar até despausar. Travar no Mac mantém o mouse do PC no Mac. Antes os dois só valiam para o mouse do Mac indo ao PC.
+- No teclado do PC, os atalhos de pausar (Ctrl+Alt+P) e travar (Ctrl+Alt+L) funcionam e aparecem marcados no painel. Antes a pausa se desfazia na hora e a trava não aparecia no painel.
+- Travar no PC também mantém no PC o mouse do Mac que estiver nele.
+
 ## 0.3.5
 
 - Com um monitor novo no Mac ocupando, no layout, o lugar de um monitor do PC (por exemplo, o Dell que estava no PC passando para o Mac), o PC não vai mais parar ao lado do Mac encostado só por um canto, sem borda para atravessar. Ele desliza ao longo da borda que já dividia com o MacBook e continua do mesmo lado, e o lado livre do monitor novo também leva ao PC.

@@ -11,7 +11,7 @@ use relay_core::crypto::{
     LocalDevice, StaticKeypair, forget_active_peer, remove_peer, save_active_peer,
 };
 use relay_core::discovery::{Advertiser, parse_manual_address};
-use relay_core::engine::Receiver;
+use relay_core::engine::{EngineEvent, Receiver};
 use relay_core::net::{
     DialerConfig, FastEvent, Session, SessionDialer, SessionEvent, SessionListener,
 };
@@ -19,8 +19,8 @@ use relay_core::node::layout_host::LayoutEffect;
 use relay_core::node::session::{DIAL_FALLBACK, caps_message, keep_new_session};
 use relay_core::platform::{DisplaySource, KeyStore};
 use relay_core::types::{
-    Caps, ConnectionStatus, DiscoveredPeer, Host, LatencyStats, Message, Os, PairedPeer,
-    PairingEvent, PairingState, Ports, Role, StatusSnapshot, VersionSync,
+    Caps, ConnectionStatus, DiscoveredPeer, Host, HotkeyAction, LatencyStats, Message, Os,
+    PairedPeer, PairingEvent, PairingState, Ports, Role, StatusSnapshot, VersionSync,
 };
 use relay_core::version::{APP_VERSION, peer_is_symmetric, update_request, version_sync};
 use tokio::sync::{mpsc, watch};
@@ -85,6 +85,27 @@ pub(super) fn handshake_messages(
         .into_iter()
         .chain(update_request(local_version, peer_version, peer_os))
         .collect()
+}
+
+/// Gancho de eventos do Controller reverso: os atalhos de pausar e travar vão ao pump, que guarda
+/// o estado do usuário e o aplica ao Receiver e ao Controller; o resto segue para a mídia.
+fn toggles_to_pump(
+    tx: mpsc::UnboundedSender<Cmd>,
+    mut rest: Option<relay_core::engine::EventHandler>,
+) -> relay_core::engine::EventHandler {
+    Box::new(move |e| match e {
+        EngineEvent::Hotkey(HotkeyAction::TogglePause) => {
+            let _ = tx.send(Cmd::TogglePause);
+        }
+        EngineEvent::Hotkey(HotkeyAction::ToggleLock) => {
+            let _ = tx.send(Cmd::ToggleLock);
+        }
+        e => {
+            if let Some(h) = rest.as_mut() {
+                h(e);
+            }
+        }
+    })
 }
 
 /// Thread da busca mDNS: manda cada par visto (menos o próprio) ao pump e reabre a busca se a
@@ -272,7 +293,7 @@ impl Pump {
                         rdeps,
                         fast,
                         tx,
-                        forward(&events_hook),
+                        Some(toggles_to_pump(shared.tx.clone(), forward(&events_hook))),
                     )),
                     Some(rx),
                 )
@@ -1080,6 +1101,11 @@ impl Pump {
     // ---- comandos da UI e do sistema ----
 
     async fn on_cmd(&mut self, cmd: Cmd) {
+        let cmd = match cmd {
+            Cmd::TogglePause => Cmd::SetPaused(!self.paused),
+            Cmd::ToggleLock => Cmd::SetLocked(!self.locked),
+            other => other,
+        };
         match cmd {
             Cmd::OpenPairing {
                 code,
@@ -1121,6 +1147,8 @@ impl Pump {
                 }
                 self.publish();
             }
+            // Traduzidos para SetPaused/SetLocked no início.
+            Cmd::TogglePause | Cmd::ToggleLock => {}
             Cmd::SetPaused(paused) => {
                 self.paused = paused;
                 if let Some(rev) = &self.rev {
@@ -1140,6 +1168,7 @@ impl Pump {
             }
             Cmd::SetLocked(locked) => {
                 self.locked = locked;
+                self.rx.set_locked(locked);
                 if let Some(rev) = &self.rev {
                     rev.set_locked(locked);
                 }

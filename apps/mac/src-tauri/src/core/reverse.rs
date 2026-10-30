@@ -23,6 +23,10 @@ pub(crate) struct MacReverse<P: Platform> {
     /// Quando o último `FocusEnter` foi recusado: o PC confirma com um `FocusReturn` que o
     /// Controller do Mac não pode tomar por um pedido de retorno.
     refused_at: Option<Instant>,
+    /// Compartilhamento pausado no Mac: o PC não assume nem manda input.
+    paused: bool,
+    /// Telas do PC (do último `Displays`): destino do foco devolvido ao pausar.
+    peer: Vec<DisplayInfo>,
 }
 
 impl<P: Platform> MacReverse<P> {
@@ -41,6 +45,8 @@ impl<P: Platform> MacReverse<P> {
         Self {
             rx,
             refused_at: None,
+            paused: false,
+            peer: Vec::new(),
         }
     }
 
@@ -71,6 +77,36 @@ impl<P: Platform> MacReverse<P> {
         self.rx.set_profile(profile);
     }
 
+    /// Trava o cursor do PC no Mac: a borda de retorno não devolve o foco.
+    pub fn set_locked(&mut self, locked: bool) {
+        self.rx.set_locked(locked);
+    }
+
+    /// Pausar com o PC no controle devolve o foco a ele (centro da tela principal do PC) e solta
+    /// as teclas; até despausar, `FocusEnter` é recusado e o input descartado.
+    pub fn set_paused(&mut self, paused: bool) -> Vec<Message> {
+        self.paused = paused;
+        if !paused || !self.rx.is_active() {
+            return Vec::new();
+        }
+        self.rx.focus_lost();
+        let Some(d) = self
+            .peer
+            .iter()
+            .find(|d| d.is_primary)
+            .or_else(|| self.peer.first())
+        else {
+            return Vec::new();
+        };
+        vec![Message::FocusReturn {
+            display_id: d.id.clone(),
+            point_px: (
+                d.origin_px.0 + (d.size_px.0 / 2) as i32,
+                d.origin_px.1 + (d.size_px.1 / 2) as i32,
+            ),
+        }]
+    }
+
     /// O PC largou o Mac (ou a sessão caiu): solta as teclas que ele deixou pressionadas.
     pub fn focus_lost(&mut self) {
         self.rx.focus_lost();
@@ -84,6 +120,9 @@ impl<P: Platform> MacReverse<P> {
 
     /// Movimento/rolagem do canal rápido. Devolve o que enviar ao PC (`FocusReturn`).
     pub fn on_input(&mut self, event: InputEvent, now: Instant) -> Vec<Message> {
+        if self.paused {
+            return Vec::new();
+        }
         self.rx.on_input(event, now)
     }
 
@@ -99,11 +138,17 @@ impl<P: Platform> MacReverse<P> {
     /// se `mac_controls` for `false`: com o Mac no controle do PC, o PC não assume (D24) e a
     /// resposta é um `FocusReturn`, que faz o Controller do agente voltar.
     pub fn on_message(&mut self, msg: Message, mac_controls: bool, now: Instant) -> Vec<Message> {
+        if let Message::Displays(d) = &msg {
+            self.peer = d.clone();
+        }
+        if self.paused && matches!(msg, Message::Input { .. }) {
+            return Vec::new();
+        }
         if let Message::FocusEnter {
             display_id,
             entry_px,
         } = &msg
-            && mac_controls
+            && (mac_controls || self.paused)
         {
             self.refused_at = Some(now);
             return vec![Message::FocusReturn {

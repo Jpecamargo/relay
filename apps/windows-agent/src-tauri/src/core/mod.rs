@@ -150,6 +150,9 @@ pub(crate) enum Cmd {
     Revoke,
     SetPaused(bool),
     SetLocked(bool),
+    /// Atalho de pausar/travar no teclado do PC (o Controller reverso não guarda o estado).
+    TogglePause,
+    ToggleLock,
     JumpTo(u8),
     ClipboardSendNow,
     Reconnect,

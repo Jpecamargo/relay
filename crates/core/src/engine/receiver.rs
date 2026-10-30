@@ -51,6 +51,8 @@ pub struct Receiver<Inj, Cur> {
     on_event: Option<EventHandler>,
     /// Máquina em que o Receiver roda (Windows; Mac no sentido inverso, D24).
     machine: Machine,
+    /// Cursor travado neste lado: a borda de retorno não devolve o foco.
+    locked: bool,
 }
 
 impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
@@ -83,6 +85,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             clipboard: config.clipboard.clone(),
             on_event: None,
             machine: Machine::Windows,
+            locked: false,
         }
     }
 
@@ -115,6 +118,12 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
         self.clipboard = clipboard;
     }
 
+    /// Trava o cursor de quem controla este lado aqui: a borda de retorno não devolve o foco.
+    pub fn set_locked(&mut self, locked: bool) {
+        self.locked = locked;
+        self.transition.set_locked(locked);
+    }
+
     fn rebuild(&mut self) {
         self.transition = TransitionEngine::new(
             self.transition_cfg.clone(),
@@ -126,6 +135,7 @@ impl<Inj: InputInjector, Cur: CursorControl> Receiver<Inj, Cur> {
             Machine::Windows => Machine::Mac,
             Machine::Mac => Machine::Windows,
         });
+        self.transition.set_locked(self.locked);
         self.sensitivity = SensitivityScaler::default();
         for p in &self.layout.profile.displays {
             self.sensitivity.set(&p.display_id, p.sensitivity);
@@ -472,6 +482,27 @@ mod tests {
         *r.cursor.lock().unwrap() = (0, 830);
         let back = r.rx.on_input(InputEvent::MouseMove { dx: -3, dy: 0 }, r.t0);
         assert!(matches!(back.as_slice(), [Message::FocusReturn { .. }]));
+    }
+
+    #[test]
+    fn travado_a_borda_de_retorno_nao_devolve_ate_destravar() {
+        let mut r = rig(1.0);
+        r.rx.set_locked(true);
+        // Mesmo um perfil novo (rebuild do motor) mantém a trava.
+        r.rx.set_profile(r.rx.layout.profile.clone());
+        let at_edge = |r: &mut Rig| {
+            *r.cursor.lock().unwrap() = (20, 830);
+            r.rx.on_input(InputEvent::MouseMove { dx: 5, dy: 0 }, r.t0);
+            *r.cursor.lock().unwrap() = (0, 830);
+            r.rx.on_input(InputEvent::MouseMove { dx: -3, dy: 0 }, r.t0)
+        };
+        assert!(at_edge(&mut r).is_empty());
+        assert!(r.rx.is_active());
+        r.rx.set_locked(false);
+        assert!(matches!(
+            at_edge(&mut r).as_slice(),
+            [Message::FocusReturn { .. }]
+        ));
     }
 
     #[test]

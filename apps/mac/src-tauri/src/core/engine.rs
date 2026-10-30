@@ -209,7 +209,7 @@ impl<P: Platform> Core<P> {
             }
             if n > 0 {
                 active = true;
-                self.drain_events(false);
+                self.drain_events();
             }
 
             // Comandos (UI, rede, sistema).
@@ -248,7 +248,7 @@ impl<P: Platform> Core<P> {
                     c.tick(now);
                 }
                 self.rev.tick(now);
-                self.drain_events(false);
+                self.drain_events();
             }
             if now.duration_since(last_poll) >= POLL {
                 last_poll = now;
@@ -497,9 +497,10 @@ impl<P: Platform> Core<P> {
             let _ = tx.send(e);
         }));
         c.set_locked(self.user_locked);
+        c.set_external_toggles(true);
         self.ctl = Some(c);
         self.sync_pause();
-        self.drain_events(true);
+        self.drain_events();
     }
 
     /// Devolve o foco ao Mac (se estava no PC) e descarta o Controller.
@@ -509,7 +510,7 @@ impl<P: Platform> Core<P> {
         {
             c.set_paused(true, Instant::now());
         }
-        self.drain_events(true);
+        self.drain_events();
         self.ctl = None;
         self.inner.mutate(|s| s.status.focus = Host::Local);
     }
@@ -529,13 +530,13 @@ impl<P: Platform> Core<P> {
             && c.is_paused() != effective
         {
             c.set_paused(effective, Instant::now());
-            self.drain_events(true);
+            self.drain_events();
         }
     }
 
     // ---- eventos do motor ----
 
-    fn drain_events(&mut self, ignore_pause: bool) {
+    fn drain_events(&mut self) {
         while let Ok(e) = self.ev_rx.try_recv() {
             match e {
                 EngineEvent::FocusChanged { remote } => {
@@ -549,13 +550,8 @@ impl<P: Platform> Core<P> {
                     self.user_locked = l;
                     self.inner.mutate(|s| s.status.locked = l);
                 }
-                EngineEvent::PauseChanged(p) => {
-                    if !ignore_pause {
-                        self.user_paused = p;
-                        self.inner.mutate(|s| s.status.paused = p);
-                        self.sync_pause();
-                    }
-                }
+                // A pausa do Controller é a efetiva (`sync_pause`); a do usuário mora aqui.
+                EngineEvent::PauseChanged(_) => {}
                 EngineEvent::Hotkey(action) => self.on_hotkey(action),
             }
         }
@@ -576,9 +572,33 @@ impl<P: Platform> Core<P> {
                     tracing::warn!("Wake-on-LAN: {e}");
                 }
             }
-            // Pulo, trava e pausa o Controller resolve sozinho.
-            HotkeyAction::JumpTo(_) | HotkeyAction::ToggleLock | HotkeyAction::TogglePause => {}
+            HotkeyAction::ToggleLock => self.set_user_locked(!self.user_locked),
+            HotkeyAction::TogglePause => self.set_user_paused(!self.user_paused),
+            // O pulo o Controller resolve sozinho.
+            HotkeyAction::JumpTo(_) => {}
         }
+    }
+
+    /// Trava vale nos dois sentidos: o cursor do Mac fica no lado em que está e o do PC, se
+    /// estiver no Mac, fica no Mac.
+    fn set_user_locked(&mut self, locked: bool) {
+        self.user_locked = locked;
+        self.rev.set_locked(locked);
+        if let Some(c) = self.ctl.as_mut() {
+            c.set_locked(locked);
+        }
+        self.inner.mutate(|s| s.status.locked = locked);
+        self.drain_events();
+    }
+
+    /// Pausa vale nos dois sentidos: o Mac para de controlar o PC e o PC para de controlar o Mac.
+    fn set_user_paused(&mut self, paused: bool) {
+        self.user_paused = paused;
+        self.inner.mutate(|s| s.status.paused = paused);
+        for m in self.rev.set_paused(paused) {
+            self.send(m);
+        }
+        self.sync_pause();
     }
 
     // ---- comandos remotos ----
@@ -658,23 +678,14 @@ impl<P: Platform> Core<P> {
                     self.send(m);
                 }
             }
-            CoreCmd::SetLocked(l) => {
-                self.user_locked = l;
-                if let Some(c) = self.ctl.as_mut() {
-                    c.set_locked(l);
-                }
-                self.drain_events(false);
-            }
+            CoreCmd::SetLocked(l) => self.set_user_locked(l),
             CoreCmd::JumpTo(n) => {
                 if let Some(c) = self.ctl.as_mut() {
                     c.jump_to(n, now);
                 }
-                self.drain_events(false);
+                self.drain_events();
             }
-            CoreCmd::SetPaused(p) => {
-                self.user_paused = p;
-                self.sync_pause();
-            }
+            CoreCmd::SetPaused(p) => self.set_user_paused(p),
             CoreCmd::ApplyConfig(cfg) => {
                 if let Some(c) = self.ctl.as_mut() {
                     c.apply_config(&cfg);
@@ -740,7 +751,7 @@ impl<P: Platform> Core<P> {
                     self.send(back);
                 }
                 self.sync_pause();
-                self.drain_events(true);
+                self.drain_events();
             }
             m @ Message::FocusReturn { .. } if self.rev.is_active() => {
                 for back in self.rev.on_message(m, false, now) {
@@ -756,7 +767,7 @@ impl<P: Platform> Core<P> {
                 if let Some(c) = self.ctl.as_mut() {
                     c.on_message(m, now);
                 }
-                self.drain_events(false);
+                self.drain_events();
             }
             // Id 0 nunca é do dispatcher: o agente avisa por ele que o áudio não ligou (WI3).
             Message::CommandResult { id: 0, result } => {

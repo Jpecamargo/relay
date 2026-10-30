@@ -402,6 +402,56 @@ async fn pc_controla_o_mac_traduz_teclas_devolve_e_um_lado_so_controla() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pausar_no_mac_com_o_pc_no_controle_devolve_o_pc_e_recusa_ate_despausar() {
+    let pc = PcAgent::start("123456");
+    let platform = MockPlatform::new(&pc.config());
+    let core = AppCore::start(
+        platform.clone(),
+        Arc::new(Rec::default()),
+        Arc::new(CountSwitch::default()),
+        options(),
+        Handle::current(),
+    );
+    let addr = format!("127.0.0.1:{}", pc.control_port);
+    core.pair_with_code("123456".into(), Some(addr))
+        .await
+        .unwrap();
+    wait_until("conectado", 8000, || {
+        core.status().status == ConnectionStatus::Connected
+    })
+    .await;
+    wait_until("layout no PC", 5000, || {
+        pc.saw(|m| matches!(m, Message::LayoutSync(p) if p.displays.len() == 2))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    pc.push_left_edge();
+    wait_until("PC assumiu", 3000, || pc.remote.load(Ordering::SeqCst)).await;
+
+    // Antes a pausa do Mac só valia para o mouse do Mac: o PC continuava controlando.
+    core.set_sharing_paused(true);
+    wait_until("PC devolvido", 3000, || !pc.remote.load(Ordering::SeqCst)).await;
+    let injected = platform.injected.lock().unwrap().len();
+    let returns = pc.count(|m| matches!(m, Message::FocusReturn { .. }));
+    pc.push_left_edge();
+    wait_until("FocusEnter recusado", 3000, || {
+        pc.count(|m| matches!(m, Message::FocusReturn { .. })) > returns
+    })
+    .await;
+    wait_until("PC voltou", 3000, || !pc.remote.load(Ordering::SeqCst)).await;
+    assert_eq!(platform.injected.lock().unwrap().len(), injected);
+
+    core.set_sharing_paused(false);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    pc.push_left_edge();
+    wait_until("PC assume de novo", 3000, || {
+        pc.remote.load(Ordering::SeqCst)
+    })
+    .await;
+    core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sessao_reversa_pela_borda_e_depois_o_mac_ainda_cruza_para_o_pc() {
     let pc = PcAgent::start("123456");
     let cfg = pc.config();

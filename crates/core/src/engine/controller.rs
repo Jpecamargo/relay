@@ -72,6 +72,9 @@ pub struct Controller<Cap, Cur, Inj> {
     crossing_wanted: Option<Instant>,
     crossing_sent: Option<Instant>,
     locked: bool,
+    /// O app guarda a trava e a pausa do usuário: os atalhos delas viram `Hotkey` (ver
+    /// `set_external_toggles`).
+    external_toggles: bool,
     /// Tela do Mac sob o cursor (índice em `layout.local`) e última posição conhecida.
     cur_display: usize,
     last_pos: (i32, i32),
@@ -152,6 +155,7 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
             crossing_wanted: None,
             crossing_sent: None,
             locked: false,
+            external_toggles: false,
             cur_display: 0,
             last_pos: (0, 0),
             cursor_escapes: 0,
@@ -680,10 +684,20 @@ impl<Cap: InputCapture, Cur: CursorControl, Inj: InputInjector> Controller<Cap, 
     fn on_action(&mut self, action: HotkeyAction, now: Instant) {
         match action {
             HotkeyAction::JumpTo(n) => self.jump_to(n, now),
+            HotkeyAction::ToggleLock | HotkeyAction::TogglePause if self.external_toggles => {
+                self.emit(EngineEvent::Hotkey(action))
+            }
             HotkeyAction::ToggleLock => self.set_locked(!self.locked),
             HotkeyAction::TogglePause => self.set_paused(!self.paused, now),
             other => self.emit(EngineEvent::Hotkey(other)),
         }
+    }
+
+    /// Atalhos de travar e pausar vão ao app como `EngineEvent::Hotkey` em vez de mudar o
+    /// Controller: a pausa dele é a efetiva (inclui "o outro lado está no controle") e a trava
+    /// também vale para o Receiver, então só o app sabe o estado do usuário a inverter.
+    pub fn set_external_toggles(&mut self, on: bool) {
+        self.external_toggles = on;
     }
 
     /// Pula para a tela de número `n` (D19). Ignorado pausado ou travado.
