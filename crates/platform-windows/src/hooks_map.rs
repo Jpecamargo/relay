@@ -28,11 +28,13 @@ pub const LLMHF_INJECTED: u32 = 0x01;
 
 const VK_PAUSE: u32 = 0x13;
 const VK_NUMLOCK: u32 = 0x90;
+const VK_RSHIFT: u32 = 0xA1;
 const SCAN_EXTENDED: u16 = 0xE000;
 /// Pause: sequência E1 1D 45, representada como 0xE145 (convenção de C5a/W1).
 const SCAN_PAUSE: u16 = 0xE145;
 const SCAN_NUMLOCK: u16 = 0x45;
 const SCAN_LSHIFT: u32 = 0x2A;
+const SCAN_RSHIFT: u16 = 0x36;
 /// Uma "volta" da roda do mouse (`WHEEL_DELTA`).
 const WHEEL_DELTA: f64 = 120.0;
 
@@ -76,6 +78,8 @@ pub fn map_keyboard(msg: u32, vk: u32, scan: u32, flags: u32) -> Option<Captured
         VK_PAUSE => SCAN_PAUSE,
         // O hook marca NumLock como estendido; o scan real é 0x45 puro.
         VK_NUMLOCK => SCAN_NUMLOCK,
+        // Idem para o Shift direito: o hook o marca estendido, mas 0xE036 não existe.
+        VK_RSHIFT => SCAN_RSHIFT,
         _ => (scan as u16 & 0xFF) | if extended { SCAN_EXTENDED } else { 0 },
     };
     Some(CapturedEvent::Key {
@@ -165,6 +169,10 @@ mod tests {
         );
         assert_eq!(map_keyboard(WM_KEYDOWN, 0xA0, 0x2A, LLKHF_EXTENDED), None);
         assert_eq!(map_keyboard(WM_KEYDOWN, 0xA0, 0x2A, 0), scan(0x2A, true));
+        assert_eq!(
+            map_keyboard(WM_KEYDOWN, 0xA1, 0x36, LLKHF_EXTENDED),
+            scan(0x36, true)
+        );
     }
 
     #[test]

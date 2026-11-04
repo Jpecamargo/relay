@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.7
+
+- O Shift direito do teclado do PC funciona quando o mouse do PC está no Mac. Antes o Mac ignorava a tecla.
+
 ## 0.3.6
 
 - "Pausar compartilhamento" e "Travar cursor" valem também quando o mouse do PC está controlando o Mac. Pausar no Mac devolve o mouse ao PC e não deixa ele voltar até despausar. Travar no Mac mantém o mouse do PC no Mac. Antes os dois só valiam para o mouse do Mac indo ao PC.
