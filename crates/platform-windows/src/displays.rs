@@ -36,6 +36,15 @@ impl DisplaySource for WindowsDisplays {
         Err(PlatformError::Unsupported)
     }
 
+    fn identities(&self) -> Vec<(String, String)> {
+        #[cfg(windows)]
+        {
+            imp::identities()
+        }
+        #[cfg(not(windows))]
+        Vec::new()
+    }
+
     fn set_change_callback(&mut self, callback: ChangeCallback) {
         #[cfg(windows)]
         imp::set_change_callback(callback);
@@ -48,6 +57,7 @@ impl DisplaySource for WindowsDisplays {
 mod imp {
     use super::{BASE_DPI, scale_from_dpi, size_mm_from_dpi};
     use crate::edid::parse_edid_size_mm;
+    use relay_core::layout::edid_identity;
     use relay_core::platform::{ChangeCallback, PlatformError};
     use relay_core::types::{DisplayInfo, Machine};
     use std::sync::{Arc, Mutex, Once};
@@ -90,6 +100,29 @@ mod imp {
     }
 
     pub fn list() -> Result<Vec<DisplayInfo>, PlatformError> {
+        Ok(monitors()?.into_iter().filter_map(describe).collect())
+    }
+
+    /// `(DeviceID, identidade do EDID)` dos monitores ativos com número de série alfanumérico.
+    pub fn identities() -> Vec<(String, String)> {
+        monitors()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|m| {
+                let mut info = MONITORINFOEXW::default();
+                info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+                // SAFETY: `info` tem o `cbSize` da variante EX, que o ponteiro base aceita.
+                unsafe { GetMonitorInfoW(m, &mut info as *mut _ as *mut _) }
+                    .as_bool()
+                    .then_some(())?;
+                let (device_id, _) = monitor_device(&info.szDevice)?;
+                let identity = edid_identity(&edid_for_device_id(&device_id)?)?;
+                Some((device_id, identity))
+            })
+            .collect()
+    }
+
+    fn monitors() -> Result<Vec<HMONITOR>, PlatformError> {
         let mut monitors: Vec<HMONITOR> = Vec::new();
         // SAFETY: o ponteiro para `monitors` só é usado dentro desta chamada.
         let ok = unsafe {
@@ -103,7 +136,7 @@ mod imp {
         if !ok.as_bool() {
             return Err(PlatformError::Platform("EnumDisplayMonitors falhou".into()));
         }
-        Ok(monitors.into_iter().filter_map(describe).collect())
+        Ok(monitors)
     }
 
     /// `DisplayInfo.id` = DeviceID do monitor (`MONITOR\<modelo>\{guid}\<n>`, estável entre reboots);

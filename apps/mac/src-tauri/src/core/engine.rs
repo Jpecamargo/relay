@@ -332,6 +332,19 @@ impl<P: Platform> Core<P> {
 
     // ---- telas e perfil ----
 
+    /// Telas do Mac e a identidade física das externas: o PC tira da lista dele o monitor que
+    /// está ligado nos dois e mostrando o Mac. Peer anterior à 0.3.8 não recebe as identidades.
+    fn send_displays(&self, local: Vec<DisplayInfo>) {
+        self.send(Message::Displays(local));
+        let ids = self
+            .displays
+            .identities()
+            .into_iter()
+            .map(|(_, i)| i)
+            .collect();
+        self.send(Message::DisplayIdentities(ids));
+    }
+
     fn local_displays(&self) -> Vec<DisplayInfo> {
         self.inner.st().local.clone()
     }
@@ -459,7 +472,7 @@ impl<P: Platform> Core<P> {
         self.rev.set_local_displays(local.clone());
         self.refresh_profile();
         if self.link {
-            self.send(Message::Displays(local));
+            self.send_displays(local);
             self.send_layout();
         }
         self.publish_displays();
@@ -661,7 +674,7 @@ impl<P: Platform> Core<P> {
                 }
                 self.sync_pause();
                 if up {
-                    self.send(Message::Displays(self.local_displays()));
+                    self.send_displays(self.local_displays());
                     self.layout_link_up();
                 } else {
                     self.layout_ready = false;

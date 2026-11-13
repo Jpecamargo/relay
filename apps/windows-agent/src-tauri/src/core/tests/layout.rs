@@ -232,3 +232,33 @@ async fn save_config_with_a_stale_copy_does_not_revert_the_layout() {
     assert_eq!(on_disk.layout.revision, 6);
     agent.core.shutdown();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn monitor_que_o_mac_mostra_sai_da_lista_do_pc_e_volta_quando_ele_solta() {
+    let (agent, mut mac) = host_pc_with_mac03().await;
+    // O Dell está ligado nas duas máquinas e passou a mostrar o Mac.
+    mac.received.clear();
+    mac.dialer
+        .send(Message::DisplayIdentities(vec!["X:dell".into()]))
+        .await
+        .unwrap();
+    mac.pump_until("PC sem o Dell", |m| {
+        m.got(|x| matches!(x, Message::Displays(d) if d.is_empty()))
+    })
+    .await;
+    eventually("UI sem o Dell", || {
+        agent.core.get_displays().local.is_empty()
+    })
+    .await;
+    // Voltou a mostrar o PC: o Mac não o lista mais.
+    mac.received.clear();
+    mac.dialer
+        .send(Message::DisplayIdentities(Vec::new()))
+        .await
+        .unwrap();
+    mac.pump_until("PC com o Dell de volta", |m| {
+        m.got(|x| matches!(x, Message::Displays(d) if d.len() == 1 && d[0].id == "dell"))
+    })
+    .await;
+    agent.core.shutdown();
+}

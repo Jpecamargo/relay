@@ -12,6 +12,7 @@ use relay_core::crypto::{
 };
 use relay_core::discovery::{Advertiser, parse_manual_address};
 use relay_core::engine::{EngineEvent, Receiver};
+use relay_core::layout::without_peer_shown;
 use relay_core::net::{
     DialerConfig, FastEvent, Session, SessionDialer, SessionEvent, SessionListener,
 };
@@ -196,6 +197,9 @@ pub(super) struct Pump {
     rev: Option<ReverseHandle>,
     /// Telas do Mac (último `Displays` recebido): destino do `FocusReturn` ao pausar.
     mac_displays: Vec<relay_core::types::DisplayInfo>,
+    /// Identidades das telas ativas no Mac (`DisplayIdentities`): monitor ligado nas duas máquinas
+    /// e mostrando o Mac sai da lista local.
+    mac_shown: Vec<String>,
     /// Fila do executor de comandos, que roda fora do pump (CaptureScreen/GetMetrics demoram).
     cmd_worker: Option<std::sync::mpsc::Sender<(u32, relay_core::types::RemoteCommand)>>,
     cmd_out: Option<mpsc::UnboundedReceiver<Message>>,
@@ -366,6 +370,7 @@ impl Pump {
             last_latency: None,
             rev,
             mac_displays: Vec::new(),
+            mac_shown: Vec::new(),
             cmd_worker,
             cmd_out,
             rev_out,
@@ -657,6 +662,7 @@ impl Pump {
     /// A sessão em uso caiu: solta teclas, restaura o ponteiro (D27) e desliga mídia e reverso.
     fn deactivate(&mut self) {
         self.active = None;
+        self.mac_shown.clear();
         self.shared.layout().peer_disconnected();
         self.rx.focus_lost();
         self.guard = None;
@@ -674,7 +680,7 @@ impl Pump {
         if self.guard.is_none() {
             self.guard = Some((self.pointer_guard)());
         }
-        let local = self.displays.list().unwrap_or_default();
+        let local = self.local_displays();
         let audio = self.session(side).and_then(|s| s.audio_link());
         if let Some(m) = self.media.as_mut() {
             m.link_changed(audio);
@@ -938,6 +944,7 @@ impl Pump {
             Some(h) => h(&msg),
             None => Vec::new(),
         };
+        let mut relist = false;
         match &msg {
             Message::Displays(d) => {
                 self.mac_displays = d.clone();
@@ -947,6 +954,10 @@ impl Pump {
                     .unwrap_or_else(|e| e.into_inner())
                     .peer = d.clone();
                 self.on_displays_changed(&mut out);
+            }
+            Message::DisplayIdentities(ids) if *ids != self.mac_shown => {
+                self.mac_shown = ids.clone();
+                relist = true;
             }
             Message::LayoutSync(profile) => {
                 let fx = self.shared.layout().on_layout_sync(profile.clone());
@@ -1020,6 +1031,9 @@ impl Pump {
             out.extend(self.rx.on_message(msg, now));
         }
         self.send_all(out).await;
+        if relist {
+            self.local_displays_changed().await;
+        }
     }
 
     /// Aplica os efeitos do estado de layouts: grava no config, avisa a UI e o engine e acumula as
@@ -1069,6 +1083,32 @@ impl Pump {
                 rev.set_profile(p);
             }
         }
+    }
+
+    /// Telas ativas deste PC que mostram o PC: sem as que o Mac informou como ativas nele.
+    fn local_displays(&self) -> Vec<relay_core::types::DisplayInfo> {
+        let local = self.displays.list().unwrap_or_default();
+        if self.mac_shown.is_empty() {
+            return local;
+        }
+        without_peer_shown(local, &self.displays.identities(), &self.mac_shown)
+    }
+
+    /// Lista local mudou (telas do Windows ou as que o Mac mostra): Receiver, reverso, UI, layout
+    /// e o Mac recebem a nova.
+    async fn local_displays_changed(&mut self) {
+        let local = self.local_displays();
+        self.rx.set_local_displays(local.clone());
+        if let Some(rev) = &self.rev {
+            rev.set_local_displays(local.clone());
+        }
+        self.set_local_displays(local.clone());
+        let mut out = Vec::new();
+        self.on_displays_changed(&mut out);
+        if self.connected() {
+            out.insert(0, Message::Displays(local));
+        }
+        self.send_all(out).await;
     }
 
     /// Telas deste PC mudaram: atualiza o payload e a UI.
@@ -1190,20 +1230,7 @@ impl Pump {
                     d.session.force_reconnect();
                 }
             }
-            Cmd::DisplaysChanged => {
-                let local = self.displays.list().unwrap_or_default();
-                self.rx.set_local_displays(local.clone());
-                if let Some(rev) = &self.rev {
-                    rev.set_local_displays(local.clone());
-                }
-                self.set_local_displays(local.clone());
-                let mut out = Vec::new();
-                self.on_displays_changed(&mut out);
-                if self.connected() {
-                    out.insert(0, Message::Displays(local));
-                }
-                self.send_all(out).await;
-            }
+            Cmd::DisplaysChanged => self.local_displays_changed().await,
             Cmd::LayoutEffects(fx) => {
                 let mut out = Vec::new();
                 self.apply_layout(fx, &mut out);

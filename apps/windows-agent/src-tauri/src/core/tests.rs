@@ -37,7 +37,7 @@ mod reverse;
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 const KEY_A: u16 = 0x1E;
 /// O agente anuncia 0.3.0 nos testes: o peer fake só envia as mensagens da 0.3 a quem é simétrico.
-const AGENT_VERSION: &str = "0.3.0";
+const AGENT_VERSION: &str = relay_core::version::DISPLAY_IDENTITY_MIN_PEER;
 
 // ---- mock do lado Windows ----
 
@@ -116,6 +116,13 @@ struct MockDisplays {
 impl DisplaySource for MockDisplays {
     fn list(&self) -> Result<Vec<DisplayInfo>, PlatformError> {
         Ok(self.list.lock().unwrap().clone())
+    }
+    /// Identidade de mentira derivada do id: `"X:<id>"`.
+    fn identities(&self) -> Vec<(String, String)> {
+        let list = self.list.lock().unwrap();
+        list.iter()
+            .map(|d| (d.id.clone(), format!("X:{}", d.id)))
+            .collect()
     }
     fn set_change_callback(&mut self, callback: ChangeCallback) {
         *self.cb.lock().unwrap() = Some(callback);

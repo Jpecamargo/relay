@@ -15,6 +15,9 @@ pub const UPDATE_REQUEST_MIN_PEER: &str = "0.1.8";
 /// Tudo que é novo na 0.3 só vai a peer nesta versão ou acima.
 pub const SYMMETRIC_MIN_PEER: &str = "0.3.0";
 
+/// Primeira versão que decodifica `Message::DisplayIdentities`.
+pub const DISPLAY_IDENTITY_MIN_PEER: &str = "0.3.8";
+
 /// Versão informada no Hello, ou `None` se vazia ou que não seja semver (peer que não informa).
 pub fn parse_version(raw: &str) -> Option<Version> {
     Version::parse(raw.trim().trim_start_matches('v')).ok()
@@ -42,10 +45,12 @@ pub fn version_sync(local: &str, peer: Option<&str>) -> VersionSync {
 
 /// `true` se o peer é >= `SYMMETRIC_MIN_PEER`. Sem versão, ou com versão ilegível, é `false`.
 pub fn peer_is_symmetric(peer_version: Option<&str>) -> bool {
-    match (
-        peer_version.and_then(parse_version),
-        parse_version(SYMMETRIC_MIN_PEER),
-    ) {
+    peer_at_least(peer_version, SYMMETRIC_MIN_PEER)
+}
+
+/// `true` se o peer é >= `min`. Sem versão, ou com versão ilegível, é `false`.
+pub fn peer_at_least(peer_version: Option<&str>, min: &str) -> bool {
+    match (peer_version.and_then(parse_version), parse_version(min)) {
         (Some(peer), Some(min)) => peer >= min,
         _ => false,
     }

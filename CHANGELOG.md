@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.8
+
+- Monitor ligado no Mac e no PC ao mesmo tempo: enquanto ele mostra o Mac, o PC deixa de contá-lo como tela dele. Antes o Windows continuava listando o monitor, o perfil ficava bagunçado e o cursor parava de atravessar por onde passava.
+- Editar o layout no computador que não guarda os layouts vale na hora: o editor mostra a mudança logo depois de salvar, e trocar o nome do perfil ao salvar não cria mais um perfil duplicado.
+
 ## 0.3.7
 
 - O Shift direito do teclado do PC funciona quando o mouse do PC está no Mac. Antes o Mac ignorava a tecla.

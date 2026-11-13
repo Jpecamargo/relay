@@ -4,10 +4,13 @@
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, Once};
 
-use core_foundation::base::TCFType;
-use core_foundation::string::CFString;
+use core_foundation::base::{CFGetTypeID, CFRelease, CFTypeRef, TCFType};
+use core_foundation::dictionary::{CFDictionaryGetTypeID, CFDictionaryGetValue, CFDictionaryRef};
+use core_foundation::number::{CFNumber, CFNumberGetTypeID, CFNumberRef};
+use core_foundation::string::{CFString, CFStringGetTypeID, CFStringRef};
 use core_foundation::uuid::{CFUUIDCreateString, CFUUIDRef};
 use core_graphics::display::{CGDirectDisplayID, CGDisplay};
+use relay_core::layout::display_identity;
 use relay_core::platform::{ChangeCallback, DisplaySource, PlatformError};
 use relay_core::types::{DisplayInfo, Machine};
 
@@ -26,10 +29,113 @@ unsafe extern "C" {
     fn CGDisplayScreenSize(display: CGDirectDisplayID) -> CGSize;
     fn CGDisplayIsMain(display: CGDirectDisplayID) -> u32;
     fn CGDisplayCreateUUIDFromDisplayID(display: CGDirectDisplayID) -> CFUUIDRef;
+    fn CGDisplayVendorNumber(display: CGDirectDisplayID) -> u32;
+    fn CGDisplayModelNumber(display: CGDirectDisplayID) -> u32;
+    fn CGDisplaySerialNumber(display: CGDirectDisplayID) -> u32;
     fn CGDisplayRegisterReconfigurationCallback(
         callback: unsafe extern "C" fn(CGDirectDisplayID, u32, *const c_void),
         user_info: *const c_void,
     ) -> i32;
+}
+
+#[link(name = "IOKit", kind = "framework")]
+unsafe extern "C" {
+    fn IOServiceMatching(name: *const std::ffi::c_char) -> CFDictionaryRef;
+    fn IOServiceGetMatchingServices(main_port: u32, matching: CFDictionaryRef, it: *mut u32)
+    -> i32;
+    fn IOIteratorNext(it: u32) -> u32;
+    fn IOObjectRelease(object: u32) -> i32;
+    fn IORegistryEntryCreateCFProperty(
+        entry: u32,
+        key: CFStringRef,
+        allocator: *const c_void,
+        options: u32,
+    ) -> CFTypeRef;
+}
+
+/// Atributos do monitor que o framebuffer publica no IORegistry (Apple Silicon):
+/// `(fabricante, modelo, série numérica, série alfanumérica)`.
+type ProductAttributes = (u32, u32, u32, String);
+
+/// Valor de `key` em `dict` se for do tipo `type_id`; ponteiro emprestado (get rule).
+unsafe fn dict_value(dict: CFDictionaryRef, key: &str, type_id: usize) -> Option<*const c_void> {
+    let key = CFString::new(key);
+    // SAFETY: `dict` é um CFDictionary válido durante a chamada.
+    let v = unsafe { CFDictionaryGetValue(dict, key.as_concrete_TypeRef() as *const c_void) };
+    (!v.is_null() && unsafe { CFGetTypeID(v) } == type_id).then_some(v)
+}
+
+unsafe fn dict_u32(dict: CFDictionaryRef, key: &str) -> Option<u32> {
+    let v = unsafe { dict_value(dict, key, CFNumberGetTypeID()) }?;
+    // SAFETY: tipo conferido; get rule.
+    let n = unsafe { CFNumber::wrap_under_get_rule(v as CFNumberRef) };
+    n.to_i64().map(|n| n as u32)
+}
+
+/// `ProductAttributes` de cada `IOMobileFramebuffer` que tem série alfanumérica. Vazio em Mac
+/// Intel (outra classe) ou se o IOKit falhar.
+fn framebuffer_products() -> Vec<ProductAttributes> {
+    let mut out = Vec::new();
+    // SAFETY: nome terminado em NUL; o dicionário é consumido por IOServiceGetMatchingServices.
+    let matching = unsafe { IOServiceMatching(c"IOMobileFramebuffer".as_ptr()) };
+    if matching.is_null() {
+        return out;
+    }
+    let mut it = 0u32;
+    if unsafe { IOServiceGetMatchingServices(0, matching, &mut it) } != 0 {
+        return out;
+    }
+    let attrs_key = CFString::new("DisplayAttributes");
+    loop {
+        // SAFETY: `it` é um iterador válido até o IOObjectRelease abaixo.
+        let entry = unsafe { IOIteratorNext(it) };
+        if entry == 0 {
+            break;
+        }
+        // SAFETY: create rule; liberado com CFRelease.
+        let attrs = unsafe {
+            IORegistryEntryCreateCFProperty(
+                entry,
+                attrs_key.as_concrete_TypeRef(),
+                std::ptr::null(),
+                0,
+            )
+        };
+        unsafe { IOObjectRelease(entry) };
+        if attrs.is_null() {
+            continue;
+        }
+        if unsafe { CFGetTypeID(attrs) } == unsafe { CFDictionaryGetTypeID() } {
+            // SAFETY: `attrs` é um CFDictionary vivo até o CFRelease.
+            let product = unsafe {
+                dict_value(
+                    attrs as CFDictionaryRef,
+                    "ProductAttributes",
+                    CFDictionaryGetTypeID(),
+                )
+            };
+            if let Some(p) =
+                product.and_then(|p| unsafe { product_attributes(p as CFDictionaryRef) })
+            {
+                out.push(p);
+            }
+        }
+        unsafe { CFRelease(attrs) };
+    }
+    unsafe { IOObjectRelease(it) };
+    out
+}
+
+unsafe fn product_attributes(p: CFDictionaryRef) -> Option<ProductAttributes> {
+    let serial = unsafe { dict_value(p, "AlphanumericSerialNumber", CFStringGetTypeID()) }?;
+    // SAFETY: tipo conferido; get rule.
+    let serial = unsafe { CFString::wrap_under_get_rule(serial as CFStringRef) }.to_string();
+    Some((
+        unsafe { dict_u32(p, "LegacyManufacturerID") }?,
+        unsafe { dict_u32(p, "ProductID") }?,
+        unsafe { dict_u32(p, "SerialNumber") }.unwrap_or(0),
+        serial,
+    ))
 }
 
 /// `pixelWidth / width` do modo atual; 1.0 se algum valor for 0.
@@ -124,6 +230,35 @@ impl DisplaySource for MacDisplays {
         Ok(active_ids()?.into_iter().map(describe).collect())
     }
 
+    /// Telas externas ativas casadas com o framebuffer pelo fabricante, modelo e série numérica
+    /// (os três vêm do mesmo EDID), com a série alfanumérica dele.
+    fn identities(&self) -> Vec<(String, String)> {
+        let Ok(ids) = active_ids() else {
+            return Vec::new();
+        };
+        let products = framebuffer_products();
+        ids.into_iter()
+            .filter(|&id| !CGDisplay::new(id).is_builtin())
+            .filter_map(|id| {
+                // SAFETY: consultas puras sobre um id ativo.
+                let key = unsafe {
+                    (
+                        CGDisplayVendorNumber(id),
+                        CGDisplayModelNumber(id),
+                        CGDisplaySerialNumber(id),
+                    )
+                };
+                let (vendor, _, _, serial) =
+                    products.iter().find(|(v, m, s, _)| (*v, *m, *s) == key)?;
+                let identity = display_identity(*vendor as u16, serial)?;
+                Some((
+                    display_uuid(id).unwrap_or_else(|| format!("display-{id}")),
+                    identity,
+                ))
+            })
+            .collect()
+    }
+
     /// O callback roda na thread que processa o run loop principal (exige run loop ativo).
     /// Há um callback global: registrar em outra instância substitui o anterior.
     fn set_change_callback(&mut self, callback: ChangeCallback) {
@@ -161,5 +296,13 @@ mod tests {
         );
         assert!(list.iter().all(|d| !d.id.is_empty() && d.size_px.0 > 0));
         assert_eq!(list.iter().filter(|d| d.is_primary).count(), 1);
+    }
+
+    #[test]
+    #[ignore = "depende de monitor externo com EDID; rodar com --ignored neste Mac"]
+    fn identities_of_real_displays() {
+        let ids = MacDisplays::default().identities();
+        eprintln!("{ids:?}");
+        assert!(ids.iter().all(|(_, i)| i.contains(':')));
     }
 }

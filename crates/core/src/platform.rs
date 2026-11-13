@@ -152,6 +152,11 @@ pub trait CursorControl: Send {
 pub trait DisplaySource: Send {
     /// Telas ativas, com `machine` preenchido pelo backend.
     fn list(&self) -> Result<Vec<DisplayInfo>, PlatformError>;
+    /// `(DisplayInfo.id, identidade física)` das telas ativas que a têm (ver
+    /// `layout::display_identity`). Sem backend que a leia, vazio.
+    fn identities(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
     /// Registra o callback de mudança de configuração de telas (um só; substitui o anterior).
     fn set_change_callback(&mut self, callback: ChangeCallback);
 }

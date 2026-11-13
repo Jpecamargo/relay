@@ -207,7 +207,9 @@ impl LayoutHostState {
         self.adopted()
     }
 
-    /// Edição local (salvar perfis, trocar o ativo).
+    /// Edição local (salvar perfis, trocar o ativo). No não-host a proposta vai ao host e já vale
+    /// aqui, sem subir a revisão: o editor relê o livro logo depois de salvar e uma segunda edição
+    /// parte da primeira. O `LayoutBookSync` do host (revisão maior) confirma ou corrige.
     pub fn edit(
         &mut self,
         profiles: Vec<LayoutProfile>,
@@ -219,12 +221,16 @@ impl LayoutHostState {
             self.revision += 1;
             return Ok(self.published());
         }
-        self.send_edit(LayoutBook {
+        let mut fx = self.send_edit(LayoutBook {
             revision: self.revision,
             host: self.host,
-            profiles,
-            active,
-        })
+            profiles: profiles.clone(),
+            active: active.clone(),
+        })?;
+        self.profiles = profiles;
+        self.active = active;
+        fx.push(LayoutEffect::Emit(self.book()));
+        Ok(fx)
     }
 
     /// Escolhe o host. No host: publica já; no não-host: pede ao host por `LayoutBookEdit`.
@@ -502,14 +508,25 @@ mod tests {
     }
 
     #[test]
-    fn non_host_edit_only_sends_edit() {
+    fn non_host_edit_sends_edit_and_applies_locally_without_bump() {
         let mut s = connected(state(Windows, Mac, 2, &["a"]), true);
         let fx = s.edit(vec![prof("b")], Some("b".into())).unwrap();
-        assert!(
-            matches!(fx.as_slice(), [LayoutEffect::Send(Message::LayoutBookEdit(b))] if b.profiles[0].name == "b")
-        );
-        assert_eq!(s.book().profiles[0].name, "a");
+        assert!(matches!(
+            fx.as_slice(),
+            [LayoutEffect::Send(Message::LayoutBookEdit(b)), LayoutEffect::Emit(e)]
+                if b.profiles[0].name == "b" && e.profiles[0].name == "b"
+        ));
+        assert_eq!(s.book().profiles[0].name, "b");
         assert_eq!(s.book().revision, 2);
+        // O Sync do host (revisão maior) confirma a proposta.
+        let mut host = connected(state(Mac, Mac, 2, &["a"]), true);
+        let LayoutEffect::Send(Message::LayoutBookEdit(e)) = &fx[0] else {
+            unreachable!()
+        };
+        host.on_book_edit(e.clone());
+        s.on_book_sync(host.book());
+        assert_eq!(s.book(), host.book());
+        assert_eq!(s.book().revision, 3);
     }
 
     #[test]

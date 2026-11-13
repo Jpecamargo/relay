@@ -200,11 +200,14 @@ fn edicao_pelo_nao_host_vira_proposta_e_so_grava_depois_do_sync() {
             Some("trabalho".into()),
         )
         .expect("host conectado e simétrico: editável");
+    // Não-host propõe e já mostra a proposta (sem subir a revisão nem gravar).
     assert!(
-        fx.iter()
-            .all(|e| matches!(e, LayoutEffect::Send(Message::LayoutBookEdit(_))))
-            && !fx.is_empty(),
-        "não-host só propõe: {fx:?}"
+        matches!(
+            fx.as_slice(),
+            [LayoutEffect::Send(Message::LayoutBookEdit(_)), LayoutEffect::Emit(b)]
+                if b.revision == 4 && b.active.as_deref() == Some("trabalho")
+        ),
+        "não-host propõe e emite: {fx:?}"
     );
     assert_eq!(l.win.disk.len(), disk_win, "nada gravado antes do Sync");
     l.apply(Machine::Windows, fx);

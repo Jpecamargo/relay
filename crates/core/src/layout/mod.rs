@@ -2,6 +2,10 @@
 //! Modelo de layout em milímetros: conversão px↔mm, validação, bordas compartilhadas, perfis,
 //! movimento em bloco e avisos de Dock/Hot Corner.
 
+mod identity;
+
+pub use identity::{display_identity, edid_identity, pnp_vendor, without_peer_shown};
+
 use crate::types::{
     DisplayInfo, DockInfo, DockOrientation, EdgeLink, HotCorners, LayoutProfile, LayoutWarning,
     LayoutWarningKind, Machine, PlacedDisplay, ProfileKey, RectMm, Side,

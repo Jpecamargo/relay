@@ -3,15 +3,17 @@
 //! diferentes dos que conhece, então estes testes não podem ter o fixture regerado.
 
 use crate::types::{Message, Os, Role};
-use crate::version::peer_is_symmetric;
+use crate::version::{DISPLAY_IDENTITY_MIN_PEER, peer_at_least, peer_is_symmetric};
 
 /// Gate único do canal de controle (D40): as variantes da 0.3 (`Caps`, `LayoutBookSync`,
-/// `LayoutBookEdit`) só vão a peer simétrico. Variante desconhecida derruba a sessão de um 0.2.
+/// `LayoutBookEdit`) só vão a peer simétrico, e as posteriores só a quem as conhece. Variante
+/// desconhecida derruba a sessão do peer.
 pub fn allowed_for_peer(msg: &Message, peer_app_version: Option<&str>) -> bool {
     match msg {
         Message::Caps(_) | Message::LayoutBookSync(_) | Message::LayoutBookEdit(_) => {
             peer_is_symmetric(peer_app_version)
         }
+        Message::DisplayIdentities(_) => peer_at_least(peer_app_version, DISPLAY_IDENTITY_MIN_PEER),
         _ => true,
     }
 }
@@ -288,6 +290,17 @@ mod tests {
         assert_eq!(first_byte(&Message::Caps(Caps::baseline(Os::Mac))), 23);
         assert_eq!(first_byte(&Message::LayoutBookSync(book())), 24);
         assert_eq!(first_byte(&Message::LayoutBookEdit(book())), 25);
+        assert_eq!(first_byte(&Message::DisplayIdentities(Vec::new())), 26);
+    }
+
+    #[test]
+    fn display_identities_only_go_to_peers_that_know_them() {
+        let msg = Message::DisplayIdentities(vec!["DEL:1".into()]);
+        for peer in [None, Some("0.2.0"), Some("0.3.0"), Some("0.3.7")] {
+            assert!(!allowed_for_peer(&msg, peer), "{peer:?}");
+        }
+        assert!(allowed_for_peer(&msg, Some("0.3.8")));
+        assert!(allowed_for_peer(&msg, Some("0.4.0")));
     }
 
     #[test]

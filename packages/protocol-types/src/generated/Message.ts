@@ -20,4 +20,4 @@ export type Message = { "Hello": { protocol_version: number, device_id: string, 
  * O som do PC no Mac saiu na 0.2.0: sempre `false`, mantido para o formato bincode
  * continuar igual ao das 0.1.x (Mac e PC em versões diferentes até o PC se atualizar).
  */
-pc_to_mac: boolean, mac_to_pc: boolean, } } | { "Metrics": SystemMetrics } | "TakeControl" | "Unpair" | "Bye" | { "RequestUpdate": { version: string, } } | { "Caps": Caps } | { "LayoutBookSync": LayoutBook } | { "LayoutBookEdit": LayoutBook };
+pc_to_mac: boolean, mac_to_pc: boolean, } } | { "Metrics": SystemMetrics } | "TakeControl" | "Unpair" | "Bye" | { "RequestUpdate": { version: string, } } | { "Caps": Caps } | { "LayoutBookSync": LayoutBook } | { "LayoutBookEdit": LayoutBook } | { "DisplayIdentities": Array<string> };

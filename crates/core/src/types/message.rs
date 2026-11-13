@@ -114,4 +114,8 @@ pub enum Message {
     LayoutBookSync(LayoutBook),
     /// Proposta de edição do livro pelo lado que não é o host. Só a peer >= `SYMMETRIC_MIN_PEER`.
     LayoutBookEdit(LayoutBook),
+    /// Mac -> PC: identidade física (`layout::display_identity`) das telas ativas no Mac. Um
+    /// monitor ligado nas duas máquinas e mostrando o Mac continua ativo para o Windows; o PC o
+    /// tira da própria lista. Só a peer >= `version::DISPLAY_IDENTITY_MIN_PEER`.
+    DisplayIdentities(Vec<String>),
 }
