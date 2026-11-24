@@ -120,6 +120,8 @@ pub trait MediaHooks: Send + Sync + 'static {
     fn clipboard_send_now(&self) {}
     fn receive_remote_files(&self) {}
     fn set_audio_streams(&self, _mac_to_pc: bool) {}
+    /// Compartilhamento pausado ou retomado (nos dois lados): o microfone para enquanto pausado.
+    fn set_paused(&self, _paused: bool) {}
     /// Mensagem do PC que o AppCore não trata (Clipboard*, File*, DropFiles, Audio*, Metrics).
     fn on_message(&self, _msg: &Message) {}
     /// Sessão estabelecida (`true`) ou perdida (`false`).

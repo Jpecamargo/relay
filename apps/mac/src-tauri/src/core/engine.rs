@@ -604,9 +604,17 @@ impl<P: Platform> Core<P> {
         self.drain_events();
     }
 
-    /// Pausa vale nos dois sentidos: o Mac para de controlar o PC e o PC para de controlar o Mac.
+    /// Pausa do usuário daqui: vale aqui e no PC, que pausa junto e mostra a pausa.
     fn set_user_paused(&mut self, paused: bool) {
+        self.apply_pause(paused);
+        self.send(Message::SharingPaused(paused));
+    }
+
+    /// Pausa vale nos dois sentidos, como se o Relay estivesse fechado: o Mac para de controlar o
+    /// PC, o PC para de controlar o Mac e o microfone para.
+    fn apply_pause(&mut self, paused: bool) {
         self.user_paused = paused;
+        self.inner.media.set_paused(paused);
         self.inner.mutate(|s| s.status.paused = paused);
         for m in self.rev.set_paused(paused) {
             self.send(m);
@@ -675,6 +683,9 @@ impl<P: Platform> Core<P> {
                 self.sync_pause();
                 if up {
                     self.send_displays(self.local_displays());
+                    if self.user_paused {
+                        self.send(Message::SharingPaused(true));
+                    }
                     self.layout_link_up();
                 } else {
                     self.layout_ready = false;
@@ -745,6 +756,7 @@ impl<P: Platform> Core<P> {
                 self.publish_displays();
                 self.layout_displays_changed();
             }
+            Message::SharingPaused(p) if p != self.user_paused => self.apply_pause(p),
             Message::LayoutBookSync(book) if !self.link => self.early_book = Some(book),
             Message::LayoutBookSync(book) => self.on_book_sync(book),
             Message::LayoutBookEdit(book) => {

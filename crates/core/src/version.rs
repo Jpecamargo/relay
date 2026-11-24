@@ -18,6 +18,9 @@ pub const SYMMETRIC_MIN_PEER: &str = "0.3.0";
 /// Primeira versão que decodifica `Message::DisplayIdentities`.
 pub const DISPLAY_IDENTITY_MIN_PEER: &str = "0.3.8";
 
+/// Primeira versão que decodifica `Message::SharingPaused`.
+pub const PAUSE_SYNC_MIN_PEER: &str = "0.3.9";
+
 /// Versão informada no Hello, ou `None` se vazia ou que não seja semver (peer que não informa).
 pub fn parse_version(raw: &str) -> Option<Version> {
     Version::parse(raw.trim().trim_start_matches('v')).ok()

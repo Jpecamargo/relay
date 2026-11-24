@@ -65,6 +65,8 @@ pub(crate) struct St {
     pub session: Option<Arc<SessionCtx>>,
     /// Microfone pedido pelo usuário; vale de sessão em sessão.
     pub want: bool,
+    /// Compartilhamento pausado: o microfone fica desligado sem esquecer o `want`.
+    pub paused: bool,
     pub audio: AudioRun,
     /// Próximo `seq` do áudio Mac→PC. Vale pela sessão (mesma chave): religar o stream continua
     /// de onde parou, senão o nonce do AEAD se repetiria.
@@ -164,6 +166,10 @@ impl MediaHooks for RealMedia {
 
     fn set_audio_streams(&self, mac_to_pc: bool) {
         audio::set_streams(&self.sh, mac_to_pc);
+    }
+
+    fn set_paused(&self, paused: bool) {
+        audio::set_paused(&self.sh, paused);
     }
 
     fn on_message(&self, msg: &Message) {

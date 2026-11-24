@@ -37,7 +37,7 @@ mod reverse;
 const LO: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 const KEY_A: u16 = 0x1E;
 /// O agente anuncia 0.3.0 nos testes: o peer fake só envia as mensagens da 0.3 a quem é simétrico.
-const AGENT_VERSION: &str = relay_core::version::DISPLAY_IDENTITY_MIN_PEER;
+const AGENT_VERSION: &str = relay_core::version::PAUSE_SYNC_MIN_PEER;
 
 // ---- mock do lado Windows ----
 

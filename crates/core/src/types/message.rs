@@ -118,4 +118,7 @@ pub enum Message {
     /// monitor ligado nas duas máquinas e mostrando o Mac continua ativo para o Windows; o PC o
     /// tira da própria lista. Só a peer >= `version::DISPLAY_IDENTITY_MIN_PEER`.
     DisplayIdentities(Vec<String>),
+    /// Pausa do compartilhamento ligada ou desligada pelo usuário de um dos lados: o outro aplica
+    /// a mesma pausa sem responder. Só a peer >= `version::PAUSE_SYNC_MIN_PEER`.
+    SharingPaused(bool),
 }

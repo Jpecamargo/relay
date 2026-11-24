@@ -90,17 +90,48 @@ impl Drop for Capture {
 pub(super) fn set_streams(sh: &Arc<Sh>, mac_to_pc: bool) {
     let has_session = sh.session().is_some();
     tracing::info!(mac_to_pc, has_session, "áudio: pedido do usuário");
-    sh.st().want = mac_to_pc;
+    let paused = {
+        let mut st = sh.st();
+        st.want = mac_to_pc;
+        st.paused
+    };
     sh.send(Message::AudioControl {
         pc_to_mac: false,
-        mac_to_pc,
+        mac_to_pc: mac_to_pc && !paused,
     });
     apply(sh);
 }
 
-/// O PC respondeu com o estado real do microfone: ajusta o local, sem reenviar.
+/// Pausado, o PC desliga o microfone virtual como se o Relay estivesse fechado; retomar religa o
+/// que o usuário tinha pedido.
+pub(super) fn set_paused(sh: &Arc<Sh>, paused: bool) {
+    let want = {
+        let mut st = sh.st();
+        if st.paused == paused {
+            return;
+        }
+        st.paused = paused;
+        st.want
+    };
+    if want {
+        sh.send(Message::AudioControl {
+            pc_to_mac: false,
+            mac_to_pc: !paused,
+        });
+    }
+    apply(sh);
+}
+
+/// O PC respondeu com o estado real do microfone: ajusta o local, sem reenviar. Pausado, o `false`
+/// é a própria pausa e não apaga o pedido do usuário.
 pub(super) fn pc_state(sh: &Arc<Sh>, mac_to_pc: bool) {
-    sh.st().want = mac_to_pc;
+    {
+        let mut st = sh.st();
+        if st.paused {
+            return;
+        }
+        st.want = mac_to_pc;
+    }
     apply(sh);
 }
 
@@ -108,7 +139,11 @@ pub(super) fn pc_state(sh: &Arc<Sh>, mac_to_pc: bool) {
 pub(super) fn session_up(sh: &Arc<Sh>) {
     // Chaves novas: nada do que corria com as velhas serve.
     sh.st().audio.stop();
-    if sh.st().want {
+    let want = {
+        let st = sh.st();
+        st.want && !st.paused
+    };
+    if want {
         sh.send(Message::AudioControl {
             pc_to_mac: false,
             mac_to_pc: true,
@@ -139,7 +174,11 @@ pub(super) fn config_changed(sh: &Arc<Sh>) {
 fn apply(sh: &Arc<Sh>) {
     let (want, ctx, cfg) = {
         let st = sh.st();
-        (st.want, st.session.clone(), st.cfg.audio.clone())
+        (
+            st.want && !st.paused,
+            st.session.clone(),
+            st.cfg.audio.clone(),
+        )
     };
     // Tira do estado antes de soltar: o `Drop` espera as threads, sem segurar o lock.
     let old = {

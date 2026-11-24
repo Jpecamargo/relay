@@ -3,7 +3,9 @@
 //! diferentes dos que conhece, então estes testes não podem ter o fixture regerado.
 
 use crate::types::{Message, Os, Role};
-use crate::version::{DISPLAY_IDENTITY_MIN_PEER, peer_at_least, peer_is_symmetric};
+use crate::version::{
+    DISPLAY_IDENTITY_MIN_PEER, PAUSE_SYNC_MIN_PEER, peer_at_least, peer_is_symmetric,
+};
 
 /// Gate único do canal de controle (D40): as variantes da 0.3 (`Caps`, `LayoutBookSync`,
 /// `LayoutBookEdit`) só vão a peer simétrico, e as posteriores só a quem as conhece. Variante
@@ -14,6 +16,7 @@ pub fn allowed_for_peer(msg: &Message, peer_app_version: Option<&str>) -> bool {
             peer_is_symmetric(peer_app_version)
         }
         Message::DisplayIdentities(_) => peer_at_least(peer_app_version, DISPLAY_IDENTITY_MIN_PEER),
+        Message::SharingPaused(_) => peer_at_least(peer_app_version, PAUSE_SYNC_MIN_PEER),
         _ => true,
     }
 }
@@ -291,6 +294,16 @@ mod tests {
         assert_eq!(first_byte(&Message::LayoutBookSync(book())), 24);
         assert_eq!(first_byte(&Message::LayoutBookEdit(book())), 25);
         assert_eq!(first_byte(&Message::DisplayIdentities(Vec::new())), 26);
+        assert_eq!(first_byte(&Message::SharingPaused(true)), 27);
+    }
+
+    #[test]
+    fn sharing_paused_only_goes_to_peers_that_know_it() {
+        let msg = Message::SharingPaused(true);
+        for peer in [None, Some("0.2.0"), Some("0.3.0"), Some("0.3.8")] {
+            assert!(!allowed_for_peer(&msg, peer), "{peer:?}");
+        }
+        assert!(allowed_for_peer(&msg, Some("0.3.9")));
     }
 
     #[test]

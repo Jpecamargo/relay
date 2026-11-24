@@ -6,6 +6,11 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.9
+
+- "Pausar compartilhamento" vale nos dois computadores: pausar num deles pausa o outro, e os dois mostram a pausa. Antes, pausar no PC não aparecia no Mac e o mouse do Mac, ao tocar a borda, pulava para o meio da tela.
+- Pausado, o Relay fica como se estivesse fechado: o mouse e o teclado não passam em nenhum sentido e o microfone do Mac para de ir ao PC. Ao retomar, o microfone volta se estava ligado.
+
 ## 0.3.8
 
 - Monitor ligado no Mac e no PC ao mesmo tempo: enquanto ele mostra o Mac, o PC deixa de contá-lo como tela dele. Antes o Windows continuava listando o monitor, o perfil ficava bagunçado e o cursor parava de atravessar por onde passava.

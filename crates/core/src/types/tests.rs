@@ -89,6 +89,7 @@ fn variant_name(m: &Message) -> &'static str {
         Message::LayoutBookSync(_) => "LayoutBookSync",
         Message::LayoutBookEdit(_) => "LayoutBookEdit",
         Message::DisplayIdentities(_) => "DisplayIdentities",
+        Message::SharingPaused(_) => "SharingPaused",
     }
 }
 
@@ -193,6 +194,7 @@ fn all_messages() -> Vec<Message> {
         Message::LayoutBookSync(book()),
         Message::LayoutBookEdit(book()),
         Message::DisplayIdentities(vec!["DEL:4JZ4614".into()]),
+        Message::SharingPaused(true),
     ]
 }
 
@@ -207,7 +209,7 @@ fn message_variants_roundtrip_bincode() {
         all.len(),
         "uma amostra por variante, sem repetição"
     );
-    assert_eq!(all.len(), 27);
+    assert_eq!(all.len(), 28);
     for m in &all {
         bincode_roundtrip(m);
     }

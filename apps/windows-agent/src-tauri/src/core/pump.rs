@@ -710,6 +710,9 @@ impl Pump {
             peer_version.as_deref(),
             self.peer_identity().0.unwrap_or(Os::Mac),
         ));
+        if self.paused {
+            out.push(Message::SharingPaused(true));
+        }
         self.send_all(out).await;
     }
 
@@ -939,6 +942,12 @@ impl Pump {
     }
 
     async fn on_message(&mut self, msg: Message) {
+        if let Message::SharingPaused(paused) = msg {
+            if paused != self.paused {
+                self.apply_pause(paused).await;
+            }
+            return;
+        }
         let now = Instant::now();
         let mut out = match self.hook.as_mut() {
             Some(h) => h(&msg),
@@ -1138,6 +1147,26 @@ impl Pump {
         }
     }
 
+    /// Pausa vale nos dois sentidos, como se o Relay estivesse fechado: o Mac para de controlar o
+    /// PC e o PC para de controlar o Mac. O microfone o Mac desliga do lado dele.
+    async fn apply_pause(&mut self, paused: bool) {
+        self.paused = paused;
+        if let Some(rev) = &self.rev {
+            rev.set_paused(paused);
+        }
+        if paused {
+            // Com o Mac controlando o PC, devolve o foco antes de largar tudo.
+            let ret = if self.rx.is_active() {
+                self.focus_return()
+            } else {
+                None
+            };
+            self.rx.focus_lost();
+            self.send_all(ret.into_iter().collect()).await;
+        }
+        self.publish();
+    }
+
     // ---- comandos da UI e do sistema ----
 
     async fn on_cmd(&mut self, cmd: Cmd) {
@@ -1190,21 +1219,8 @@ impl Pump {
             // Traduzidos para SetPaused/SetLocked no início.
             Cmd::TogglePause | Cmd::ToggleLock => {}
             Cmd::SetPaused(paused) => {
-                self.paused = paused;
-                if let Some(rev) = &self.rev {
-                    rev.set_paused(paused);
-                }
-                if paused {
-                    // Com o Mac controlando o PC, devolve o foco antes de largar tudo.
-                    let ret = if self.rx.is_active() {
-                        self.focus_return()
-                    } else {
-                        None
-                    };
-                    self.rx.focus_lost();
-                    self.send_all(ret.into_iter().collect()).await;
-                }
-                self.publish();
+                self.apply_pause(paused).await;
+                self.send_all(vec![Message::SharingPaused(paused)]).await;
             }
             Cmd::SetLocked(locked) => {
                 self.locked = locked;

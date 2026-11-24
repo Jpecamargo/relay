@@ -378,6 +378,67 @@ async fn pc_assume_traduz_teclas_devolve_e_e_recusado_com_o_mac_no_controle() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn pausar_num_lado_pausa_o_outro_e_o_pc_nao_atravessa() {
+    let ra = start_reverse_agent();
+    let mac_id = identity();
+    let peer = pair(&ra.agent, &mac_id).await;
+    let mut mac = connect_mac(&ra, &mac_id, peer).await;
+    mac.pump_until("Displays do agente", |m| {
+        m.got(|x| matches!(x, Message::Displays(d) if d.len() == 1))
+    })
+    .await;
+    mac.dialer
+        .send(Message::Displays(vec![mac_display()]))
+        .await
+        .unwrap();
+    mac.dialer
+        .send(Message::LayoutSync(profile()))
+        .await
+        .unwrap();
+    eventually("layout no config", || {
+        ra.agent.core.config().layout.profiles == vec![profile()]
+    })
+    .await;
+
+    // Antes a pausa ficava só na máquina em que foi ligada: o outro lado nem mostrava.
+    ra.agent.core.set_paused(true).unwrap();
+    mac.pump_until("Mac avisado", |m| {
+        m.got(|x| matches!(x, Message::SharingPaused(true)))
+    })
+    .await;
+    ra.agent.core.set_paused(false).unwrap();
+    mac.pump_until("Mac avisado da retomada", |m| {
+        m.got(|x| matches!(x, Message::SharingPaused(false)))
+    })
+    .await;
+
+    mac.dialer.send(Message::SharingPaused(true)).await.unwrap();
+    eventually("pausado pelo Mac", || ra.agent.core.status().paused).await;
+    sleep(Duration::from_millis(100)).await;
+    mac.received.clear();
+    ra.push_left_edge();
+    mac.pump_until("pausado não atravessa", |m| {
+        sleep_blocking(300);
+        !m.got(|x| matches!(x, Message::FocusEnter { .. }))
+    })
+    .await;
+    assert!(
+        !mac.got(|x| matches!(x, Message::SharingPaused(_))),
+        "pausa vinda do Mac não volta para ele"
+    );
+
+    mac.dialer
+        .send(Message::SharingPaused(false))
+        .await
+        .unwrap();
+    eventually("retomado pelo Mac", || !ra.agent.core.status().paused).await;
+    sleep(Duration::from_millis(100)).await;
+    ra.push_left_edge();
+    mac.pump_until("PC no Mac", |m| m.rx.is_active()).await;
+    ra.agent.core.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn atalhos_de_pausar_e_travar_no_teclado_do_pc_valem_com_o_pc_no_mac() {
     let ra = start_reverse_agent();
     let mac_id = identity();
