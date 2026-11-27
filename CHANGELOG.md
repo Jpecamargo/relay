@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.11
+
+- "Manter Mac ativo" fica no menu da barra de menus junto de "Travar cursor" e "Pausar compartilhamento", em vez de sozinho perto de "Telas…".
+
 ## 0.3.10
 
 - Novo "Manter Mac ativo" no menu da barra de menus: com ele ligado, depois de um minuto sem uso o Relay avisa ao Mac que há atividade, sem apertar tecla nem mexer o cursor, e o Teams não muda para "Ausente". Não impede o Mac de dormir; não age com a tela bloqueada, apagada ou no protetor de tela. Começa desligado a cada abertura.
