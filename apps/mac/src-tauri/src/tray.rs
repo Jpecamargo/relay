@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use relay_core::types::{
     CommandResult, ConnectionStatus, PowerAction, RemoteCommand, StatusSnapshot,
 };
+use relay_platform_macos::keep_active::KeepActive;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
@@ -21,6 +22,9 @@ pub struct TrayHandles {
     status: MenuItem<Wry>,
     lock: CheckMenuItem<Wry>,
     pause: CheckMenuItem<Wry>,
+    keep_awake: CheckMenuItem<Wry>,
+    /// Ligado enquanto `Some`; o drop para os toques.
+    awake: Mutex<Option<KeepActive>>,
     /// Itens que citam o outro computador pelo nome.
     peer_items: [MenuItem<Wry>; 3],
     tray: TrayIcon<Wry>,
@@ -135,6 +139,17 @@ impl TrayHandles {
     }
 }
 
+/// Liga/desliga o "Manter Mac ativo" e deixa o check igual ao estado real.
+fn toggle_keep_awake(app: &AppHandle) {
+    let handles = app.state::<TrayHandles>();
+    let mut awake = handles.awake.lock().unwrap_or_else(|e| e.into_inner());
+    *awake = match awake.take() {
+        Some(_) => None,
+        None => Some(KeepActive::start()),
+    };
+    let _ = handles.keep_awake.set_checked(awake.is_some());
+}
+
 fn toggle_panel(app: &AppHandle) {
     let Some(panel) = app.get_webview_window("panel") else {
         return;
@@ -197,6 +212,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "settings" => {
             let _ = open_main(app, Some("general"));
         }
+        "keep_awake" => toggle_keep_awake(app),
         "quit" => app.exit(0),
         id if BACKEND_ACTIONS.contains(&id) => {
             let (app, id) = (app.clone(), id.to_owned());
@@ -232,6 +248,14 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         snapshot.paused,
         None::<&str>,
     )?;
+    let keep_awake = CheckMenuItem::with_id(
+        app,
+        "keep_awake",
+        "Manter Mac ativo",
+        true,
+        false,
+        None::<&str>,
+    )?;
     let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
     let name = peer_label(&snapshot);
     let peer_items = [
@@ -252,6 +276,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             &peer_items[1],
             &peer_items[2],
             &item("reconnect", "Reconectar")?,
+            &PredefinedMenuItem::separator(app)?,
+            &keep_awake,
             &PredefinedMenuItem::separator(app)?,
             &item("editor", "Telas…")?,
             &item("settings", "Ajustes…")?,
@@ -286,6 +312,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         status,
         lock,
         pause,
+        keep_awake,
+        awake: Mutex::new(None),
         peer_items,
         tray,
         applied: Mutex::new({

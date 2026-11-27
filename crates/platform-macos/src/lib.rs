@@ -12,6 +12,7 @@ pub mod displays;
 pub mod dock;
 pub mod files;
 pub mod inject;
+pub mod keep_active;
 pub mod login_item;
 pub mod permissions;
 pub mod secure_input;
