@@ -58,6 +58,12 @@ export function Panel() {
     void verify().then((r) => r.resultado === "disponivel" && openUpdateFromPanel({ name: peer, version: behindPeer }));
   }, [behindPeer, verify, peer]);
   const { act, show, firstTime, toast } = useActions();
+  // "Manter Mac ativo": `undefined` fora do Mac (o comando responde "unsupported") esconde a linha.
+  const [keepActive, setKeepActive] = useState<boolean>();
+  useEffect(() => {
+    invokeCommand("get_keep_active").then(setKeepActive).catch(() => undefined);
+  }, []);
+  useRelayEvent("relay:keep-active", setKeepActive);
   const hotkey = useHotkeys();
   const root = useRef<HTMLElement>(null);
   useFitWindow(root, WIDTH);
@@ -180,6 +186,12 @@ export function Panel() {
               onClick={() => void act("Microfone", () => invokeCommand("set_audio_streams", { mic_to_peer: !mic })).then(refresh)}
             />
           ) : null}
+          {keepActive === undefined ? null : (
+            <MenuRow
+              label="Manter Mac ativo" icon="sun" checked={keepActive}
+              onClick={() => void act("Manter Mac ativo", () => invokeCommand("set_keep_active", { enabled: !keepActive }))}
+            />
+          )}
         </div>
         <hr className={styles.sep} />
 

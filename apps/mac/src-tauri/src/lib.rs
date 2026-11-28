@@ -66,6 +66,8 @@ pub fn run() {
             system::open_window,
             system::quit_app,
             system::set_update_available,
+            system::get_keep_active,
+            system::set_keep_active,
         ])
         .on_window_event(|window, event| match (window.label(), event) {
             ("panel", WindowEvent::Focused(false)) => {

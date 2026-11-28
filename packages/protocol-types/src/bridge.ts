@@ -80,6 +80,9 @@ export interface MacCommandMap {
   get_service_status: { args: void; result: ServiceStatus };
   /** Avisa a bandeja que há (ou não há mais) atualização. */
   set_update_available: { args: { version: string | null }; result: void };
+  /** "Manter Mac ativo" (zera o ocioso para o Teams não ficar ausente). `Err("unsupported")` fora do Mac. */
+  get_keep_active: { args: void; result: boolean };
+  set_keep_active: { args: { enabled: boolean }; result: void };
 }
 
 export type CommandMap = MacCommandMap;
@@ -122,6 +125,8 @@ export const COMMANDS = {
   quit_app: "quit_app",
   get_service_status: "get_service_status",
   set_update_available: "set_update_available",
+  get_keep_active: "get_keep_active",
+  set_keep_active: "set_keep_active",
 } as const satisfies { [K in CommandName]: K };
 
 /** Payload de cada evento core→UI. */
@@ -139,6 +144,8 @@ export interface EventMap {
   "relay:metrics": SystemMetrics;
   "relay:pairing": PairingEvent;
   "relay:update-available": UpdateAvailable;
+  /** "Manter Mac ativo" mudou (painel ou menu da barra de menus). */
+  "relay:keep-active": boolean;
 }
 
 export type EventName = keyof EventMap;

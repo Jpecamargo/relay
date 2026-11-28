@@ -79,6 +79,18 @@ pub fn set_update_available(app: AppHandle, version: Option<String>) {
     tray::set_update_available(&app, version.as_deref());
 }
 
+/// "Manter Mac ativo" só existe no Mac: o painel esconde a linha com este erro.
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_keep_active() -> Result<bool, String> {
+    Err("unsupported".into())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_keep_active(enabled: bool) -> Result<(), String> {
+    let _ = enabled;
+    Err("unsupported".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

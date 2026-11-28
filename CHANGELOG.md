@@ -6,6 +6,10 @@ Cada versão publicada ganha uma seção `## X.Y.Z`; o texto dela vira as notas 
 
 ## Não publicado
 
+## 0.3.12
+
+- "Manter Mac ativo" também no painel (clique no ícone da barra de menus), junto de "Travar cursor" e "Pausar compartilhamento". Painel e menu ficam sincronizados. No agente Windows a opção não aparece.
+
 ## 0.3.11
 
 - "Manter Mac ativo" fica no menu da barra de menus junto de "Travar cursor" e "Pausar compartilhamento", em vez de sozinho perto de "Telas…".

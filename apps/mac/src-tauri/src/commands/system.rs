@@ -85,6 +85,16 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_keep_active(app: AppHandle) -> bool {
+    crate::tray::keep_active(&app)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_keep_active(app: AppHandle, enabled: bool) {
+    crate::tray::set_keep_active(&app, enabled);
+}
+
 /// A bandeja do Mac não mostra o aviso de atualização: o front já o mostra (no-op).
 #[tauri::command(rename_all = "snake_case")]
 pub fn set_update_available(version: Option<String>) {

@@ -9,7 +9,7 @@ use relay_core::types::{
 use relay_platform_macos::keep_active::KeepActive;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::backend::AppBackend;
@@ -139,15 +139,23 @@ impl TrayHandles {
     }
 }
 
-/// Liga/desliga o "Manter Mac ativo" e deixa o check igual ao estado real.
-fn toggle_keep_awake(app: &AppHandle) {
+pub fn keep_active(app: &AppHandle) -> bool {
+    app.state::<TrayHandles>()
+        .awake
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
+}
+
+/// Liga/desliga o "Manter Mac ativo"; o check do menu e o painel acompanham o estado real.
+pub fn set_keep_active(app: &AppHandle, enabled: bool) {
     let handles = app.state::<TrayHandles>();
     let mut awake = handles.awake.lock().unwrap_or_else(|e| e.into_inner());
-    *awake = match awake.take() {
-        Some(_) => None,
-        None => Some(KeepActive::start()),
-    };
-    let _ = handles.keep_awake.set_checked(awake.is_some());
+    if awake.is_some() != enabled {
+        *awake = enabled.then(KeepActive::start);
+    }
+    let _ = handles.keep_awake.set_checked(enabled);
+    let _ = app.emit("relay:keep-active", enabled);
 }
 
 fn toggle_panel(app: &AppHandle) {
@@ -212,7 +220,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "settings" => {
             let _ = open_main(app, Some("general"));
         }
-        "keep_awake" => toggle_keep_awake(app),
+        "keep_awake" => set_keep_active(app, !keep_active(app)),
         "quit" => app.exit(0),
         id if BACKEND_ACTIONS.contains(&id) => {
             let (app, id) = (app.clone(), id.to_owned());

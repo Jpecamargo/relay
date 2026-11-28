@@ -4,7 +4,7 @@ import { COMMANDS, invokeCommand, listenEvent } from "./index";
 describe("bridge", () => {
   test("COMMANDS cobre os comandos do contrato único, cada nome igual à chave", () => {
     const entries = Object.entries(COMMANDS);
-    expect(entries).toHaveLength(33);
+    expect(entries).toHaveLength(35);
     for (const [key, value] of entries) expect(value).toBe(key);
     expect(entries.filter(([k]) => k.startsWith("agent_"))).toHaveLength(0);
   });

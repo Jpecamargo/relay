@@ -132,6 +132,28 @@ test("toggle de cursor chama set_cursor_lock sem toast de sucesso", async () => 
   expect(screen.queryByText(/Travar cursor: ok/)).toBeNull();
 });
 
+test("Manter Mac ativo liga pelo painel e acompanha o menu da barra de menus", async () => {
+  const base = bridge.invoke.getMockImplementation()!;
+  bridge.invoke.mockImplementation(async (name: string, args?: unknown) => (name === "get_keep_active" ? false : base(name, args)));
+  await ready();
+  const row = await screen.findByRole("switch", { name: /Manter Mac ativo/ });
+  expect(row.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(row);
+  await waitFor(() => expect(bridge.invoke).toHaveBeenCalledWith("set_keep_active", { enabled: true }));
+  emit("relay:keep-active", true);
+  expect(screen.getByRole("switch", { name: /Manter Mac ativo/ }).getAttribute("aria-checked")).toBe("true");
+});
+
+test("Manter Mac ativo some onde o comando não existe (agente Windows)", async () => {
+  const base = bridge.invoke.getMockImplementation()!;
+  bridge.invoke.mockImplementation(async (name: string, args?: unknown) => {
+    if (name === "get_keep_active") throw "unsupported";
+    return base(name, args);
+  });
+  await ready();
+  expect(screen.queryByRole("switch", { name: /Manter Mac ativo/ })).toBeNull();
+});
+
 test("linhas de menu do rodapé: Ajustes e Encerrar", async () => {
   await ready();
   fireEvent.click(screen.getByRole("button", { name: /Encerrar/ }));

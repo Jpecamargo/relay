@@ -65,6 +65,8 @@ pub fn run() {
             commands::system::open_window,
             commands::system::quit_app,
             commands::system::set_update_available,
+            commands::system::get_keep_active,
+            commands::system::set_keep_active,
             commands::pairing::new_pairing_code,
             commands::pairing::pair_with_code,
             commands::pairing::unpair,
